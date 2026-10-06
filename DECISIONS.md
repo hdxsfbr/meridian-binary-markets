@@ -51,66 +51,88 @@ comes free, the chain is what the partner asked for, and PEAK6 Labs builds in th
 their recommended chain is directly legible to the reviewer. Choosing an L2 would have meant
 spending part of the submission justifying a choice the brief already discouraged.
 
-## 4. Oracle: RedStone as the on-chain price source, behind a guarded adapter
+## 4. Oracle: Pyth behind a provider interface — mocked today, real when the Pyth Pro token arrives
 
-**Date:** 2026-10-05, settled 2026-10-06
+**Date:** 2026-10-06 (supersedes the RedStone position of 2026-10-05, kept below as history)
 **Evidence:** [`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md) — all
 quantitative claims there are reproducible from the recorded calls.
 **Context:** The brief requires an oracle that supplies the previous day's close (for the morning
 strike ladder) and the day's close at 4:00 PM ET (for settlement), is readable on-chain during the
 settlement transaction, and supports both a **staleness check** and a **confidence/quality check**.
-The choice must be justified.
+The choice must be justified. Stock prices are licensed data: during 2026 Pyth moved US equities onto
+paid plans, Switchboard ceased operations, and RedStone is the only network still serving MAG7 feeds
+free on Solana devnet. Two days of research on that landscape is in the spike.
 
 **Decision — two parts, and the first matters more than the second.**
 
-**(a) The oracle sits behind an adapter interface:** *return a price with a publish timestamp and a
+**(a) The oracle sits behind a provider interface:** *return a price with a publish timestamp and a
 confidence measure, or refuse.* The program applies four guards to whatever comes back — staleness
-under 5 minutes, confidence/quality, publisher attestation, and fail-closed on any failure. This is
-the load-bearing decision. It has survived three changes of price source without the spec or the
-architecture moving, and Constitution Principle IV deliberately names no vendor for that reason.
+under 5 minutes, confidence/quality, publisher attestation, and fail-closed on any failure. Config
+names the active provider and its program ID; switching provider is an admin config change plus a
+service restart, never a program rewrite. This is the load-bearing decision. It has now survived four
+changes of price source without the spec or the architecture moving, and Constitution Principle IV
+deliberately names no vendor for that reason.
 
-**(b) The source is RedStone**, with a self-attested publisher as the tested fallback.
+**(b) The target source is Pyth, and we build against a Pyth-shaped mock until the token arrives.**
 
-| Role | Implementation |
-|---|---|
-| Primary | **RedStone** pull oracle — devnet `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA` |
-| Fallback | Our own signed publisher, reading a free stock API (Finnhub primary, Nasdaq cross-check) |
+| Provider | Role | Status |
+|---|---|---|
+| `PythReceiver` | Target. Reads a `PriceUpdateV2` account posted to Pyth's devnet receiver program from a Hermes update | Blocked only on a Pyth Pro token for equity feeds. Pyth grants equity access to Gauntlet participants on request via its developer forum: a peer was approved within ~3 hours on 2026-10-06, and Andre's request is pending. Treated as arriving |
+| `MockPyth` | Development and demo provider. Our automation service posts an account with the **same fields** (`feed_id`, `price`, `conf`, `expo`, `publish_time`), signed by an allowlisted publisher key, from a free stock API | Built first. Devnet-only by config; refused on any other cluster |
+| `RedStone` / other | Plug-in if Pyth Pro falls through | Not built. The spike's RedStone findings stay valid and are the next candidate |
 
-Verified rather than assumed: the devnet program is executable and **actively fed** (accounts written
-3.2 h ago, against Pyth's legacy feeds at ~2.4 years); all seven MAG7 are in the live 996-feed
-production package with regular-session, 24/7, extended and pre/after variants; and each feed carries
-**five independently signed values** — AAPL spread 0.0016%, MSFT 0.024% — all signatures valid, 22 s
-old, served unauthenticated.
+**Why Pyth, given yesterday's rejection.** The rejection was on *cost*, not capability, and the cost
+may be covered by a token we do not pay for. With that removed, Pyth is the better engineering choice:
+`pyth-solana-receiver-sdk` is published on crates.io and current (v2.0.0); the receiver program is
+permissionless on devnet, so our service posts the Hermes update itself; the price account natively
+carries a **confidence interval**, so the confidence guard reads a publisher-supplied value instead of
+the cross-source comparison RedStone forced; and the brief's own author named Pyth. RedStone's SDK is
+an unpublished, zero-star git dependency, its devnet program ID did not match its source, and its
+on-chain account stores only a median (see history below). RedStone was the right answer to "free and
+live today"; it is the wrong amount of integration risk if Pyth becomes available.
 
-**Why RedStone beats the alternatives.** Pyth is unusable: its legacy devnet feeds are years dead and
-MAG7 equities are now a **$5,000/month** product, with the free tier granting no API access at all.
-Stork returns HTTP 401 with undocumented pricing. **Switchboard ceased all operations on 2026-09-25**
-— its devnet program is still `executable`, which is exactly why "deployed" was never accepted as
-evidence here. RedStone is the only candidate that is free, live on devnet, and carries the feeds.
+**Why a mock, and why it is not a cheat.** The mock is the fallback publisher Principle IV requires
+anyway, wearing Pyth's account layout. The program reads mock and real accounts through the same
+provider interface and applies the same four guards; tests for stale, wide-confidence and unattested
+prices run against the mock and are unchanged when the real provider lands. What the mock cannot prove
+is that the *real* receiver layout parses and that a *real* equity update passes the guards; that is a
+single integration task, done the day the token arrives, and it is listed as such in the risks note.
+The mock MUST NOT be enabled outside devnet, and the product UI never describes it (per the global
+rule on implementation commentary; the oracle status view names the active provider as a diagnostic).
 
-And it is *better*, not merely cheaper: five signed opinions with a configurable on-chain unique-signer
-threshold is a **cryptographically attested** confidence measure. Pyth supplies one pre-computed
-interval; a self-run publisher supplies nothing honest at all, which is why Principle IV forbids
-hardcoding one. RedStone means we are not our own oracle.
+**Trade-off.** Until the token arrives, the demo settles on a price our own service signed. Disclosed
+in the risks note, as Principle IV demands of any trust model weaker than a production network. If no
+token arrives by implementation's end, the fallback plan is RedStone behind the same interface, and
+the mock remains the tested fallback either way.
 
-**Integration cost, verified 2026-10-06.** There is **no RedStone SDK on crates.io** — only a stale
-2022 `redstone-rust-sdk`. Maintained Rust does exist at `redstone-finance/rust-sdk` (pushed 2026-09-01,
-`redstone` crate, references the monorepo's `solana-connector`), so integration means a **git dependency
-on an unpublished, zero-star crate** rather than `cargo add`. Note the irony: the vendor we rejected
-ships the better-published SDK (`pyth-solana-receiver-sdk` v2.0.0, current). Not a reason to reverse —
-the alternative is $5,000/month — but the RedStone adapter is the riskiest task in the build and the
-fallback adapter is what de-risks it.
+**What the plan must settle.** Which Pyth feed ID carries the regular-session close for each ticker
+(Pyth publishes separate equity feeds; the spike's AAPL readings showed the base feed differing from the
+official 4:00 PM print); the receiver program ID and account layout on devnet, confirmed by RPC not
+docs; and the Hermes endpoint and auth header shape for Pyth Pro, so the swap is a config change.
 
-**Trade-off.** RedStone adds an external dependency and secp256k1 signature verification inside the
-settlement path — compute budget and integration work a self-run publisher would avoid. Accepted,
-because "we are our own oracle" was the weakest claim in the design and the one a reviewer would press
-hardest on. The fallback keeps the self-attested path built and tested, which Principle IV requires
-anyway, so the dependency is not load-bearing.
+---
 
-**Note, not a blocker.** RedStone's docs mention an API key for the pull model, while the gateway
-serves data without one. Free registration requested 2026-10-06 (four-question form, no payment step),
-response pending. Nothing depends on it: the gateway works today and the fallback adapter covers
-RedStone failing entirely.
+**History — RedStone position, 2026-10-05, superseded the next day.** Kept because the evidence is
+real and RedStone is the named plug-in if Pyth falls through.
+
+RedStone's devnet program `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA` was verified executable and
+actively fed; all seven MAG7 exist in its 996-feed production package with regular-session, 24/7,
+extended and pre/after variants; each feed carried five independently signed values (AAPL spread
+0.0016%), served unauthenticated. The design was RedStone primary with a self-signed publisher as the
+tested fallback, confidence being the divergence between the two reads.
+
+Facts from reading the adapter source that any future RedStone integration must start from:
+`write_price` runs `process_payload`, which enforces the signer threshold and stores only the
+**median**, one timestamp and decimals — per-signer spread is never on chain, so confidence must come
+from a second source; `write_price` is callable by any paying signer, so our service can create the
+feed accounts itself; the source declares program ID `rds8J7…` while devnet carries `REDu…`, so the
+live build must be confirmed before depending on its layout; there is **no RedStone SDK on crates.io**
+(`redstone-finance/rust-sdk` is a git dependency, pushed 2026-09-01, zero stars). RedStone free
+registration was requested 2026-10-05; the gateway served data without a key.
+
+Other candidates, for the record: Stork returns HTTP 401 with undocumented pricing; Switchboard ceased
+operations 2026-09-25 and its devnet program is still `executable`, which is why "deployed" is never
+accepted as evidence here; Chainlink carries no equity feeds on Solana devnet.
 
 ## 5. Full lifecycle plus polish, rather than a thin correctness slice
 
@@ -162,7 +184,10 @@ understanding; it keeps the system self-contained and devnet-reproducible; it re
 dependency, a CPI surface and a permissioning service; and because same-day expiry lets us **close
 books at settlement and reclaim the rent**, something Phoenix's lifecycle does not offer. A compact
 book at 128 orders/side costs ~3.8 SOL/day *recycled nightly*, against Phoenix's 19–53 SOL/day
-consumed permanently.
+consumed permanently. Note the same faucet ceiling binds us on a reviewer's first day: 3.8 SOL is
+above a single ~2 SOL airdrop, so the lifecycle scripts MUST support a demo-scale configuration (fewer
+tickers or strikes, or 64 orders/side at ~1.9 SOL) that runs on one faucet grant, with the full
+7-ticker ladder as the production default. Recorded here so the plan does not rediscover it.
 
 **Consequence for the spec:** none. `specs/001-binary-outcome-markets/spec.md` deliberately states
 the order book requirements (FR-009…FR-014) as *behaviour* — price-time priority, atomicity of the
@@ -172,7 +197,7 @@ decision.
 
 ## 7. Docker as the toolchain, not a host install
 
-**Date:** 2026-10-06
+**Date:** 2026-10-05
 **Context:** Anchor builds depend on a version triple (anchor × solana-cli × rustc) that fails with
 unhelpful errors when mismatched. This was demonstrated rather than theorised: a host install reported
 `solana-cli 4.3.0`, then `4.1.2` once Anchor's `avm` was on `PATH`. Separately, two graded deliverables
@@ -180,7 +205,7 @@ are a **deployment guide with reproducible devnet scripts** and a lifecycle a re
 manual steps**.
 **Decision:** The canonical build and deploy environment is a **pinned Dockerfile / devcontainer**, and
 it is a first-class deliverable rather than developer convenience. The host toolchain installed on
-2026-10-06 was removed again (~870 MB) to keep the container the single source of truth. Host-level
+2026-10-05 was removed again (~870 MB) to keep the container the single source of truth. Host-level
 `rustup`/`cargo` and Node remain for editor tooling.
 **Trade-off:** Costs a few hours that produce no user-visible functionality, and a reviewer who hits a
 Docker problem is worse off than one following a clear README — so the image MUST be verified working

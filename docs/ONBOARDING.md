@@ -349,7 +349,8 @@ twenty-five times what we can actually obtain, every day, before a single trade 
 reviewer-reproducible demo impossible.
 
 Because our contracts are 0DTE (§1.1), we can close each day's accounts after settlement and recover
-the rent. Phoenix's lifecycle does not offer that.
+the rent. Phoenix's lifecycle does not offer that. (The faucet still binds us on day one — 3.8 SOL is
+more than one airdrop — so the scripts ship a smaller demo configuration that fits a single grant.)
 
 Phoenix also gates resting orders behind an approved **seat** — a per-trader, per-market permission
 granted by the market authority. With 45 markets a day that is a permissioning service we would have
@@ -371,50 +372,47 @@ Whatever the source, the thing it posts on chain must carry three pieces of info
   number should not be trusted;
 - a **publish timestamp** — how fresh the number is.
 
-### Which oracle we use: RedStone
+### Which oracle we use: Pyth, through a provider interface
 
-We use **RedStone**, a pull-based oracle network. "Pull" means the price is not sitting on chain
-waiting — our service fetches a freshly signed price from RedStone's gateway and posts it on chain as
-part of the settlement flow. The program then reads that account under the guards below.
+The program never talks to a vendor directly. It reads a **provider**: anything that can hand back a
+price, a confidence interval and a publish timestamp, or refuse. Config names which provider is active.
+The guards below are applied to whatever the provider returns, so changing vendor changes a config
+value, not the program.
 
-The useful detail: **every RedStone feed comes with five independent signatures.** Five separate oracle
-nodes each report a price and sign it. For AAPL on a normal day those five values agree to within about
-0.002%.
+The target provider is **Pyth**, the standard oracle on Solana. Pyth is "pull" based: its publishers
+sign price updates off chain, our service fetches one from Pyth's Hermes API and posts it to Pyth's
+receiver program on devnet, and our settle instruction reads the resulting account. The account
+carries the price, an **exponent**, a **confidence interval** supplied by Pyth's aggregation, and the
+publish time. That confidence interval is exactly what the second guard needs.
 
-### Why five signers matter — the confidence guard
+### The mock, and why it is not cheating
 
-Look at the second guard below: *confidence*. Where does that number come from? This is where a lot of
-naive oracle designs quietly fail. If you invent a confidence value — hardcode "always confident" — you
-have built something worse than no guard at all: it looks like it works and silently never fires.
+Pyth put US equity feeds behind a paid plan in 2026. Pyth grants access to Gauntlet participants who ask
+on its developer forum, and our request is in, but we are not waiting for it. Until then the active provider is **`MockPyth`**:
+our automation service reads the close from a free stock API (Finnhub, cross-checked against Nasdaq),
+signs it with an allowlisted publisher key, and posts an account with the **same fields** Pyth's would
+have. The program reads it through the same interface and applies the same guards.
 
-Five independently signed values solve it honestly, because **their disagreement *is* the
-uncertainty.** If all five say META closed at $741.98, confidence is tight and we settle. If one says
-$741.98 and another $700.00, something is wrong — bad feed, stale cache, an unhandled corporate action
-— and the guard trips, so we refuse to settle rather than pay the wrong side. We also require a minimum
-number of distinct signers on chain, which is the attestation guard.
+This is also the **tested fallback** Principle IV requires, so it is not throwaway. What it cannot
+prove is that the real Pyth account parses and that a real equity update passes the guards; that is
+one integration task on the day the token arrives. Two rules: the mock is refused on any cluster but
+devnet, and the product UI never mentions it. The oracle status page names the active provider,
+because that is a diagnostic the operator needs; the trading screens do not.
 
-That number is *cryptographically attested* — each value carries a signature we verify — rather than
-something we assembled and asked you to trust.
+### Why the source has changed three times, and the lesson in it
 
-### Why not Pyth, and the lesson in it
+Pyth was the obvious choice and we planned on it. The spike found its older devnet feeds last updated
+**2.4 to 3.5 years ago**, and that during 2026 it moved US equity data onto plans starting at
+**$5,000/month**. We then verified RedStone, the one network still serving MAG7 free on devnet, and
+chose it for a day. Reading its on-chain program showed real integration cost: an unpublished SDK, a
+program ID that did not match its source, and an account that stores only a median. When a Pyth token
+became plausible, Pyth's published SDK and native confidence interval won.
 
-Pyth is the obvious choice on Solana and we planned on it. Two things ruled it out: its older devnet
-feeds were last updated **2.4 to 3.5 years ago**, and during 2026 it moved US equity data onto paid
-plans starting at **$5,000/month**, with the free tier granting no API access at all.
-
-That second point is worth sitting with, because you will meet this class of problem repeatedly:
-**the blocker was commercial, not technical.** Nothing was broken. The capability existed and worked
-fine. It simply had a price tag, and no amount of engineering would have changed that. Spotting this
-kind of obstacle early saves days — and it is only ever found by reading changelogs and pricing pages,
-never by debugging.
-
-### The fallback
-
-Principle IV requires a *tested* fallback, so we also run our own signed publisher: the automation
-service reads the close from a free stock API (Finnhub, cross-checked against Nasdaq), signs it, and
-posts it. It is weaker than RedStone by design — we would be trusting ourselves — so it is the backup,
-not the primary, and the program holds an **allowlist** of publisher keys so no other signer can settle
-a market.
+The lesson: **the blocker was commercial, not technical.** Nothing was broken. The capability existed
+and had a price tag, and no amount of engineering changes that. It is found by reading changelogs and
+pricing pages, never by debugging. And because the provider interface was the first decision, three
+changes of vendor moved no spec and no guard. If Pyth falls through, RedStone plugs into the same
+interface; the findings are in the spike.
 
 ### Being honest about the limitations
 
@@ -424,10 +422,10 @@ Two, both written into the project's risks note rather than left for a reviewer 
   product. What we settle on is a consolidated price that agrees with the official close to a few
   hundredths of a percent — fine for devnet with no real money, and not something our documentation
   should overstate.
-- **RedStone's gateway currently serves us without an API key, and their docs say a key is required.**
-  Policy and reality disagree today. If they start enforcing it, the primary path stops and the
-  fallback takes over — which is exactly why Principle IV insists the fallback be *tested* rather than
-  aspirational.
+- **Until the Pyth Pro token arrives, the demo settles on a price our own service signed.** The
+  guards are real and tested, but the trust model is one publisher we control. The risks note says so,
+  and names Pyth as the production path — which is exactly why Principle IV insists the fallback be
+  *tested* rather than aspirational.
 
 Full workings: [`spikes/2026-10-05-pyth-devnet.md`](spikes/2026-10-05-pyth-devnet.md). Settled position:
 [`../DECISIONS.md`](../DECISIONS.md) §4.
@@ -538,16 +536,21 @@ one is a bug by definition, not a trade-off to discuss.
    a double payout.
 7. **Never mainnet, never real funds.**
 8. **One approval for Buy No market orders.**
-9. **No persistent simultaneous Yes and No** in the same contract via the trading UI.
+9. **No persistent simultaneous Yes and No** in the same contract via the trading UI. (Market makers
+   who mint inventory hold both on purpose; the rule is about the four trade buttons.)
+10. **Settle only after the close; override only after a delay.** The admin can settle with a manual
+    price if the oracle fails, but not until at least an hour after the close, and the result is
+    marked as an override.
+11. **A pause never traps funds.** Pausing stops minting and trading; redemption keeps working.
 
 ## 3.4 Where things live
 
 | Path | What it is |
 |---|---|
-| [`PRD.md`](PRD.md) | Requirements FR-1…FR-10. **Start here** — the authoritative statement of what we're building |
+| [`PRD.md`](PRD.md) | Requirements FR-1…FR-12. **Start here** — the authoritative statement of what we're building |
 | [`Gauntlet-Project-Meridian.pdf`](Gauntlet-Project-Meridian.pdf) | The partner's original brief |
 | [`../.specify/memory/constitution.md`](../.specify/memory/constitution.md) | Engineering principles — the rules above, with rationale |
-| [`../specs/001-binary-outcome-markets/spec.md`](../specs/001-binary-outcome-markets/spec.md) | Feature spec: user stories, edge cases, 30 testable requirements |
+| [`../specs/001-binary-outcome-markets/spec.md`](../specs/001-binary-outcome-markets/spec.md) | Feature spec: user stories, edge cases, 36 testable requirements |
 | [`../DECISIONS.md`](../DECISIONS.md) | Why things are the way they are. Read before proposing a change |
 | [`spikes/`](spikes/) | Investigations behind specific decisions |
 | [`../AI_USAGE.md`](../AI_USAGE.md) | AI usage log (a graded deliverable) |
@@ -613,7 +616,7 @@ immediate order. · **USDC** — the dollar stablecoin we settle in; 6 decimals.
 3. Skim [`../specs/001-binary-outcome-markets/spec.md`](../specs/001-binary-outcome-markets/spec.md),
    especially the Edge Cases section — it is the clearest statement of what "correct" means here.
 4. Read [`../DECISIONS.md`](../DECISIONS.md) so you don't reopen a settled question.
-5. Ask about anything in §3.3 that doesn't yet feel obviously right. Those nine rules are load
+5. Ask about anything in §3.3 that doesn't yet feel obviously right. Those eleven rules are load
    bearing, and understanding *why* each exists matters more than memorizing them.
 
 Setup instructions land in the README as the project takes shape.

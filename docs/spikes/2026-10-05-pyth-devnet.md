@@ -13,6 +13,12 @@ resolution is **RedStone** (Finding 6): free, live on Solana devnet, carries all
 supplies five independently signed values per feed, which is a stronger confidence measure than Pyth's
 single interval. Decision recorded in `DECISIONS.md` §4.
 
+> **Update, 2026-10-06.** A Pyth Pro token may be available through a contact. `DECISIONS.md` §4 now
+> targets Pyth behind the provider interface, with a Pyth-shaped mock until the token arrives, and
+> keeps RedStone as the plug-in if it does not. Findings 1–6 below are unchanged and remain the evidence
+> for both paths. Note that "five signed values" (Finding 6) is true at the gateway only; on chain
+> RedStone stores a median — see §4's history paragraph.
+
 > **Reading note.** This document is the evidence trail, kept in the order the findings arrived,
 > including two of my own wrong conclusions along the way (Finding 3's framing, corrected by Finding 5;
 > and an earlier recommendation of Switchboard, killed by Finding 6). That is deliberate — the spike is
@@ -138,7 +144,7 @@ different and much shorter conversation, and the only one worth having.
 
 ## Candidate replacement sources, probed
 
-Probed empirically on 2026-10-06, not recalled. Verdicts turn on one constraint that is easy to miss:
+Probed empirically on 2026-10-05, not recalled. Verdicts turn on one constraint that is easy to miss:
 **the two reads have very different latency requirements**, and most free tiers can only serve one of
 them.
 
@@ -235,6 +241,11 @@ repeated the exact mistake this spike exists to document.
   disagreement across signers satisfies the honest-confidence rule with a *cryptographically attested*
   number rather than a cross-check we assemble ourselves.
 
+  > **Corrected in review, 2026-10-05.** The per-signer values are visible at the gateway, not on
+  > chain. RedStone's Solana adapter stores only the median and timestamp per feed, so the program
+  > cannot compute signer spread. The signer threshold remains the attestation guard; confidence on
+  > chain is RedStone versus the fallback publisher. See `DECISIONS.md` §4.
+
 ### The one unresolved risk, stated before it bites
 
 **RedStone's documentation says the pull model requires an API key** obtained by filling in a form,
@@ -252,7 +263,11 @@ That is the Pyth trap's exact silhouette, so it gets resolved *before* commitmen
 **Required before this becomes the primary:** obtain the key, confirm it is free, and confirm equity
 feeds are included. One form, and the answer either promotes RedStone or returns us to the design below.
 
-## Decision
+## Interim decision — SUPERSEDED by Finding 6 and `DECISIONS.md` §4
+
+Kept as written for the record. The adapter interface survived; the source assignment did not —
+RedStone is primary, the self-signed Finnhub/Nasdaq publisher is the fallback, and the Pyth adapter
+is not built.
 
 An **oracle adapter interface** — *return a price with a publish timestamp and a confidence measure,
 or refuse* — with three implementations, only two of which we can exercise:
@@ -306,7 +321,9 @@ attestation as a third guard alongside staleness and confidence. One clause adde
 requirement, against a changed oracle vendor, a changed trust model and a new on-chain publisher —
 that ratio is the whole return on stating requirements as behaviour rather than mechanism.
 
-## Risks introduced, and how they are handled
+## Risks of the interim decision — mostly retired by RedStone
+
+Retained for the record. The first two apply only to the fallback path now; the last two still hold.
 
 - **We are now our own oracle on devnet, which is a weaker trust model than a real oracle network.**
   Handled by disclosure, not by pretending otherwise: this goes in the risks and limitations note as

@@ -57,12 +57,11 @@ book operation.
   see `DECISIONS.md` §3 for why Solana.)
 - Frontend in TypeScript, React and Next.js
 - Node.js automation service for market creation and settlement
-- **RedStone** pull oracle for prices, behind a guarded adapter interface — staleness, confidence and
-  publisher-attestation checks, failing closed. Each feed carries five independently signed values, so
-  the confidence measure is cryptographically attested rather than assembled by us. A self-signed
-  publisher reading free stock APIs is the tested fallback. Pyth was evaluated and rejected: MAG7
-  equity feeds are a $5,000/month product. Total data cost $0. See `DECISIONS.md` §4 and
-  `docs/spikes/2026-10-05-pyth-devnet.md`.
+- **Pyth** price oracle behind a guarded provider interface — staleness, confidence and
+  publisher-attestation checks, failing closed. Pyth's equity feeds require a Pyth Pro token we are
+  arranging; until it arrives the service runs a Pyth-shaped mock provider that posts a signed price
+  from a free stock API through the same interface and guards. The provider is a config switch.
+  See `DECISIONS.md` §4 and `docs/spikes/2026-10-05-pyth-devnet.md`.
 - USDC integration (devnet test mint)
 - Secrets via environment variables (`.env.example` committed)
 
@@ -71,7 +70,7 @@ book operation.
 | Document | Purpose |
 | --- | --- |
 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
-| [`docs/PRD.md`](docs/PRD.md) | Requirements FR-1…FR-10, merged from the portal brief and the partner PDF |
+| [`docs/PRD.md`](docs/PRD.md) | Requirements FR-1…FR-12, merged from the portal brief and the partner PDF |
 | [`docs/Gauntlet-Project-Meridian.pdf`](docs/Gauntlet-Project-Meridian.pdf) | The partner's original brief |
 | [`docs/spikes/`](docs/spikes/) | Investigations behind specific decisions |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Engineering principles governing the project |
@@ -95,7 +94,7 @@ Commits reference the requirement they advance, e.g. `FR-5: oracle settlement wi
 - Source code
 - Technical documentation (including a risks/limitations note, with no regulatory or compliance
   claims)
-- Deployment guide with reproducible devnet scripts
+- Deployment guide with reproducible devnet scripts and one-command setup
 - Test results (unit, integration, frontend and invariant tests)
 - Demo video
 - AI usage log

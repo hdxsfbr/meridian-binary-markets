@@ -43,14 +43,19 @@
 - *No clarification markers*: zero `[NEEDS CLARIFICATION]` markers. The one genuinely open
   question — how the order book is realised — is an **implementation** decision rather than a
   requirements ambiguity, so it is recorded in Assumptions as a deferred decision and the
-  requirements (FR-009…FR-014) are written as behaviour. It will be resolved by a time-boxed spike
-  and logged in `DECISIONS.md` before planning completes, per the constitution's Stack & Scope
-  Constraints.
-- *Testable requirements*: all 30 functional requirements use MUST/MUST NOT and name an observable
+  requirements (FR-009…FR-014) are written as behaviour. Resolved by spike the same day
+  (`DECISIONS.md` §6).
+- *Second pass, 2026-10-05 (review before planning)*: the PRD had omitted the partner PDF's
+  "Smart Contract Functions", "Invariants", "Automation Service" and "Testing Requirements"
+  sections. Admin override with time delay, pause/unpause, settle-after-close, the retry window,
+  supply-only-via-mint/redeem and outcome immutability were added as FR-031…FR-036 with scenarios
+  and edge cases. FR-015 was rescoped to the trading interface because a market maker legitimately
+  holds both tokens (FR-028). Requirement count is now 36.
+- *Testable requirements*: all 36 functional requirements use MUST/MUST NOT and name an observable
   outcome. Each carries its originating PRD requirement in brackets for traceability.
 - *Measurable, technology-agnostic success criteria*: SC-001…SC-010 are stated as percentages,
   counts, or wall-clock bounds drawn from the partner's own impact metrics, with no framework or
   protocol named.
-- *Edge cases*: eleven cases captured, including the at-the-strike tie, strike-ladder
+- *Edge cases*: fourteen cases captured, including the at-the-strike tie, strike-ladder
   deduplication, stale and low-confidence prices, repeated settlement, partial fill of the Buy No
   Yes leg, and a market with zero liquidity at close.

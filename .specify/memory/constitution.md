@@ -1,6 +1,15 @@
 <!--
 Sync Impact Report
-- Version change: 1.1.0 → 1.2.0 (MINOR: Principle IV materially expanded — oracle guidance
+- Version change: 1.3.0 → 1.4.0 (MINOR, 2026-10-06: Stack & Scope oracle entry re-decided —
+  Pyth is the target source behind the Principle IV provider interface, a Pyth-shaped mock is the
+  development and fallback provider until a Pyth Pro token arrives; RedStone becomes the named
+  plug-in if Pyth falls through. Principles unchanged.)
+- Prior version change: 1.2.0 → 1.3.0 (MINOR, 2026-10-05 pre-plan review: Principle III gains the
+  pause rule and scopes the position constraint to the trading UI; Principle IV gains the operator
+  override rule and an observability requirement on the confidence measure; the Stack & Scope
+  oracle entry corrects the confidence mechanism — RedStone's on-chain adapter stores an aggregated
+  median, so confidence is cross-source divergence, not per-signer spread; PRD range FR-1…FR-12)
+- Prior version change: 1.1.0 → 1.2.0 (MINOR: Principle IV materially expanded — oracle guidance
   generalized from a named vendor to an adapter contract, adding a publisher allowlist, a
   two-implementation requirement, an honest-confidence rule and a trust-model disclosure rule;
   Stack & Scope Constraints gain the resolved oracle entry)
@@ -24,7 +33,7 @@ Sync Impact Report
 Gauntlet partner project for Peak6: a non-custodial Solana dApp for trading binary outcome
 contracts on the daily closing prices of the MAG7 US equities. Each contract asks whether a stock
 closes at or above a strike; Yes and No tokens settle at $1.00 USDC and $0.00. See `docs/PRD.md`
-for requirements (FR-1…FR-10) and the authoritative lifecycle, `docs/Gauntlet-Project-Meridian.pdf`
+for requirements (FR-1…FR-12) and the authoritative lifecycle, `docs/Gauntlet-Project-Meridian.pdf`
 for the partner's original brief, and `DECISIONS.md` for the decision log.
 
 ## Core Principles
@@ -74,9 +83,13 @@ change is a user-signed transaction.
 - A Buy No market order MUST be one atomic transaction and one wallet approval (mint pair, sell
   Yes at best bid, keep No). Partial execution that leaves the user holding an unintended position
   is a defect.
-- The UI MUST prevent persistent simultaneous Yes and No positions in the same strike. Holding
-  both is legitimate only as a transient state inside the mint-pair operation; the UI checks
-  balances before offering trades and guides the user to exit the opposing position first.
+- The trading UI MUST prevent persistent simultaneous Yes and No positions in the same strike
+  arising from the four trade actions; it checks balances before offering trades and guides the
+  user to exit the opposing position first. This is a UI constraint, not a protocol rule: a
+  liquidity provider minting inventory to quote holds both by design, and the program never
+  refuses pair ownership.
+- An operator MUST be able to pause minting and trading in an emergency. A pause MUST never block
+  redemption: user funds are never trapped by an operator action.
 
 Rationale: the one-book abstraction is the central architectural idea in the brief, and the
 partner calls it out as such. Getting it right is the difference between implementing the spec and
@@ -99,7 +112,13 @@ amending this constitution.
   documented and tested — not an untested escape hatch.
 - The confidence measure MUST be derived from something real (publisher-supplied interval,
   disagreement between independent sources, or a published bid/ask band). Hardcoding a
-  confident-looking constant is forbidden: it defeats the guard it exists to feed.
+  confident-looking constant is forbidden: it defeats the guard it exists to feed. A measure that
+  the on-chain program cannot actually observe does not count: if a source delivers only an
+  aggregated value on chain, confidence MUST come from comparing it against an independent source,
+  not from signer agreement the program never sees.
+- The only path around a tripped guard is an **operator override**: admin-only, available only
+  after an enforced delay past the close (at least one hour), only on an unsettled contract, and
+  recorded as an override. The override MUST be tested, including the delay.
 - Any adapter whose trust model is weaker than a production oracle network MUST be disclosed in the
   risks and limitations note, naming the stronger production path.
 - Settlement MUST be idempotent and replay-safe: a contract settles exactly once, and a repeated
@@ -107,8 +126,9 @@ amending this constitution.
 
 Rationale: the oracle is the only place real-world truth enters the system, and the only place where
 a silent failure converts directly into paying the wrong side. Naming a vendor here was a mistake
-corrected on 2026-10-05, when Pyth proved unusable on devnet (`docs/spikes/2026-10-05-pyth-devnet.md`)
-— the guards were right and survived unchanged; only the sentence naming the source had to move.
+corrected on 2026-10-05, when the price source changed twice in two days
+(`docs/spikes/2026-10-05-pyth-devnet.md`) — the guards were right and survived unchanged; only the
+sentence naming the source had to move.
 
 ### V. The Daily Lifecycle Is The Product
 
@@ -174,13 +194,16 @@ trading UI, a portfolio view with realized P&L, and a market-maker dashboard.
 - Matching MUST be bounded work per transaction. Where a crossing order would exceed the compute
   budget, it MUST fill up to a documented limit and leave a well-defined remainder rather than
   fail unpredictably.
-- **Oracle source — RESOLVED 2026-10-06.** Behind the Principle IV interface: **RedStone**'s pull
-  oracle as primary (Solana devnet `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA`), and a
-  **self-signed publisher** reading free stock APIs as the tested fallback. Confidence MUST be derived
-  from the disagreement across RedStone's five independent signers, and the on-chain unique-signer
-  threshold is the attestation guard. Pyth was rejected on cost — MAG7 equities are $5,000/month, free
-  tier grants no API access; Stork returns HTTP 401; Switchboard ceased operations 2026-09-25. See
-  `DECISIONS.md` §4 and `docs/spikes/2026-10-05-pyth-devnet.md`.
+- **Oracle source — RE-DECIDED 2026-10-06.** Behind the Principle IV interface: **Pyth** is the
+  target provider, read as a `PriceUpdateV2` account posted to Pyth's devnet receiver program, whose
+  publisher-supplied confidence interval feeds the confidence guard directly. Equity feeds need a
+  **Pyth Pro token** we do not yet hold, so development and demo run on a **`MockPyth` provider**:
+  our automation service posts an account with the same fields, signed by an allowlisted publisher
+  key, from a free stock API. The mock is the tested fallback Principle IV requires, MUST be refused
+  on any cluster but devnet, and MUST pass the same four guards and the same tests as the real
+  provider. Switching provider is a config change, not a program change. If no token arrives,
+  **RedStone** (free, live on devnet, verified 2026-10-05) is the named plug-in behind the same
+  interface. See `DECISIONS.md` §4 and `docs/spikes/2026-10-05-pyth-devnet.md`.
 
 ## Development Workflow
 
@@ -201,4 +224,4 @@ implementation starts and again before submission, verify the $1.00 invariant te
 guarded-oracle behaviour is tested including the fallback, the devnet lifecycle is reproducible
 from scripts, and the decision and AI usage logs are current.
 
-**Version**: 1.2.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05
+**Version**: 1.4.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-06

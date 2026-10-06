@@ -4,9 +4,9 @@
 
 **Created**: 2026-10-05
 
-**Status**: Draft
+**Status**: Ready for planning (revised 2026-10-05 to add FR-031…FR-036 from the partner PDF and scope FR-015)
 
-**Input**: Build the full product described in `docs/PRD.md` (FR-1…FR-10) — automated daily binary
+**Input**: Build the full product described in `docs/PRD.md` (FR-1…FR-12) — automated daily binary
 outcome markets on the MAG7 equities, with pair minting, a central limit order book, guarded
 oracle settlement, and redemption.
 
@@ -212,6 +212,14 @@ rest of the day's contracts.
 2. **Given** a strike added mid-session, **When** settlement runs, **Then** it settles on the same
    rule and schedule as the morning ladder.
 3. **Given** a non-operator, **When** they attempt to add a strike, **Then** the attempt is refused.
+4. **Given** a contract still unsettled because the price source failed its guards for the whole
+   retry window, **When** the operator supplies a manual price less than one hour after the close,
+   **Then** the attempt is refused; **When** they supply it after the delay, **Then** the contract
+   settles on that price, the outcome is marked as an override, and it is immutable thereafter.
+5. **Given** an emergency, **When** the operator pauses, **Then** minting and new orders are refused
+   while redemption still works; **When** they unpause, **Then** trading resumes.
+6. **Given** a non-operator, **When** they attempt to pause, unpause, or override-settle, **Then**
+   the attempt is refused.
 
 ---
 
@@ -238,6 +246,11 @@ rest of the day's contracts.
   without blocking the other six.
 - **Trader never redeems** — tokens stay redeemable indefinitely; there is no expiry that forfeits
   a winning position.
+- **Settlement attempted before the close** — refused; the outcome is not yet knowable.
+- **Price source down for the whole retry window** — the contract stays unsettled and the operator
+  is alerted; the manual override is unavailable until the enforced delay has elapsed.
+- **Pause during the trading day** — no new mints or orders, but settled winners and pair holders can
+  still redeem. A pause never traps funds.
 
 ## Requirements *(mandatory)*
 
@@ -282,9 +295,12 @@ rest of the day's contracts.
   [PRD FR-4]
 - **FR-014**: A Buy No limit order MUST leave the user holding both tokens until the Yes leg fills,
   and the interface MUST represent that transient state truthfully. [PRD FR-4]
-- **FR-015**: System MUST prevent a user from establishing a persistent holding of both Yes and No
-  for the same contract, and MUST direct them to close the opposing position first. Holding both is
-  permitted only transiently as part of minting or an unfilled Buy No limit order. [PRD FR-8]
+- **FR-015**: The trading interface MUST prevent a user from establishing a persistent holding of
+  both Yes and No for the same contract through the four trade actions, and MUST direct them to
+  close the opposing position first. Holding both is expected transiently during minting and an
+  unfilled Buy No limit order, and is legitimate indefinitely for a liquidity provider who mints
+  inventory to quote (FR-028). This is a trading-interface constraint, not a protocol rule: the
+  program MUST NOT refuse pair ownership, because minting requires it. [PRD FR-8]
 - **FR-016**: System MUST display the implied price of the opposite side, derived from the one
   dollar relationship. [PRD §3.1]
 
@@ -308,6 +324,22 @@ rest of the day's contracts.
 - **FR-024**: System MUST refuse redemption of a single token before the contract has settled.
 - **FR-025**: System MUST display the settlement price and the winning side for every resolved
   contract. [PRD FR-5]
+- **FR-031**: System MUST refuse to settle a contract before the market close time for its trading
+  day. [PRD FR-5, §5.1]
+- **FR-032**: When settlement is refused because the price fails its guards, the automation MUST
+  retry at a fixed interval for a bounded window (every 30 seconds for up to 15 minutes), then alert
+  the operator rather than continuing silently. [PRD FR-5, §5.3]
+- **FR-033**: An operator MUST be able to settle a contract with a manually supplied price only
+  after an enforced delay following the market close (at least one hour), only when the contract is
+  unsettled, and only as the configured admin authority. The resulting outcome MUST be recorded as
+  an override and is immutable like any other. Non-operators MUST NOT be able to call it, and no
+  caller MUST be able to call it before the delay elapses. [PRD FR-11]
+- **FR-034**: An operator MUST be able to pause and resume minting and trading. While paused,
+  minting and order placement MUST be refused; redemption of settled contracts and pair redemption
+  MUST remain available so that pausing never traps user funds. [PRD FR-12]
+- **FR-035**: Outcome tokens MUST only be created by minting a pair and MUST only be destroyed by
+  redemption. No other path may change supply. [PRD §5.2]
+- **FR-036**: A contract's settlement outcome, once written, MUST be immutable. [PRD §5.2]
 
 **Portfolio and operations**
 
@@ -364,11 +396,11 @@ rest of the day's contracts.
 
 ## Assumptions
 
-- **Deferred implementation decision — order book mechanism.** Requirements FR-009 to FR-014 are
-  deliberately stated as behaviour, not mechanism. Whether the book is built as part of this
-  system or an existing on-chain order book is integrated is an implementation decision, resolved
-  by a time-boxed spike before planning completes and recorded in `DECISIONS.md`. Nothing in this
-  spec should be read as committing to either.
+- **Order book mechanism.** Requirements FR-009 to FR-014 are deliberately stated as behaviour, not
+  mechanism. The implementation choice (an order book built into this system rather than an
+  integrated external venue) was resolved by spike on 2026-10-05 and is recorded in `DECISIONS.md`
+  §6; nothing in this spec depends on it.
+- No fees are charged in this version. Collateral held is therefore exactly one dollar per pair.
 - The seven supported stocks for this version are AAPL, MSFT, GOOGL, AMZN, NVDA, META and TSLA.
 - Contracts are same-day expiry only: created in the morning, settled after that day's close. No
   multi-day contracts, no early exercise.

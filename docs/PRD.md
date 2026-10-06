@@ -9,7 +9,8 @@
 > (mlewis@peak6.com).
 >
 > Where the portal brief and the PDF differ in detail, the PDF is the more specific source and
-> wins; nothing in the two actually conflicts.
+> wins; nothing in the two actually conflicts. The PDF's "Bonus: mainnet deployment" is out of
+> scope by decision (`DECISIONS.md` §3).
 
 ## 1. Problem
 
@@ -126,12 +127,57 @@ AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA.
 | FR-2 | **Mint / redeem.** Deposit $1.00 USDC to mint 1 Yes + 1 No token; burn a Yes+No pair to redeem $1.00 USDC. The $1.00 payout invariant must always hold. |
 | FR-3 | **Order book trading.** A central limit order book per strike (Yes vs USDC) with price-time priority matching and real-time updates. |
 | FR-4 | **Four trade paths.** Buy Yes, Buy No, Sell Yes, Sell No — each a first-class UI action, correctly translated to book operations per §3.2. Buy No market orders are one atomic transaction (mint pair + sell Yes at best bid), one wallet approval. Buy No limit orders mint a pair and post the Yes as a limit sell. |
-| FR-5 | **Oracle settlement.** At ~4:05 PM ET, read the closing price on-chain and resolve every contract to $1 / $0 against its strike, using the at-or-above rule. |
+| FR-5 | **Oracle settlement.** At ~4:05 PM ET, read the closing price on-chain and resolve every contract to $1 / $0 against its strike, using the at-or-above rule. Settle may only be called after 4:00 PM ET, must validate oracle freshness and confidence, and writes an immutable outcome. If the oracle fails its checks, the service retries every 30 seconds for up to 15 minutes, then alerts the admin. |
 | FR-6 | **Redemption.** Winners sign one transaction to burn tokens and receive USDC directly in the connected wallet. Unredeemed tokens stay redeemable indefinitely. |
 | FR-7 | **Wallet integration & portfolio.** Connect wallet, see USDC balance, positions, fills, realized P&L (entry vs sale price), and per-contract settlement price and outcome. |
 | FR-8 | **Position constraints.** A user must not hold a persistent Yes and No position in the same strike. Holding both is only a transient state inside the mint-pair operation. The frontend checks balances before presenting trade options and guides the user to exit the opposing position first. |
 | FR-9 | **Market maker flow.** Mint pairs, post limit orders for Yes tokens, and see exposure, fills and P&L in a dashboard/portfolio view. |
 | FR-10 | **Admin strike management.** Add or adjust strikes before or during the trading day. |
+| FR-11 | **Admin settle override.** Admin-only fallback for when the oracle fails: settle a contract with a manually supplied price. Must enforce a time delay (e.g. 1 hour after market close) before it can be called. Emergencies only. |
+| FR-12 | **Pause / unpause.** Admin can pause minting and trading in an emergency, and resume them. |
+
+### 5.1 Required on-chain functions
+
+The brief lists these as functions that **must exist** in the program (names are descriptive):
+
+| Function | Behaviour | FR |
+|---|---|---|
+| Initialize Config | One-time setup: admin authority, supported tickers, oracle feed references | — |
+| Create Strike Market | One contract for one stock, one strike, one day: Yes/No mints, collateral vault, order book. Called once per strike, not batched | FR-1 |
+| Add Strike | Admin adds an extra strike for a stock intraday | FR-10 |
+| Mint Pair | Deposit $1.00 USDC, receive 1 Yes + 1 No | FR-2 |
+| Settle Market | Read the oracle close, write the outcome. Only after 4:00 PM ET; validates freshness and confidence | FR-5 |
+| Admin Settle (Override) | Manual-price settlement after an enforced delay | FR-11 |
+| Redeem | Burn tokens, receive the payout from the vault | FR-6 |
+| Pause / Unpause | Halt and resume minting and trading | FR-12 |
+
+### 5.2 Invariants enforced on-chain
+
+- Vault balance = $1.00 × total pairs minted, exactly. Fees, if any, go to a separate account; **V1
+  charges no fees.**
+- Yes payout + No payout = $1.00 at settlement, always.
+- Tokens can only be created via Mint Pair and only destroyed via Redeem.
+- Settlement outcome is immutable once written.
+
+### 5.3 Automation service
+
+Two scheduled jobs on US trading days, living in the same repo as the program and frontend:
+
+- **Morning (~8:00 AM ET):** for each stock, read the previous close from the oracle, calculate
+  strikes, call Create Strike Market per strike. Log results, alert on failure, retry with backoff.
+- **Settlement (~4:05 PM ET):** for each open contract, call Settle Market. If the oracle fails its
+  checks, retry every 30 seconds for up to 15 minutes, then alert the admin for manual override.
+
+### 5.4 Frontend
+
+Pages: **Landing** (product explanation, live prices, connect wallet), **Markets** (grid of 7 stocks
+with live prices and active contract counts), **Trade** (strike list, order book shown from both the
+Yes and No perspective, Buy Yes / Buy No / Sell Yes / Sell No panel), **Portfolio** (positions,
+settled outcomes, P&L, redeem), **History** (execution log).
+
+Key elements: contract cards with strike, Yes/No prices and implied probability; a settlement
+countdown to 4:00 PM ET; a plain payoff line ("You pay $X. You win $1.00 if [STOCK] closes above
+[STRIKE]."); position-aware trade panel per FR-8.
 
 ### Performance benchmarks
 
@@ -177,13 +223,21 @@ justified.
 - Avoid unnecessary third-party abstractions; justify all major dependencies.
 - Include a short risks/limitations note — **no regulatory or compliance claims**.
 
-## 7. Code quality expectations
+## 7. Testing requirements
 
-- Unit tests for all core functions.
-- Integration tests for the full lifecycle.
-- Frontend tests for UI flows.
-- Invariant testing (the $1.00 payout invariant above all).
-- Clear documentation and reproducible deployment scripts.
+**Program:** unit tests for mint, settle, redeem and the rest of §5.1; settlement at, above and
+below the strike; the $1.00 invariant across all prices; vault-balance invariant after every mint
+and redeem; oracle validation for stale, wide-confidence and valid prices; admin override time-delay
+enforcement.
+
+**Integration:** full lifecycle create → mint → trade → settle → redeem; all four trade paths; a
+multi-user scenario where one user mints and quotes, another takes, and both redeem.
+
+**Frontend:** wallet connection; order placement and signing; real-time price display; order book
+rendering from both perspectives; position-constraint enforcement; portfolio and P&L accuracy;
+settlement display and redeem flow.
+
+Plus clear documentation and reproducible deployment scripts.
 
 ## 8. Required deliverables
 
@@ -191,7 +245,7 @@ justified.
 |---|---|
 | Source code | Program(s), frontend, automation service |
 | Technical documentation | Architecture, chain/oracle/CLOB rationale, risks & limitations note |
-| Deployment guide | Reproducible scripts; devnet lifecycle runnable end to end |
+| Deployment guide | Reproducible scripts to deploy, create markets and run the lifecycle on devnet; README with one-command setup (e.g. `make dev`) |
 | Test results | Unit, integration, frontend, invariant |
 | Demo video | Full lifecycle: create → mint → trade → settle → redeem |
 | AI usage log | **Required** — `AI_USAGE.md`, written as we go |

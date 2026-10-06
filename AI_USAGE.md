@@ -7,6 +7,8 @@ helped, where it misled, and where it was overridden.
 
 - **Claude Code** (Opus 5) — primary development agent: requirements synthesis, spec-kit driving,
   implementation, review.
+- **Claude Code** (Fable 5.1) — independent review of the pre-plan artifacts on 2026-10-05, then
+  planning onward.
 - **GitHub spec-kit** 1.1.1.dev0 with the Claude Code integration — `/speckit-constitution`,
   `/speckit-specify`, `/speckit-plan`, `/speckit-tasks`, `/speckit-implement`. Artifacts in
   `specs/001-binary-outcome-markets/`.
@@ -147,7 +149,7 @@ direction.
 401 identically to the old one, so the migration is complete rather than in progress. Prices were read
 from Pyth's own plans page rather than from the search summary that first surfaced them.
 
-### 2026-10-06 — Why the Pyth repricing was missed, and the free-source survey
+### 2026-10-05 — Why the Pyth repricing was missed, and the free-source survey
 
 Andre asked directly why Claude had not found the Core upgrade information itself. The answer is
 recorded here because the failure mode generalizes.
@@ -184,7 +186,7 @@ MAG7 with **no API key**, and showed no throttling across 12 rapid calls — but
 a browser-like User-Agent, and carries no SLA, so it is used as a cross-check and never as the sole
 source. Polygon.io has rebranded to Massive, which a from-memory answer would have got wrong.
 
-### 2026-10-06 — Process correction: findings are not decisions
+### 2026-10-05 — Process correction: findings are not decisions
 
 Andre: *"you keep swerving all over the place and continually updating docs back and forth i am lost."*
 Correct, and the cause was a misapplied instruction rather than bad research.
@@ -208,3 +210,52 @@ substance.
 **Adopted going forward:** finish an investigation, then write once. The research pattern — probe the
 chain for capability, read changelogs and pricing for policy — was right and found real things; it was
 the publishing cadence that was wrong.
+
+### 2026-10-05 — Pre-plan review by a second model
+
+Andre asked for an independent read of everything before `/speckit-plan`, saying he was not confident
+the back-and-forth had stayed sane. A second Claude (Fable 5.1) read the PDF, PRD, constitution,
+spec, decision log and spikes, and checked the one external claim the plan would have to build on.
+
+*Where the first pass went wrong, and the review caught it:*
+
+1. **The PRD lost a third of the PDF.** The portal brief was merged carefully; the PDF's "Smart
+   Contract Functions", "Invariants", "Automation Service", "Frontend Application" and "Testing
+   Requirements" pages were not. Admin settle override with an enforced time delay, pause/unpause,
+   settle-only-after-close, the 30 s × 15 min retry window and the override test case are all
+   explicit, graded requirements that appeared nowhere downstream. The spec's quality checklist
+   passed "on the first iteration" because it checks the spec against itself, not against the source.
+   Fixed: PRD FR-11, FR-12 and §5.1–5.4; spec FR-031…FR-036 with scenarios and edge cases.
+2. **The confidence guard was specified on a signal the chain never sees.** Three documents said
+   confidence would be derived from the disagreement across RedStone's five signers. The adapter
+   program's source stores only the median; the SDK returns only aggregated values. Everything written
+   about the five signers was *true at the gateway* and irrelevant on chain. The claim had been
+   promoted from a spike observation to a constitutional MUST without anyone asking where the number
+   would physically come from. Fixed: confidence is RedStone versus the independent fallback read, which
+   the spike had already validated; the signer threshold is the attestation guard.
+3. **FR-015 forbade what FR-028 requires.** "System MUST prevent" holding both tokens, and a market
+   maker holds both by design. The PDF scopes the constraint to the trading UI. Rescoped.
+4. **The faucet argument used against Phoenix also binds our own book on day one.** Recorded as a
+   demo-scale configuration requirement rather than left for a reviewer to find.
+
+*Smaller tidying:* the spec still called the order book decision deferred; the Pyth spike had a
+section headed "Decision" that contradicted `DECISIONS.md`; several dates read 2026-10-06 because the
+agent used UTC. Constitution bumped to 1.3.0.
+
+*Method note:* the one expensive check was reading the RedStone adapter program source rather than its
+documentation. The docs describe five signers accurately; only the code shows what is stored.
+
+### 2026-10-06 — Oracle re-decided: Pyth behind a provider interface, mocked until the token arrives
+
+Andre, reading the settle-read explanation: *"theres no oracle in solana testnet that can reliably give
+us the stock info we need? This whole Pyth/Redstone shit is madness... i smell we doing something
+wrong."* The answer was that nothing was wrong on our side — equity data is licensed, Pyth repriced it
+in 2026, and the brief predates that — but the RedStone path carried integration risk (unpublished SDK,
+program ID mismatch, median-only account) that only made sense while Pyth was unaffordable.
+
+Andre's call: a Pyth Pro token is likely available — a peer was approved for equity feeds by asking on Pyth's developer forum within ~3 hours, and Andre has asked the same. Build against a
+Pyth-shaped mock now, behind a provider interface, swap in the real receiver when the token lands, and
+keep the interface open so RedStone or another source can plug in if Pyth falls through. Recorded as
+`DECISIONS.md` §4 (RedStone position kept as history), constitution 1.4.0, README and onboarding
+rewritten once. The mock doubles as the tested fallback Principle IV already required, so no work is
+wasted if the token never arrives.

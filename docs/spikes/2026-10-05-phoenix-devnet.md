@@ -95,7 +95,9 @@ book (64-byte orders: price, size, trader, sequence, flags):
 
 At 64–128 orders per side the daily rent is **~2–4 SOL and recycled each evening**, against
 Phoenix's 19–53 SOL consumed permanently. That is the difference between a demo a reviewer can
-reproduce and one they cannot.
+reproduce and one they cannot — with one caveat the faucet figures above impose on us too: a
+reviewer's *first* day needs the full amount up front, and 3.8 SOL exceeds one airdrop. The
+lifecycle scripts therefore need a demo-scale configuration that fits a single ~2 SOL grant.
 
 ## Trade-offs accepted
 
