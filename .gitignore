@@ -1,0 +1,34 @@
+# deps / build
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# rust / anchor
+target/
+.anchor/
+test-ledger/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# keypairs — never commit a signer
+*.json.key
+**/keypairs/
+id.json
+
+# logs / tmp
+*.log
+.DS_Store
+Thumbs.db
+*.tmp
+*.swp
+
+# editors
+.vscode/
+.idea/
+
+# claude worktrees
+.claude/worktrees/
