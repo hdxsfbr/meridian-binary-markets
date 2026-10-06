@@ -132,6 +132,11 @@ decision.
 
 ## 7. SUPERSEDES §4 — a guarded oracle *adapter*, with an attested devnet publisher as default
 
+**Status note added 2026-10-06:** the adapter interface and all guards below stand. The choice of
+*primary source* is **reopened pending one check** — see §8. RedStone appears to be a free, live,
+on-chain Pyth-equivalent carrying all seven MAG7 on Solana devnet, which would replace the
+self-attested publisher as primary and strengthen the trust model considerably.
+
 **Date:** 2026-10-05
 **Status:** Decided, after verification. Full workings in
 [`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md).
@@ -237,3 +242,58 @@ now constrains the *property* — attested source, staleness bound, confidence c
 allowlisted publisher — and the vendor choice lives here in the decision log where it can change
 without a governance amendment. That is the second consecutive spike whose outcome landed without
 rewriting the spec, for the same reason: requirements stated as behaviour, not mechanism.
+
+## 8. REOPENS §7's source choice — RedStone as a free on-chain oracle (pending one check)
+
+**Date:** 2026-10-06
+**Status:** **Blocked on one question**, which only Andre can resolve: is RedStone's API key free?
+Evidence in [`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md) Finding 6.
+**Context:** Andre asked whether there was *"something similar to Pyth but free"*, and noted *"don't we
+need something on the blockchain?"* Two distinct points, both correct, and chasing them beat §7's
+answer.
+
+On the second point first, because it was a gap in how §7 was explained rather than in the design: the
+price **does** go on chain under §7 — the automation service writes a price account that the program
+reads under its guards. Nothing settles off-chain. But the underlying instinct was right and sharper
+than the reassurance: *we* were the attester, and a self-signed price is a weak oracle however
+correctly it is guarded.
+
+**What the survey found.** Three candidates probed on devnet by RPC:
+
+1. **Switchboard — dead.** It **ceased all operations on 2026-09-25**, ten days before this work, and
+   its users were told to migrate. Its devnet program is still `executable`. **§7 and this project's
+   earlier option list had offered Switchboard as a candidate** — recommending it would have repeated
+   the precise error this whole investigation exists to document: *deployed ≠ operational*. Caught by
+   searching rather than probing, which is the §4 lesson applied correctly for once.
+2. **Stork — HTTP 401**, pricing undocumented, "contact sales". Same shape as Pyth. Rejected.
+3. **RedStone — strong.** Verified: deployed and `executable` on devnet
+   (`REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA`) and mainnet; **its devnet accounts were written 3.2
+   hours ago**, so unlike Pyth's 2.4-year-dead feeds it is actively fed; all seven MAG7 are in the live
+   996-feed production package, with `---24_7` / `---EXTENDED` / `---PRE_AFTER` session variants that a
+   0DTE product settling on a regular-session close actually needs; and the gateway served full signed
+   packages **unauthenticated**.
+
+**Why it would be better than §7, not merely cheaper.** RedStone returns **five independently signed
+values per feed** (AAPL spread ~0.0016%, META ~0.0002%). Pyth hands over one pre-computed confidence
+interval; RedStone hands over five signed opinions and lets our program set its own threshold via the
+configurable unique-signer requirement. That maps onto Principle IV's attestation guard directly, and it
+satisfies the honest-confidence rule with a **cryptographically attested** disagreement measure rather
+than a two-vendor cross-check we assemble ourselves. We would stop being the oracle.
+
+**The blocking question.** RedStone's docs say the pull model **requires an API key** (via a form, 1
+req/s) — while the gateway empirically served MAG7 data with no key at all. Observed behaviour and
+documented policy disagree, which is the Pyth trap's exact silhouette. The documented route is a form
+rather than a price list, materially unlike $5,000/month, but **the cost is unstated and this project's
+governing lesson is that an unverified access assumption is worth nothing.** Requesting the key involves
+signing up to an external service with Andre's details, so it is his call, not an action to take on his
+behalf.
+
+**Decision, conditional:** if the key is free and covers equities, RedStone becomes the primary adapter
+and the §7 attested publisher demotes to the documented fallback — which is the better arrangement
+anyway, since Principle IV requires a tested fallback and a self-run publisher is one we fully control.
+If the key is paid, §7 stands unchanged and nothing is lost but one form.
+
+**Trade-off either way:** RedStone adds an external dependency and secp256k1 signature verification
+inside our settlement path, which is compute budget and integration work §7 avoided entirely. Accepted
+if the key is free, because "we are our own oracle" is the single weakest claim in the current design
+and the one a reviewer is most likely to press on.

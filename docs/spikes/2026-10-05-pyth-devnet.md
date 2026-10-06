@@ -185,6 +185,68 @@ GOOGL 346.47, AMZN 251.40, NVDA 238.90, META 741.90, TSLA 378.73.
 - **Licence terms.** Twelve Data and Massive free tiers are individual/non-commercial. This project is
   coursework on devnet with no real funds, which fits, but it bars commercial reuse.
 
+## Finding 6 — there IS a free Pyth-equivalent: RedStone (and Switchboard is dead)
+
+Andre's question: *"something similar to Pyth but free — don't we need something on the blockchain?"*
+Both halves were right, and chasing them found a better answer than the one recorded below.
+
+**First, a correction to this document's own earlier option list.** It offered Switchboard On-Demand as
+a candidate. **Switchboard ceased all operations on 2026-09-25** — ten days before this spike — and
+told Kamino, Jito, Marginfi and Drift to migrate off. Its devnet program is still `executable`, which
+is precisely the trap Pyth's legacy feeds set: **deployed ≠ operational.** Recommending it would have
+repeated the exact mistake this spike exists to document.
+
+### Surveyed, on devnet, by RPC
+
+| Oracle | Devnet program | Status | Equity feeds | Data access |
+|---|---|---|---|---|
+| **RedStone** | `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA` | **executable, actively fed** | **all 7 MAG7** | gateway returned 200 unauthenticated |
+| Stork | `stork1JUZMKYgjNagHiK2KdMmb42iTnYe9bYUCDUk8n` | executable | yes (`AAPL_24_5` etc.) | **HTTP 401**; pricing undocumented, "contact sales" |
+| Switchboard | `SBondMDrcV3K4kxZR1HNVT7osZxAHVHgYXL5Ze1oMUv` | executable but **network shut down 2026-09-25** | n/a | n/a |
+| Pyth | `rec5EK…` | executable | yes | $5,000/mo (Findings 3, 5) |
+
+### RedStone, verified in detail
+
+- **Deployed on both networks**: devnet `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA` and mainnet
+  `REDSTBDUecGjwXd6YGPzHSvEUBHQqVRfCcjUVgPiHsr`, both `executable`.
+- **Devnet is alive, unlike Pyth's.** Its three `PriceData` accounts were last written **3.2 h**
+  (ETH), 3.5 h (BTC) and 14.5 h ago. Somebody is posting to RedStone on devnet right now. Compare
+  Pyth's legacy devnet feeds at ~2.4 years.
+- **All seven MAG7 are in the live production package** — 996 feeds total, including `AAPL`, `MSFT`,
+  `GOOGL`, `AMZN`, `NVDA`, `META`, `TSLA`, each with `---24_7`, `---EXTENDED` and `---PRE_AFTER`
+  session variants. That session granularity matters for a 0DTE product settling on a regular-session
+  close, and is more than Pyth exposed.
+- **Five independent signers per feed, each with its own ECDSA signature**, fetched 40 s old:
+
+  | Feed | Signer values | Spread |
+  |---|---|---|
+  | AAPL | 333.07756596 / 333.07557902 / 333.07215923 | ~0.0016% |
+  | META | 741.98756364 / 741.99084249 / 741.97925679 | ~0.0002% |
+
+  **This is a better confidence measure than anything considered so far.** Pyth hands you one
+  pre-computed confidence interval; RedStone hands you five independently signed opinions and lets the
+  consuming program decide. The on-chain signer threshold is configurable
+  (`getUniqueSignersThreshold`), which maps directly onto Principle IV's attestation guard — and the
+  disagreement across signers satisfies the honest-confidence rule with a *cryptographically attested*
+  number rather than a cross-check we assemble ourselves.
+
+### The one unresolved risk, stated before it bites
+
+**RedStone's documentation says the pull model requires an API key** obtained by filling in a form,
+rate-limited to 1 request/second per key — while the gateway **empirically served full signed MAG7
+packages unauthenticated** during this spike. Observed behaviour and documented policy disagree.
+
+That is the Pyth trap's exact silhouette, so it gets resolved *before* commitment, not after:
+
+1. The documented route is a form, not a price list — materially different from $5,000/month. But the
+   cost is **unstated**, and this spike's governing lesson is that an unverified access assumption is
+   worth nothing.
+2. Until the key's terms are confirmed, the unauthenticated gateway MUST NOT be treated as a stable
+   dependency. It may be unenforced policy today and enforced tomorrow.
+
+**Required before this becomes the primary:** obtain the key, confirm it is free, and confirm equity
+feeds are included. One form, and the answer either promotes RedStone or returns us to the design below.
+
 ## Decision
 
 An **oracle adapter interface** — *return a price with a publish timestamp and a confidence measure,
