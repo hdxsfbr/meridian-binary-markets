@@ -63,8 +63,10 @@ book operation.
 
 | Document | Purpose |
 | --- | --- |
+| [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
 | [`docs/PRD.md`](docs/PRD.md) | Requirements FR-1…FR-10, merged from the portal brief and the partner PDF |
 | [`docs/Gauntlet-Project-Meridian.pdf`](docs/Gauntlet-Project-Meridian.pdf) | The partner's original brief |
+| [`docs/spikes/`](docs/spikes/) | Investigations behind specific decisions |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Engineering principles governing the project |
 | [`specs/001-binary-outcome-markets/spec.md`](specs/001-binary-outcome-markets/spec.md) | Feature specification |
 | [`DECISIONS.md`](DECISIONS.md) | Running decision log with trade-offs |
