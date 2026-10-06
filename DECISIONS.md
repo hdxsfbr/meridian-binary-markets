@@ -93,6 +93,14 @@ threshold is a **cryptographically attested** confidence measure. Pyth supplies 
 interval; a self-run publisher supplies nothing honest at all, which is why Principle IV forbids
 hardcoding one. RedStone means we are not our own oracle.
 
+**Integration cost, verified 2026-10-06.** There is **no RedStone SDK on crates.io** — only a stale
+2022 `redstone-rust-sdk`. Maintained Rust does exist at `redstone-finance/rust-sdk` (pushed 2026-09-01,
+`redstone` crate, references the monorepo's `solana-connector`), so integration means a **git dependency
+on an unpublished, zero-star crate** rather than `cargo add`. Note the irony: the vendor we rejected
+ships the better-published SDK (`pyth-solana-receiver-sdk` v2.0.0, current). Not a reason to reverse —
+the alternative is $5,000/month — but the RedStone adapter is the riskiest task in the build and the
+fallback adapter is what de-risks it.
+
 **Trade-off.** RedStone adds an external dependency and secp256k1 signature verification inside the
 settlement path — compute budget and integration work a self-run publisher would avoid. Accepted,
 because "we are our own oracle" was the weakest claim in the design and the one a reviewer would press
@@ -100,8 +108,8 @@ hardest on. The fallback keeps the self-attested path built and tested, which Pr
 anyway, so the dependency is not load-bearing.
 
 **Note, not a blocker.** RedStone's docs mention an API key for the pull model, while the gateway
-serves data without one. Free registration (a four-question form, no payment step), worth doing at some
-point for durability. Nothing depends on it: the gateway works today and the fallback adapter covers
+serves data without one. Free registration requested 2026-10-06 (four-question form, no payment step),
+response pending. Nothing depends on it: the gateway works today and the fallback adapter covers
 RedStone failing entirely.
 
 ## 5. Full lifecycle plus polish, rather than a thin correctness slice
@@ -161,3 +169,23 @@ the order book requirements (FR-009…FR-014) as *behaviour* — price-time prio
 Buy No path, real-time updates, settlement interaction — so it needed no rewriting when the spike
 landed. The constitution's Stack & Scope Constraints should now be amended to record the closed
 decision.
+
+## 7. Docker as the toolchain, not a host install
+
+**Date:** 2026-10-06
+**Context:** Anchor builds depend on a version triple (anchor × solana-cli × rustc) that fails with
+unhelpful errors when mismatched. This was demonstrated rather than theorised: a host install reported
+`solana-cli 4.3.0`, then `4.1.2` once Anchor's `avm` was on `PATH`. Separately, two graded deliverables
+are a **deployment guide with reproducible devnet scripts** and a lifecycle a reviewer can run **with no
+manual steps**.
+**Decision:** The canonical build and deploy environment is a **pinned Dockerfile / devcontainer**, and
+it is a first-class deliverable rather than developer convenience. The host toolchain installed on
+2026-10-06 was removed again (~870 MB) to keep the container the single source of truth. Host-level
+`rustup`/`cargo` and Node remain for editor tooling.
+**Trade-off:** Costs a few hours that produce no user-visible functionality, and a reviewer who hits a
+Docker problem is worse off than one following a clear README — so the image MUST be verified working
+before it is promoted as the recommended path. Container builds also crawl unless `target/` and the
+cargo registry live in named volumes, and keypairs must be mounted read-only and never baked into a
+layer. `solanafoundation/anchor` tops out at v1.0.2 against Anchor 1.2.0, so we pin our own versions
+rather than pull theirs — which is the point of the exercise anyway. Accepted because reproducibility is
+graded directly and version-triple breakage is a recurring, already-observed cost.

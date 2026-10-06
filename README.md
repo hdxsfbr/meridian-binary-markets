@@ -108,4 +108,7 @@ Technical contact: Myles Lewis (mlewis@peak6.com).
 
 ## Getting started
 
-Setup instructions will be added as the project takes shape.
+The toolchain is a pinned Docker image rather than a host install — Anchor's
+anchor/solana-cli/rustc version triple breaks obscurely when mismatched, and the devnet lifecycle has
+to be reproducible by a reviewer with no manual steps. See `DECISIONS.md` §7. Container and setup
+instructions land with the implementation plan.

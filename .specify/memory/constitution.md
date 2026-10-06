@@ -152,6 +152,10 @@ trading UI, a portfolio view with realized P&L, and a market-maker dashboard.
 
 - **Monorepo layout:** `programs/` (Anchor, Rust), `web/` (Next.js + TypeScript), `services/`
   (Node.js automation service).
+- **Build environment:** a **pinned Docker image / devcontainer** is the canonical toolchain and a
+  graded deliverable, not developer convenience — the Anchor × solana-cli × rustc version triple fails
+  obscurely when mismatched, and a reviewer must reproduce the lifecycle with no manual steps. Keypairs
+  are mounted read-only and MUST NOT be baked into an image layer. See `DECISIONS.md` §7.
 - **Underlying assets:** 7 MAG7 tickers — AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA.
 - **Settlement asset:** USDC on devnet (mock/test mint).
 - **V1 scope:** same-day expiry (0DTE) contracts only. No multi-day, no American-style early
