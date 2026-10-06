@@ -45,17 +45,23 @@ flow into it** is what is broken.
 ## Finding 1 — All seven MAG7 equity feeds exist
 
 Hermes' feed-metadata endpoint is public (`HTTP 200`) and lists 1,250 equity feeds. The MAG7 are all
-present, published as `Equity.Index.<SYM>/USD`:
+present, in two families. The regular-session feeds are `Equity.US.<SYM>/USD`, with
+`schedule: America/New_York;0930-1600,…` and NYSE holidays — these carry the 4:00 PM close:
 
 ```
-AAPL   aaba35e6f33fb973bb2201d48a79ae24795affa6ba8bd50a93dcaf7da0030f36
-AMZN   329635cf9e705e01ed2d842fafbb6c426d7e5630e75847740d89957222fd68b8
-GOOGL  ad519718d387de4f0d7d29ea16a3730ce42e49c59fef6fba6fc9bac477645f6f
-META   2cc0c022f7f37920485a5947f3cea8633783b6cb7fff6d94ee52f48687b7783d
-MSFT   d9144b30a3a162a2748d384dc53387571f3ec77b9edfe31739349396ed67a63a
-NVDA   a470c4ac46f44b547b2cba52338f311fb642b79375ce5f0cfd5cb5b99227b852
-TSLA   e6da44bff5b8b06897a3739dd331b440d6662595bb862e37046892c568ae3fc0
+AAPL   49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688
+AMZN   b5d0e0fa58a1f8b81498ae670ce93c872d14434b72c364885d4fa1b257cbb07a
+GOOGL  5a48c03e9b9cb337801073ed9d166817473697efff0d138874e0f6a33d6d5aa6
+META   78a3e3b8e676a8f73c439f5d749737034b139bbbe899ba5775216fba596607fe
+MSFT   d0ca23c1cc005e004ccf1db5bf76aeb6a49218f43dac3d4b275e92de12ded4d1
+NVDA   b1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593
+TSLA   16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1
 ```
+
+> **Corrected 2026-10-06 during planning.** The first draft of this finding listed the
+> `Equity.Index.<SYM>/USD` IDs (AAPL `aaba35e6…`, etc.). Hermes describes those as "PYTH PRICE IN USD
+> FOR AAPL 24/7" — a synthetic round-the-clock index, not the regular session. Wrong feed for a close.
+> The table above is the `Equity.US` family, verified against the public feed list.
 
 The feeds we need are defined and identifiable. That is the extent of the good news.
 
