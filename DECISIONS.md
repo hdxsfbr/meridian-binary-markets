@@ -51,26 +51,59 @@ comes free, the chain is what the partner asked for, and PEAK6 Labs builds in th
 their recommended chain is directly legible to the reviewer. Choosing an L2 would have meant
 spending part of the submission justifying a choice the brief already discouraged.
 
-## 4. Pyth as primary price oracle, with a documented fallback
+## 4. Oracle: RedStone as the on-chain price source, behind a guarded adapter
 
-**Date:** 2026-10-05
-**Status:** **SUPERSEDED by §7 on 2026-10-05.** Kept in full rather than edited away, because the
-reasoning below is still correct about *what the oracle must provide* — it was wrong only about
-whether Pyth can provide it on devnet. See §7 for what replaced it and why.
+**Date:** 2026-10-05, settled 2026-10-06
+**Evidence:** [`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md) — all
+quantitative claims there are reproducible from the recorded calls.
 **Context:** The brief requires an oracle that supplies the previous day's close (for the morning
-strike ladder) and the current day's close at 4:00 PM ET (for settlement), is readable on-chain
-during the settlement transaction, and supports both a **staleness check** and a
-**confidence/quality check**. The choice must be justified.
-**Decision:** Pyth as the primary source — it carries first-party equity feeds including the MAG7,
-is native to Solana, and its feed structure exposes a publish timestamp and a confidence interval,
-which map directly onto the two guards the brief requires. A second, documented fallback source is
-specified for the settlement read.
-**Trade-off:** The fallback adds design and test surface we would not otherwise carry, and a
-fallback that disagrees with the primary is a judgment call we now have to define rather than
-avoid. Accepted because settlement correctness is the headline graded metric: a single stale or
-low-confidence feed at 4:05 PM would otherwise either block settlement entirely (failing the
-liveness metric) or settle on a doubtful price (failing the correctness metric). Guards fail closed
-— refusing to settle always beats settling wrong.
+strike ladder) and the day's close at 4:00 PM ET (for settlement), is readable on-chain during the
+settlement transaction, and supports both a **staleness check** and a **confidence/quality check**.
+The choice must be justified.
+
+**Decision — two parts, and the first matters more than the second.**
+
+**(a) The oracle sits behind an adapter interface:** *return a price with a publish timestamp and a
+confidence measure, or refuse.* The program applies four guards to whatever comes back — staleness
+under 5 minutes, confidence/quality, publisher attestation, and fail-closed on any failure. This is
+the load-bearing decision. It has survived three changes of price source without the spec or the
+architecture moving, and Constitution Principle IV deliberately names no vendor for that reason.
+
+**(b) The source is RedStone**, with a self-attested publisher as the tested fallback.
+
+| Role | Implementation |
+|---|---|
+| Primary | **RedStone** pull oracle — devnet `REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA` |
+| Fallback | Our own signed publisher, reading a free stock API (Finnhub primary, Nasdaq cross-check) |
+
+Verified rather than assumed: the devnet program is executable and **actively fed** (accounts written
+3.2 h ago, against Pyth's legacy feeds at ~2.4 years); all seven MAG7 are in the live 996-feed
+production package with regular-session, 24/7, extended and pre/after variants; and each feed carries
+**five independently signed values** — AAPL spread 0.0016%, MSFT 0.024% — all signatures valid, 22 s
+old, served unauthenticated.
+
+**Why RedStone beats the alternatives.** Pyth is unusable: its legacy devnet feeds are years dead and
+MAG7 equities are now a **$5,000/month** product, with the free tier granting no API access at all.
+Stork returns HTTP 401 with undocumented pricing. **Switchboard ceased all operations on 2026-09-25**
+— its devnet program is still `executable`, which is exactly why "deployed" was never accepted as
+evidence here. RedStone is the only candidate that is free, live on devnet, and carries the feeds.
+
+And it is *better*, not merely cheaper: five signed opinions with a configurable on-chain unique-signer
+threshold is a **cryptographically attested** confidence measure. Pyth supplies one pre-computed
+interval; a self-run publisher supplies nothing honest at all, which is why Principle IV forbids
+hardcoding one. RedStone means we are not our own oracle.
+
+**Trade-off.** RedStone adds an external dependency and secp256k1 signature verification inside the
+settlement path — compute budget and integration work a self-run publisher would avoid. Accepted,
+because "we are our own oracle" was the weakest claim in the design and the one a reviewer would press
+hardest on. The fallback keeps the self-attested path built and tested, which Principle IV requires
+anyway, so the dependency is not load-bearing.
+
+**Open item.** RedStone's docs state the pull model requires an API key, while the gateway currently
+serves data without one. The key comes from a four-question Google Form (email, company, feeds,
+Telegram) with **no payment step, no pricing and no plan selection** — a registration gate, not a
+commercial one, and structurally unlike Pyth's published price list. Andre to submit it so access is
+durable; until then the open gateway works and the fallback covers total RedStone failure.
 
 ## 5. Full lifecycle plus polish, rather than a thin correctness slice
 
@@ -129,171 +162,3 @@ the order book requirements (FR-009…FR-014) as *behaviour* — price-time prio
 Buy No path, real-time updates, settlement interaction — so it needed no rewriting when the spike
 landed. The constitution's Stack & Scope Constraints should now be amended to record the closed
 decision.
-
-## 7. SUPERSEDES §4 — a guarded oracle *adapter*, with an attested devnet publisher as default
-
-**Status note added 2026-10-06:** the adapter interface and all guards below stand. The choice of
-*primary source* is **reopened pending one check** — see §8. RedStone appears to be a free, live,
-on-chain Pyth-equivalent carrying all seven MAG7 on Solana devnet, which would replace the
-self-attested publisher as primary and strengthen the trust model considerably.
-
-**Date:** 2026-10-05
-**Status:** Decided, after verification. Full workings in
-[`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md).
-**Context:** Zach Gardner flagged in Slack that "Pyth on testnet is a dead end — the oracles haven't
-been updated in MONTHS, and would require an api key providing access to stock data". §4 had assumed
-Pyth would simply work on devnet. The claim was checked rather than taken on trust, and rather than
-dismissed.
-
-**Zach was right, and understated it.** Three measured findings:
-
-1. **The legacy Pyth push feeds on devnet are years dead, not months.** 594 price accounts exist;
-   the newest `valid_slot` among them is 322,338,253 against a current devnet slot of 507,978,643 —
-   a gap of 185.6M slots, i.e. **2.4 to 3.5 years**. Sampled accounts carried `pub_slot = 1`.
-2. **Hermes price reads return HTTP 401 for every asset class**, not just equities — tested META
-   (equity) and BTC/USD (crypto) side by side, on both the old `hermes.pyth.network` and the new
-   `pyth.dourolabs.app/hermes` endpoint. The feed *metadata* endpoint is still public, which is how
-   all seven MAG7 feeds were confirmed to exist.
-3. **The pull-oracle path is not itself dead.** The receiver program is deployed on devnet with
-   739,203 `PriceUpdateV2` accounts. In the pull model the consumer posts a freshly signed update, so
-   stale leftover accounts prove nothing — the only blocker is obtaining the signed blob, i.e.
-   finding 2.
-4. **The cause, and the real blocker: Pyth repriced equity data during 2026.** Andre pointed at
-   Pyth's Core upgrade docs, which turned the measurement into an explanation. On **2026-06-15** Core
-   deprecated extended-hours and session-based US equity feeds (~50 tickers including AAPL, TSLA,
-   NVDA, META) to the paid Pyth Pro product; on **2026-07-31** regular-session equity feeds followed;
-   on **2026-08-26** the whole Hermes API went behind an API key. The price list settles it: the free
-   plan grants **no API access at all** (view-only, 10 s updates), Starter at $500/mo is **crypto
-   only**, and the cheapest tier carrying MAG7 equities is **$5,000/month**.
-
-   This is a deliberate three-step repricing, not an outage. **So "emailing Pyth support and asking
-   nicely" will not produce a free equity key** — worth telling Zach so he does not block on a reply.
-   The one cheap route that would work is an existing Pyth Pro entitlement at Peak6; that is a
-   question for Myles Lewis, not for Pyth support.
-
-**Decision:** Put the oracle behind an **adapter interface** — *return a price with a publish
-timestamp and a confidence measure, or refuse* — with two implementations:
-
-- **`AttestedPublisher`, the devnet default.** The automation service reads the close from a free
-  stock API (Alpha Vantage: verified live, returns same-day data, needs only a free registered key),
-  signs it, and posts it to a price account the program reads. The program applies the same guards as
-  always — staleness under 5 minutes, confidence/quality, **plus a publisher allowlist** — and fails
-  closed.
-- **A second, independent free source as the tested fallback.** This slot was reserved for Pyth, and
-  losing it produced a better design. Principle IV forbids a hardcoded confidence value, and a single
-  source gives nothing honest to put there — but **two independent sources give us their
-  disagreement**, which is a real uncertainty signal and exactly what the confidence guard was built
-  to consume. Agreement means tight confidence and settlement proceeds; divergence past a threshold
-  trips the guard and we fail closed rather than settle on a contested price. The fallback is now a
-  genuine second opinion, and testable, which a $5,000/month dependency never could have been.
-- **`PythAdapter`, written but not exercised.** Reads a `PriceUpdateV2` via the pull-oracle receiver.
-  Kept because the pull path is genuinely alive and because it is the honest production answer — a
-  real deployment of this product buys licensed market data. It MUST be labelled in code as untested
-  against live data rather than presented as a working fallback.
-
-**Trade-off:** We become our own oracle on devnet, which is a genuinely weaker trust model than an
-oracle network, and self-attestation is the sort of thing that looks like cutting a corner if it is
-not declared. Accepted, with mitigations rather than hand-waving: an on-chain publisher allowlist so
-an unknown signer cannot settle markets; fail-closed guards so an absent publisher delays settlement
-instead of corrupting it; and an explicit entry in the required risks-and-limitations note naming
-this as a devnet limitation with Pyth as the production path. The alternative was never really
-available: it is a $5,000/month subscription, not a favour that a support email might grant. The
-adapter boundary still earns its keep — if Peak6 turns out to hold a Pyth Pro entitlement, we swap an
-implementation rather than redesign settlement.
-
-**Sources chosen, after probing eight of them (2026-10-06).** Total cost **$0** — every requirement
-here is served by free tiers, at 14 reads/day against limits with three orders of magnitude of
-headroom.
-
-| Read | When | Source |
-|---|---|---|
-| Previous close → strike ladder | 8:00 AM ET | Nasdaq historical + Alpha Vantage `TIME_SERIES_DAILY` |
-| Official close → settlement | ~4:05 PM ET | Finnhub `/quote` primary, Nasdaq keyless cross-check |
-
-Finnhub because its free tier is real-time for US stocks at 60 calls/min and `/quote` returns the
-current price *and* previous close in one call. Nasdaq's `api.nasdaq.com` needs **no key at all**,
-returned all seven MAG7 closes, and showed no throttling across 12 rapid calls — sound as a
-cross-check, though undocumented and therefore never to be the sole source.
-
-**The constraint that decided it — a latency trap worth recording.** Settlement must land within 10
-minutes of the close, and a free *end-of-day* feed cannot do that. **Three otherwise-reasonable
-sources are disqualified by the clock alone:** Alpha Vantage is not dependable until ~5 PM ET, Massive
-(ex-Polygon.io, since rebranded) is EOD-only, and Alpaca's free tier explicitly withholds the most
-recent 15 minutes — exactly the window the closing price lives in. Found now rather than during
-implementation, where it would have invalidated the settlement path late.
-
-**The two-source design was validated, not assumed.** For AAPL's 2026-10-05 close, Nasdaq returned
-332.89 and Twelve Data 332.89001 — agreement to five decimal places. That is what the design needs:
-the healthy-case disagreement band is ~zero, so any material divergence is a real signal rather than
-vendor noise, and the threshold can be set tight.
-
-Still open for planning: the exact divergence threshold, set against observed spread across more
-tickers and days rather than this single sample. And one caveat for the risks note — **no free source
-carries the true official closing auction print** (a licensed SIP product); Finnhub's free US data is
-IEX-sourced. After the close these converge, and the cross-check shows exact agreement, but the
-documentation must not claim we read the official consolidated close.
-
-**Consequence for the spec:** one clause. `spec.md` describes the oracle only as "an external price
-source" with guard *behaviour*, so nothing structural moved — but FR-019 listed two guards and now
-lists three, gaining publisher attestation. (An earlier note here claimed "no change at all"; that
-was one guard short.) Constitution Principle
-IV named Pyth in one sentence and was amended to vendor-neutral wording (**v1.2.0**): the principle
-now constrains the *property* — attested source, staleness bound, confidence check, fail closed,
-allowlisted publisher — and the vendor choice lives here in the decision log where it can change
-without a governance amendment. That is the second consecutive spike whose outcome landed without
-rewriting the spec, for the same reason: requirements stated as behaviour, not mechanism.
-
-## 8. REOPENS §7's source choice — RedStone as a free on-chain oracle (pending one check)
-
-**Date:** 2026-10-06
-**Status:** **Blocked on one question**, which only Andre can resolve: is RedStone's API key free?
-Evidence in [`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md) Finding 6.
-**Context:** Andre asked whether there was *"something similar to Pyth but free"*, and noted *"don't we
-need something on the blockchain?"* Two distinct points, both correct, and chasing them beat §7's
-answer.
-
-On the second point first, because it was a gap in how §7 was explained rather than in the design: the
-price **does** go on chain under §7 — the automation service writes a price account that the program
-reads under its guards. Nothing settles off-chain. But the underlying instinct was right and sharper
-than the reassurance: *we* were the attester, and a self-signed price is a weak oracle however
-correctly it is guarded.
-
-**What the survey found.** Three candidates probed on devnet by RPC:
-
-1. **Switchboard — dead.** It **ceased all operations on 2026-09-25**, ten days before this work, and
-   its users were told to migrate. Its devnet program is still `executable`. **§7 and this project's
-   earlier option list had offered Switchboard as a candidate** — recommending it would have repeated
-   the precise error this whole investigation exists to document: *deployed ≠ operational*. Caught by
-   searching rather than probing, which is the §4 lesson applied correctly for once.
-2. **Stork — HTTP 401**, pricing undocumented, "contact sales". Same shape as Pyth. Rejected.
-3. **RedStone — strong.** Verified: deployed and `executable` on devnet
-   (`REDuYsnEucMweattdv4xQCYdU1i8Q2W92kdayrpY9rA`) and mainnet; **its devnet accounts were written 3.2
-   hours ago**, so unlike Pyth's 2.4-year-dead feeds it is actively fed; all seven MAG7 are in the live
-   996-feed production package, with `---24_7` / `---EXTENDED` / `---PRE_AFTER` session variants that a
-   0DTE product settling on a regular-session close actually needs; and the gateway served full signed
-   packages **unauthenticated**.
-
-**Why it would be better than §7, not merely cheaper.** RedStone returns **five independently signed
-values per feed** (AAPL spread ~0.0016%, META ~0.0002%). Pyth hands over one pre-computed confidence
-interval; RedStone hands over five signed opinions and lets our program set its own threshold via the
-configurable unique-signer requirement. That maps onto Principle IV's attestation guard directly, and it
-satisfies the honest-confidence rule with a **cryptographically attested** disagreement measure rather
-than a two-vendor cross-check we assemble ourselves. We would stop being the oracle.
-
-**The blocking question.** RedStone's docs say the pull model **requires an API key** (via a form, 1
-req/s) — while the gateway empirically served MAG7 data with no key at all. Observed behaviour and
-documented policy disagree, which is the Pyth trap's exact silhouette. The documented route is a form
-rather than a price list, materially unlike $5,000/month, but **the cost is unstated and this project's
-governing lesson is that an unverified access assumption is worth nothing.** Requesting the key involves
-signing up to an external service with Andre's details, so it is his call, not an action to take on his
-behalf.
-
-**Decision, conditional:** if the key is free and covers equities, RedStone becomes the primary adapter
-and the §7 attested publisher demotes to the documented fallback — which is the better arrangement
-anyway, since Principle IV requires a tested fallback and a self-run publisher is one we fully control.
-If the key is paid, §7 stands unchanged and nothing is lost but one form.
-
-**Trade-off either way:** RedStone adds an external dependency and secp256k1 signature verification
-inside our settlement path, which is compute budget and integration work §7 avoided entirely. Accepted
-if the key is free, because "we are our own oracle" is the single weakest claim in the current design
-and the one a reviewer is most likely to press on.

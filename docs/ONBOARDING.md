@@ -371,57 +371,66 @@ Whatever the source, the thing it posts on chain must carry three pieces of info
   number should not be trusted;
 - a **publish timestamp** — how fresh the number is.
 
-### Which oracle we actually use, and why it is not Pyth
+### Which oracle we use: RedStone
 
-The obvious choice on Solana is **Pyth**, a first-party oracle network with equity feeds for all
-seven of our tickers. We planned on it, checked, and found we cannot use it:
+We use **RedStone**, a pull-based oracle network. "Pull" means the price is not sitting on chain
+waiting — our service fetches a freshly signed price from RedStone's gateway and posts it on chain as
+part of the settlement flow. The program then reads that account under the guards below.
 
-- Pyth's older "push" feeds on devnet were last updated roughly **2.4 to 3.5 years ago**. Nobody runs
-  a publisher against them any more.
-- Pyth's modern "pull" feeds work differently — *you* fetch a signed price from their API and post it
-  on chain yourself. That program *is* deployed on devnet and would work fine. But during 2026 Pyth
-  moved US equity data onto paid plans, and the cheapest plan carrying our tickers is **$5,000 a
-  month**. The free tier includes no API access at all. Unauthenticated requests return
-  `401 Unauthorized`.
+The useful detail: **every RedStone feed comes with five independent signatures.** Five separate oracle
+nodes each report a price and sign it. For AAPL on a normal day those five values agree to within about
+0.002%.
 
-That second point is worth sitting with, because it is a kind of problem you will meet repeatedly in
-this domain: **the blocker was commercial, not technical.** Nothing was broken. The capability existed
-and worked. It simply had a price tag we were not going to pay, and no amount of engineering effort
-would have changed that. Recognising this class of obstacle early saves days.
+### Why five signers matter — the confidence guard
 
-So Meridian defines an **oracle adapter**: one narrow interface saying *return a price with a
-timestamp and a confidence measure, or refuse*. Three things implement it:
+Look at the second guard below: *confidence*. Where does that number come from? This is where a lot of
+naive oracle designs quietly fail. If you invent a confidence value — hardcode "always confident" — you
+have built something worse than no guard at all: it looks like it works and silently never fires.
 
-1. **An attested publisher** (primary) — our automation service reads the closing price from a free
-   stock data API, signs it, and posts it on chain.
-2. **The same thing on a second, independent free source** (the tested fallback).
-3. **A Pyth adapter** — written, documented as the production path a funded deployment would use, and
-   explicitly marked as untested against live data. We do not pretend it is a working fallback.
+Five independently signed values solve it honestly, because **their disagreement *is* the
+uncertainty.** If all five say META closed at $741.98, confidence is tight and we settle. If one says
+$741.98 and another $700.00, something is wrong — bad feed, stale cache, an unhandled corporate action
+— and the guard trips, so we refuse to settle rather than pay the wrong side. We also require a minimum
+number of distinct signers on chain, which is the attestation guard.
 
-### Why two sources, not one
+That number is *cryptographically attested* — each value carries a signature we verify — rather than
+something we assembled and asked you to trust.
 
-This is the nicest thing to fall out of the constraint. Look back at the second guard below:
-*confidence*. Where does a confidence number come from when you are your own oracle? You could invent
-one, but a hardcoded "always confident" value is worse than useless — it silently disables the guard
-it was supposed to feed, while looking like it works.
+### Why not Pyth, and the lesson in it
 
-**Two independent sources solve this honestly: their disagreement *is* the uncertainty.** If two
-providers both say META closed at $681.20, confidence is tight and we settle. If one says $681.20 and
-the other $675.00, something is wrong — bad data, a stale cache, a corporate action nobody handled —
-and the guard trips, so we refuse to settle rather than pay out on a contested number.
+Pyth is the obvious choice on Solana and we planned on it. Two things ruled it out: its older devnet
+feeds were last updated **2.4 to 3.5 years ago**, and during 2026 it moved US equity data onto paid
+plans starting at **$5,000/month**, with the free tier granting no API access at all.
 
-Losing Pyth therefore produced a *better* design than the plan it replaced. The fallback is now a
-real second opinion rather than a spare tyre, and we can actually test it.
+That second point is worth sitting with, because you will meet this class of problem repeatedly:
+**the blocker was commercial, not technical.** Nothing was broken. The capability existed and worked
+fine. It simply had a price tag, and no amount of engineering would have changed that. Spotting this
+kind of obstacle early saves days — and it is only ever found by reading changelogs and pricing pages,
+never by debugging.
 
-### Being honest about the trust model
+### The fallback
 
-Be clear-eyed about the cost: we are trusting ourselves, which is a genuinely weaker guarantee than
-trusting an oracle network. Three things keep that disciplined — the program holds an **allowlist** of
-publisher keys so no other signer can settle a market, the guards below still apply in full, and the
-limitation is written plainly into the project's risks note instead of glossed over. A reviewer should
-learn this from our documentation, not discover it.
+Principle IV requires a *tested* fallback, so we also run our own signed publisher: the automation
+service reads the close from a free stock API (Finnhub, cross-checked against Nasdaq), signs it, and
+posts it. It is weaker than RedStone by design — we would be trusting ourselves — so it is the backup,
+not the primary, and the program holds an **allowlist** of publisher keys so no other signer can settle
+a market.
 
-Full workings: [`spikes/2026-10-05-pyth-devnet.md`](spikes/2026-10-05-pyth-devnet.md).
+### Being honest about the limitations
+
+Two, both written into the project's risks note rather than left for a reviewer to discover:
+
+- **No free source carries the official closing *auction* print.** That specific number is a licensed
+  product. What we settle on is a consolidated price that agrees with the official close to a few
+  hundredths of a percent — fine for devnet with no real money, and not something our documentation
+  should overstate.
+- **RedStone's gateway currently serves us without an API key, and their docs say a key is required.**
+  Policy and reality disagree today. If they start enforcing it, the primary path stops and the
+  fallback takes over — which is exactly why Principle IV insists the fallback be *tested* rather than
+  aspirational.
+
+Full workings: [`spikes/2026-10-05-pyth-devnet.md`](spikes/2026-10-05-pyth-devnet.md). Settled position:
+[`../DECISIONS.md`](../DECISIONS.md) §4.
 
 ### The guards
 

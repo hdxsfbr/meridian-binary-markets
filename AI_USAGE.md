@@ -78,7 +78,7 @@ one that shows it.
 
 A teammate (Zach Gardner) reported in Slack that Pyth on testnet was a dead end. Rather than
 accepting or dismissing it, the claim was **measured**. Findings in
-`docs/spikes/2026-10-05-pyth-devnet.md`, decision in `DECISIONS.md` §7 (superseding §4),
+`docs/spikes/2026-10-05-pyth-devnet.md`, decision in `DECISIONS.md` §4,
 constitution amended to v1.2.0.
 
 *Where AI's prior assumption was wrong:* `DECISIONS.md` §4 had named Pyth as the primary oracle on
@@ -106,7 +106,7 @@ have carried a wrong premise into implementation otherwise.
 *Overridden by the human:* the option set (Pyth-plus-API-key / own attested oracle / Switchboard) was
 presented with a recommendation; Andre chose the attested oracle plus adapter interface and directed
 vendor-neutral constitutional wording. The reasoning for not blocking on a third party's support
-email is his, recorded in §7.
+email is his, recorded in `DECISIONS.md` §4.
 
 *Method note:* candidate replacement data sources were probed rather than assumed. Alpha Vantage
 returned same-day data and works; Stooq, which from memory is a keyless CSV endpoint, now sits behind
@@ -183,3 +183,28 @@ result is that **this project needs no paid data at all**. Two findings justify 
 MAG7 with **no API key**, and showed no throttling across 12 rapid calls — but it is undocumented, needs
 a browser-like User-Agent, and carries no SLA, so it is used as a cross-check and never as the sole
 source. Polygon.io has rebranded to Massive, which a from-memory answer would have got wrong.
+
+### 2026-10-06 — Process correction: findings are not decisions
+
+Andre: *"you keep swerving all over the place and continually updating docs back and forth i am lost."*
+Correct, and the cause was a misapplied instruction rather than bad research.
+
+The standing rule on this project is to log decisions as they happen rather than reconstruct them at
+the end. I applied that to **findings**. Over two days the oracle question was committed three times —
+Pyth, then a self-attested publisher, then RedStone — each with its own `DECISIONS.md` entry, a
+constitution bump, README and onboarding rewrites, and four commits. Every individual entry was
+accurate. The aggregate was unreadable, because it forced a reader to follow my investigation in real
+time to find out where things stood.
+
+**The distinction I missed:** a finding is evidence, a decision is a conclusion. Only decisions belong
+in `DECISIONS.md`. Evidence belongs in the spike document, which is precisely what it is for, and
+intermediate evidence should not trigger a governance amendment.
+
+**Fixed by consolidation**, not by another document: §4, §7 and §8 collapsed into a single §4 stating
+the settled position, with the spike doc retained as the evidence trail and labelled as such — including
+my two wrong turns, which stay on the record. `DECISIONS.md` went from 299 lines to 164 while losing no
+substance.
+
+**Adopted going forward:** finish an investigation, then write once. The research pattern — probe the
+chain for capability, read changelogs and pricing for policy — was right and found real things; it was
+the publishing cadence that was wrong.

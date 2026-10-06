@@ -6,12 +6,17 @@ updated in MONTHS, and would require an api key providing access to stock data (
 not do you on this one)."*
 **Question:** Can Meridian read MAG7 equity closing prices from Pyth on Solana devnet, under the
 staleness and confidence guards the brief requires?
-**Verdict:** **No, and not at any price we would pay.** Zach is right on both counts and the reality
-is harder than either of us first described: the legacy devnet feeds are *years* dead, and MAG7
-equity feeds are now a **$5,000/month commercial product**. This is a deliberate repricing by Pyth,
-not an outage and not an access oversight. Meridian ships a **guarded oracle adapter interface** with
-two independent free data sources behind it; a Pyth adapter is written as the documented production
-path but cannot be exercised on this project's budget.
+**Verdict:** **Pyth, no — but a free equivalent exists.** Zach is right on both counts and the reality
+is harder than either of us first described: the legacy devnet feeds are *years* dead, and MAG7 equity
+feeds are now a **$5,000/month commercial product** — a deliberate repricing, not an outage. The
+resolution is **RedStone** (Finding 6): free, live on Solana devnet, carries all seven MAG7, and
+supplies five independently signed values per feed, which is a stronger confidence measure than Pyth's
+single interval. Decision recorded in `DECISIONS.md` §4.
+
+> **Reading note.** This document is the evidence trail, kept in the order the findings arrived,
+> including two of my own wrong conclusions along the way (Finding 3's framing, corrected by Finding 5;
+> and an earlier recommendation of Switchboard, killed by Finding 6). That is deliberate — the spike is
+> where the process lives. For the settled position and nothing else, read `DECISIONS.md` §4.
 
 ---
 

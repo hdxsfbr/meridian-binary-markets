@@ -57,12 +57,12 @@ book operation.
   see `DECISIONS.md` §3 for why Solana.)
 - Frontend in TypeScript, React and Next.js
 - Node.js automation service for market creation and settlement
-- A guarded price oracle behind a swappable adapter interface — staleness, confidence and publisher
-  allowlist checks, failing closed. Pyth was evaluated and rejected on cost: MAG7 equity feeds are now
-  a $5,000/month product and the free tier grants no API access. We sign prices from two independent
-  free sources instead (Finnhub primary, Nasdaq cross-check, Alpha Vantage for the morning ladder),
-  deriving the confidence measure from their disagreement. Total data cost $0. See `DECISIONS.md` §7
-  and `docs/spikes/2026-10-05-pyth-devnet.md`.
+- **RedStone** pull oracle for prices, behind a guarded adapter interface — staleness, confidence and
+  publisher-attestation checks, failing closed. Each feed carries five independently signed values, so
+  the confidence measure is cryptographically attested rather than assembled by us. A self-signed
+  publisher reading free stock APIs is the tested fallback. Pyth was evaluated and rejected: MAG7
+  equity feeds are a $5,000/month product. Total data cost $0. See `DECISIONS.md` §4 and
+  `docs/spikes/2026-10-05-pyth-devnet.md`.
 - USDC integration (devnet test mint)
 - Secrets via environment variables (`.env.example` committed)
 
