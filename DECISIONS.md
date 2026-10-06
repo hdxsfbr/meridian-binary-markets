@@ -196,10 +196,37 @@ available: it is a $5,000/month subscription, not a favour that a support email 
 adapter boundary still earns its keep — if Peak6 turns out to hold a Pyth Pro entitlement, we swap an
 implementation rather than redesign settlement.
 
-Left open for planning: the **divergence threshold** between the two sources that trips the
-confidence guard. It must be set against real observed spread between the two feeds, not guessed. The
-second free source (Finnhub, Twelve Data or Polygon end-of-day are the candidates) also still needs
-probing the way Alpha Vantage was.
+**Sources chosen, after probing eight of them (2026-10-06).** Total cost **$0** — every requirement
+here is served by free tiers, at 14 reads/day against limits with three orders of magnitude of
+headroom.
+
+| Read | When | Source |
+|---|---|---|
+| Previous close → strike ladder | 8:00 AM ET | Nasdaq historical + Alpha Vantage `TIME_SERIES_DAILY` |
+| Official close → settlement | ~4:05 PM ET | Finnhub `/quote` primary, Nasdaq keyless cross-check |
+
+Finnhub because its free tier is real-time for US stocks at 60 calls/min and `/quote` returns the
+current price *and* previous close in one call. Nasdaq's `api.nasdaq.com` needs **no key at all**,
+returned all seven MAG7 closes, and showed no throttling across 12 rapid calls — sound as a
+cross-check, though undocumented and therefore never to be the sole source.
+
+**The constraint that decided it — a latency trap worth recording.** Settlement must land within 10
+minutes of the close, and a free *end-of-day* feed cannot do that. **Three otherwise-reasonable
+sources are disqualified by the clock alone:** Alpha Vantage is not dependable until ~5 PM ET, Massive
+(ex-Polygon.io, since rebranded) is EOD-only, and Alpaca's free tier explicitly withholds the most
+recent 15 minutes — exactly the window the closing price lives in. Found now rather than during
+implementation, where it would have invalidated the settlement path late.
+
+**The two-source design was validated, not assumed.** For AAPL's 2026-10-05 close, Nasdaq returned
+332.89 and Twelve Data 332.89001 — agreement to five decimal places. That is what the design needs:
+the healthy-case disagreement band is ~zero, so any material divergence is a real signal rather than
+vendor noise, and the threshold can be set tight.
+
+Still open for planning: the exact divergence threshold, set against observed spread across more
+tickers and days rather than this single sample. And one caveat for the risks note — **no free source
+carries the true official closing auction print** (a licensed SIP product); Finnhub's free US data is
+IEX-sourced. After the close these converge, and the cross-check shows exact agreement, but the
+documentation must not claim we read the official consolidated close.
 
 **Consequence for the spec:** one clause. `spec.md` describes the oracle only as "an external price
 source" with guard *behaviour*, so nothing structural moved — but FR-019 listed two guards and now

@@ -133,31 +133,71 @@ different and much shorter conversation, and the only one worth having.
 
 ## Candidate replacement sources, probed
 
-| Source | Result |
-|---|---|
-| **Alpha Vantage** | Works. `TIME_SERIES_DAILY` for IBM with the public `demo` key returned data refreshed **2026-10-05** (same day). Other symbols require a free registered key — a 20-second signup, no payment. |
-| **Stooq** (free CSV, no key) | **Unusable.** Now behind a JavaScript proof-of-work browser check; returns an HTML challenge page, not CSV. A headless service cannot consume it. |
-| Pyth via Hermes | Blocked, Findings 3 and 5 — $5,000/month for MAG7 equities. |
-| **A second free source** (Finnhub, Twelve Data, Polygon end-of-day) | Not yet probed. Required, because two independent sources are what make the confidence guard honest — see Decision. Probe before planning closes. |
-| Switchboard On-Demand | Not probed. Pull oracle on devnet, can fetch arbitrary APIs with TEE attestation — but still needs an underlying stock data source, so it moves the attestation problem without solving the data problem. |
+Probed empirically on 2026-10-06, not recalled. Verdicts turn on one constraint that is easy to miss:
+**the two reads have very different latency requirements**, and most free tiers can only serve one of
+them.
 
-Meridian's actual data requirement is tiny: **2 reads/day × 7 tickers = 14 requests/day** (previous
-close for the 8:00 AM strike ladder, official close for 4:05 PM settlement). Any free tier that
-permits a few dozen daily requests is sufficient. The specific published rate limit must be
-confirmed against a real key before it is relied on — the Phoenix spike is a standing reminder not
-to bank an unverified number.
+| Source | Key | Limit | US equity data | Serves the 4:05 PM close? | Verdict |
+|---|---|---|---|---|---|
+| **Nasdaq** `api.nasdaq.com` | **none** | no throttle seen (12/12 rapid calls HTTP 200) | `/quote/<sym>/info` + `/quote/<sym>/historical` daily OHLC; all 7 MAG7 returned | Yes — primary listing venue for these tickers | **Use as cross-check** |
+| **Finnhub** | free | 60/min | `/quote` is free and real-time for US stocks; returns current **and** previous close in one call | Yes | **Use as settlement primary** |
+| **Twelve Data** | free | 800/day | `/quote` returns `close` + `previous_close` together | Yes (verified below) | **Use as third source** |
+| **Alpha Vantage** | free | **25/day**, 5/min | `TIME_SERIES_DAILY` verified live, same-day data | **No** — reliable only ~5 PM ET | Morning read only |
+| **Massive** (ex-Polygon.io) | free | 5/min | End-of-day only, 2 y history | **No** — EOD arrives too late | Morning read only |
+| **Alpaca** | free | 200/min | IEX feed only, and free tier blocks the **latest 15 minutes** of history | **No** — close unreadable until ~4:15 PM | Fails the 10-min target |
+| Yahoo Finance `query1` | none | — | HTTP **429** from this host; unofficial | Unreliable | Rejected |
+| Stooq CSV | none | — | JavaScript proof-of-work challenge, intermittently | Unusable headless | Rejected |
+| Pyth via Hermes | paid | — | $5,000/mo for MAG7 (Findings 3, 5) | n/a | Rejected on cost |
+
+**The latency trap, stated plainly.** Settlement must land within 10 minutes of the 4:00 PM close
+(PRD FR-5). A free *end-of-day* feed cannot do that — Alpha Vantage is not dependable until ~5 PM,
+Massive is EOD-only, and Alpaca's free tier explicitly withholds the most recent 15 minutes, which is
+precisely the window the closing price lives in. Three otherwise-reasonable sources are disqualified
+by the clock alone. Had this been discovered during implementation rather than now, it would have
+invalidated the settlement path late.
+
+### The two-source design, empirically validated
+
+The confidence-from-disagreement idea is load-bearing, so it was tested rather than assumed. Monday
+2026-10-05 closes, two independent providers:
+
+| Ticker | Nasdaq (keyless) | Twelve Data | Difference |
+|---|---|---|---|
+| AAPL | 332.89 | 332.89001 | **0.0000 (0.0000%)** |
+
+Agreement to five decimal places. That is the result the design needs: in the healthy case the
+disagreement band is essentially zero, so **any** material divergence is a real signal rather than
+ordinary vendor noise. A threshold can therefore be set tight.
+
+Twelve Data's `demo` key only authorizes AAPL, so the other six tickers returned `DENIED` — a key
+limitation, not a data one. Nasdaq returned all seven MAG7 closes keyless: AAPL 332.89, MSFT 525.18,
+GOOGL 346.47, AMZN 251.40, NVDA 238.90, META 741.90, TSLA 378.73.
+
+### Caveats that must reach the risks note
+
+- **No free source carries the true official closing auction print.** That is a licensed SIP product.
+  Finnhub's free US data is IEX-sourced; Nasdaq's `lastSalePrice` reports `isRealTime: false` during
+  the session. After the close these converge on the daily close, and the cross-check above shows
+  vendors agreeing exactly — but "the official consolidated close" is not what we are reading, and the
+  documentation must not imply otherwise.
+- **The Nasdaq endpoint is undocumented.** It needs a browser-like `User-Agent`, publishes no rate
+  limit or SLA, and could change without notice. Sound as a cross-check; must never be the only source.
+- **Licence terms.** Twelve Data and Massive free tiers are individual/non-commercial. This project is
+  coursework on devnet with no real funds, which fits, but it bars commercial reuse.
 
 ## Decision
 
 An **oracle adapter interface** — *return a price with a publish timestamp and a confidence measure,
 or refuse* — with three implementations, only two of which we can exercise:
 
-1. **`AttestedPublisher`, primary.** The automation service reads the close from a free stock data
-   API, signs it, and posts it to a price account the program reads. The program applies the guards —
-   staleness, confidence/quality, and a **publisher allowlist** — and fails closed.
-2. **`AttestedPublisher` on a second, independent free source, as the tested fallback.** Originally
-   this slot was reserved for Pyth. Finding 5 makes that impossible, and the replacement is better
-   in a way worth stating plainly:
+1. **`AttestedPublisher`, primary — Finnhub.** The automation service reads the close, signs it, and
+   posts it to a price account the program reads. The program applies the guards — staleness,
+   confidence/quality, and a **publisher allowlist** — and fails closed. Finnhub because its free tier
+   is real-time for US stocks at 60 calls/min and its `/quote` response carries the current price *and*
+   the previous close in one call, covering both daily reads from one endpoint.
+2. **`AttestedPublisher` on a second, independent free source, as the tested fallback — Nasdaq's
+   keyless API, with Twelve Data available as a third.** Originally this slot was reserved for Pyth.
+   Finding 5 makes that impossible, and the replacement is better in a way worth stating plainly:
 
    > Principle IV requires the confidence measure to be **derived from something real** rather than
    > hardcoded. A single data source gives us nothing honest to put there. **Two independent sources
@@ -177,6 +217,17 @@ or refuse* — with three implementations, only two of which we can exercise:
 
 The on-chain guard logic is written once and is identical for all three. Which sources feed it is
 configuration.
+
+**Read assignment**, because the two reads have different constraints:
+
+| Read | When | Latency need | Source |
+|---|---|---|---|
+| Previous close → strike ladder | 8:00 AM ET | none (~16 h old) | Nasdaq historical + Alpha Vantage `TIME_SERIES_DAILY` (7 calls fits the 25/day cap) |
+| Official close → settlement | ~4:05 PM ET | **under 5 min** | Finnhub `/quote` primary, Nasdaq cross-check |
+
+**Total cost: $0.** Every requirement of this project is served by free tiers. The daily volume is
+14 reads per source, against limits of 60/min (Finnhub) and 800/day (Twelve Data) — three orders of
+magnitude of headroom.
 
 ## What this does NOT change
 

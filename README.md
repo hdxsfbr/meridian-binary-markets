@@ -60,7 +60,8 @@ book operation.
 - A guarded price oracle behind a swappable adapter interface — staleness, confidence and publisher
   allowlist checks, failing closed. Pyth was evaluated and rejected on cost: MAG7 equity feeds are now
   a $5,000/month product and the free tier grants no API access. We sign prices from two independent
-  free sources instead, deriving the confidence measure from their disagreement. See `DECISIONS.md` §7
+  free sources instead (Finnhub primary, Nasdaq cross-check, Alpha Vantage for the morning ladder),
+  deriving the confidence measure from their disagreement. Total data cost $0. See `DECISIONS.md` §7
   and `docs/spikes/2026-10-05-pyth-devnet.md`.
 - USDC integration (devnet test mint)
 - Secrets via environment variables (`.env.example` committed)

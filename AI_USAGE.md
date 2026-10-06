@@ -146,3 +146,40 @@ direction.
 *Verified, not assumed:* the new `pyth.dourolabs.app/hermes` endpoint was tested directly and returns
 401 identically to the old one, so the migration is complete rather than in progress. Prices were read
 from Pyth's own plans page rather than from the search summary that first surfaced them.
+
+### 2026-10-06 — Why the Pyth repricing was missed, and the free-source survey
+
+Andre asked directly why Claude had not found the Core upgrade information itself. The answer is
+recorded here because the failure mode generalizes.
+
+*Root cause: the right method for the previous problem.* The Phoenix spike taught a real lesson —
+verify third-party capability claims against the live network rather than from documentation — and
+Claude applied it again here. For Phoenix that was correct, because the answer genuinely was on chain.
+For Pyth the answer was in a changelog. **Measurement establishes *whether* something works;
+only documentation explains *why not*, and whether it is coming back.** Claude asked the first question
+four separate ways (RPC, slot arithmetic, account decoding, HTTP probes) and never once asked the
+second. `WebSearch` and `WebFetch` were available throughout and were not reached for until a human
+supplied a URL. An HTTP 401 whose body is literally `unauthorized` is a signpost toward release notes,
+and it was read as a data point instead.
+
+*Correction adopted:* when an external dependency returns an auth, quota or permission error — as
+opposed to absent or stale data — read the provider's changelog and pricing before concluding anything
+about availability. A commercial boundary cannot be detected by probing.
+
+*The follow-up survey.* Eight data sources were then probed empirically rather than recalled, and the
+result is that **this project needs no paid data at all**. Two findings justify the exercise:
+
+1. **A latency trap that would have landed late.** Settlement must complete within 10 minutes of the
+   close, which silently disqualifies three otherwise-sensible free sources: Alpha Vantage is not
+   dependable until ~5 PM ET, Massive (ex-Polygon.io) is end-of-day only, and Alpaca's free tier
+   withholds the most recent 15 minutes — precisely where the closing price lives. Discovered now
+   rather than mid-implementation.
+2. **The two-source confidence design was tested, not assumed.** Nasdaq and Twelve Data returned AAPL's
+   2026-10-05 close as 332.89 and 332.89001 — agreement to five decimal places, which is what makes
+   divergence a usable signal. Claude had written this mechanism into the constitution the day before
+   on reasoning alone; checking it was the minimum owed.
+
+*Also found by probing rather than memory:* `api.nasdaq.com` serves quotes and daily OHLC for all seven
+MAG7 with **no API key**, and showed no throttling across 12 rapid calls — but it is undocumented, needs
+a browser-like User-Agent, and carries no SLA, so it is used as a cross-check and never as the sole
+source. Polygon.io has rebranded to Massive, which a from-memory answer would have got wrong.
