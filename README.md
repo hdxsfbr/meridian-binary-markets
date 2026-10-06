@@ -58,9 +58,10 @@ book operation.
 - Frontend in TypeScript, React and Next.js
 - Node.js automation service for market creation and settlement
 - A guarded price oracle behind a swappable adapter interface — staleness, confidence and publisher
-  allowlist checks, failing closed. Pyth is unusable on devnet (feeds years stale, API credentials
-  required); the devnet default is an attested publisher, with a Pyth adapter ready behind the same
-  interface. See `DECISIONS.md` §7 and `docs/spikes/2026-10-05-pyth-devnet.md`.
+  allowlist checks, failing closed. Pyth was evaluated and rejected on cost: MAG7 equity feeds are now
+  a $5,000/month product and the free tier grants no API access. We sign prices from two independent
+  free sources instead, deriving the confidence measure from their disagreement. See `DECISIONS.md` §7
+  and `docs/spikes/2026-10-05-pyth-devnet.md`.
 - USDC integration (devnet test mint)
 - Secrets via environment variables (`.env.example` committed)
 

@@ -170,12 +170,13 @@ trading UI, a portfolio view with realized P&L, and a market-maker dashboard.
 - Matching MUST be bounded work per transaction. Where a crossing order would exceed the compute
   budget, it MUST fill up to a documented limit and leave a well-defined remainder rather than
   fail unpredictably.
-- **Oracle source — RESOLVED 2026-10-05.** Two adapters behind the Principle IV interface: an
-  **attested publisher** (automation service signs a close read from a free stock data API; program
-  verifies against a publisher allowlist) as the devnet default, and a **Pyth pull-oracle adapter**
-  as the preferred primary if Hermes credentials become available. Pyth was evaluated and is
-  currently unusable on devnet — legacy push feeds are ~2.4–3.5 years stale and Hermes price reads
-  return HTTP 401 for every asset class. See `DECISIONS.md` §7 and
+- **Oracle source — RESOLVED 2026-10-05.** Behind the Principle IV interface: an **attested
+  publisher** signing a close read from a free stock data API (primary), a **second independent free
+  source** as the tested fallback, and a **Pyth pull-oracle adapter** written as the documented
+  production path but labelled untested against live data. Confidence MUST be derived from the
+  disagreement between the two live sources. Pyth was evaluated and rejected on cost, not on
+  capability: MAG7 equity feeds moved to paid tiers during 2026 and the cheapest plan carrying them is
+  $5,000/month, while the free tier grants no API access at all. See `DECISIONS.md` §7 and
   `docs/spikes/2026-10-05-pyth-devnet.md`.
 
 ## Development Workflow

@@ -146,14 +146,25 @@ dismissed.
    the newest `valid_slot` among them is 322,338,253 against a current devnet slot of 507,978,643 —
    a gap of 185.6M slots, i.e. **2.4 to 3.5 years**. Sampled accounts carried `pub_slot = 1`.
 2. **Hermes price reads return HTTP 401 for every asset class**, not just equities — tested META
-   (equity) and BTC/USD (crypto) side by side. The feed *metadata* endpoint is still public, which is
-   how all seven MAG7 feeds were confirmed to exist. So there are two distinct barriers: general API
-   authentication, and separately the equity data licensing Zach identified. The first one is what
-   stops us today.
+   (equity) and BTC/USD (crypto) side by side, on both the old `hermes.pyth.network` and the new
+   `pyth.dourolabs.app/hermes` endpoint. The feed *metadata* endpoint is still public, which is how
+   all seven MAG7 feeds were confirmed to exist.
 3. **The pull-oracle path is not itself dead.** The receiver program is deployed on devnet with
    739,203 `PriceUpdateV2` accounts. In the pull model the consumer posts a freshly signed update, so
    stale leftover accounts prove nothing — the only blocker is obtaining the signed blob, i.e.
-   finding 2. If credentials arrive, this path works on devnet with no redesign.
+   finding 2.
+4. **The cause, and the real blocker: Pyth repriced equity data during 2026.** Andre pointed at
+   Pyth's Core upgrade docs, which turned the measurement into an explanation. On **2026-06-15** Core
+   deprecated extended-hours and session-based US equity feeds (~50 tickers including AAPL, TSLA,
+   NVDA, META) to the paid Pyth Pro product; on **2026-07-31** regular-session equity feeds followed;
+   on **2026-08-26** the whole Hermes API went behind an API key. The price list settles it: the free
+   plan grants **no API access at all** (view-only, 10 s updates), Starter at $500/mo is **crypto
+   only**, and the cheapest tier carrying MAG7 equities is **$5,000/month**.
+
+   This is a deliberate three-step repricing, not an outage. **So "emailing Pyth support and asking
+   nicely" will not produce a free equity key** — worth telling Zach so he does not block on a reply.
+   The one cheap route that would work is an existing Pyth Pro entitlement at Peak6; that is a
+   question for Myles Lewis, not for Pyth support.
 
 **Decision:** Put the oracle behind an **adapter interface** — *return a price with a publish
 timestamp and a confidence measure, or refuse* — with two implementations:
@@ -163,24 +174,32 @@ timestamp and a confidence measure, or refuse* — with two implementations:
   signs it, and posts it to a price account the program reads. The program applies the same guards as
   always — staleness under 5 minutes, confidence/quality, **plus a publisher allowlist** — and fails
   closed.
-- **`PythAdapter`, preferred whenever available.** Reads a `PriceUpdateV2` via the pull-oracle
-  receiver. Becomes primary the moment Hermes credentials exist, at which point the attested
-  publisher demotes to the documented fallback Principle IV already requires us to build and test.
+- **A second, independent free source as the tested fallback.** This slot was reserved for Pyth, and
+  losing it produced a better design. Principle IV forbids a hardcoded confidence value, and a single
+  source gives nothing honest to put there — but **two independent sources give us their
+  disagreement**, which is a real uncertainty signal and exactly what the confidence guard was built
+  to consume. Agreement means tight confidence and settlement proceeds; divergence past a threshold
+  trips the guard and we fail closed rather than settle on a contested price. The fallback is now a
+  genuine second opinion, and testable, which a $5,000/month dependency never could have been.
+- **`PythAdapter`, written but not exercised.** Reads a `PriceUpdateV2` via the pull-oracle receiver.
+  Kept because the pull path is genuinely alive and because it is the honest production answer — a
+  real deployment of this product buys licensed market data. It MUST be labelled in code as untested
+  against live data rather than presented as a working fallback.
 
 **Trade-off:** We become our own oracle on devnet, which is a genuinely weaker trust model than an
 oracle network, and self-attestation is the sort of thing that looks like cutting a corner if it is
 not declared. Accepted, with mitigations rather than hand-waving: an on-chain publisher allowlist so
 an unknown signer cannot settle markets; fail-closed guards so an absent publisher delays settlement
 instead of corrupting it; and an explicit entry in the required risks-and-limitations note naming
-this as a devnet limitation with Pyth as the production path. The alternative — blocking the critical
-path on a third party answering a support email — risks the whole submission on something outside our
-control. The adapter boundary means that if the email lands, we swap an implementation rather than
-redesign settlement.
+this as a devnet limitation with Pyth as the production path. The alternative was never really
+available: it is a $5,000/month subscription, not a favour that a support email might grant. The
+adapter boundary still earns its keep — if Peak6 turns out to hold a Pyth Pro entitlement, we swap an
+implementation rather than redesign settlement.
 
-One thing deliberately left open for planning: **confidence has no natural definition for a
-single-source price.** The adapter must synthesize one honestly (spread between two independent
-sources, or a published bid/ask band) rather than hardcode a confident-looking constant, which would
-defeat the guard it feeds.
+Left open for planning: the **divergence threshold** between the two sources that trips the
+confidence guard. It must be set against real observed spread between the two feeds, not guessed. The
+second free source (Finnhub, Twelve Data or Polygon end-of-day are the candidates) also still needs
+probing the way Alpha Vantage was.
 
 **Consequence for the spec:** one clause. `spec.md` describes the oracle only as "an external price
 source" with guard *behaviour*, so nothing structural moved — but FR-019 listed two guards and now

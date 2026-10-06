@@ -113,3 +113,36 @@ returned same-day data and works; Stooq, which from memory is a keyless CSV endp
 a JavaScript proof-of-work challenge and is unusable headless. The spike states the free-tier rate
 limit as *to be confirmed against a real key* rather than quoting a remembered number — directly
 because of the Phoenix lesson.
+
+### 2026-10-05 — Pyth, continued: the human-supplied document that explained it
+
+Andre pointed at Pyth's Core upgrade documentation
+(`docs.pyth.network/price-feeds/core/upgrade/preparing`) after the findings above were already
+recorded. It converted four measurements into one explanation, and changed the recommendation's
+shape.
+
+*What the human contributed that AI had not:* Claude had measured *that* Hermes returns 401 and
+inferred a general authentication wall, filing equity licensing as a separate open question. The
+document shows the real story — a deliberate **three-stage repricing**: 2026-06-15 extended-hours
+equity feeds moved to paid Pyth Pro, 2026-07-31 regular-session equity feeds followed, 2026-08-26 all
+of Hermes went behind an API key with a new base URL. The price list then settles it: free tier has
+**no API access at all**, Starter at $500/mo is **crypto only**, and MAG7 equities start at
+**$5,000/month**.
+
+*The error class, named:* Claude had measured the symptom accurately and stopped. Every individual
+claim it made was true and reproducible, and the conclusion drawn from them — "credentials might
+arrive if Zach's email lands" — was still wrong, because it never asked *why* the wall existed. A
+correct measurement is not the same as an understood cause. One documentation page the human knew to
+look for outperformed four rounds of RPC and HTTP probing.
+
+*What it changed:* the decision stands, but its justification and its second adapter both changed.
+Pyth is rejected on **cost, not capability**, and "wait for a support reply" is struck as a path —
+Pyth did not misplace this data, they priced it. The fallback slot reserved for Pyth became a second
+independent free source, which turned out to be the better design: two sources disagreeing is a real
+confidence signal, and Principle IV forbids the hardcoded constant a single source would have forced.
+A constraint improved the architecture, which is worth noting because it is the opposite of the usual
+direction.
+
+*Verified, not assumed:* the new `pyth.dourolabs.app/hermes` endpoint was tested directly and returns
+401 identically to the old one, so the migration is complete rather than in progress. Prices were read
+from Pyth's own plans page rather than from the search summary that first surfaced them.

@@ -6,10 +6,12 @@ updated in MONTHS, and would require an api key providing access to stock data (
 not do you on this one)."*
 **Question:** Can Meridian read MAG7 equity closing prices from Pyth on Solana devnet, under the
 staleness and confidence guards the brief requires?
-**Verdict:** **No, not reproducibly.** Zach is right, and the staleness is worse than "months" —
-the legacy devnet feeds are years dead, and the live path is gated behind API credentials we do not
-have. Meridian ships a **guarded oracle adapter interface** with an attested devnet publisher as
-the default implementation, and a Pyth adapter behind the same interface for if credentials land.
+**Verdict:** **No, and not at any price we would pay.** Zach is right on both counts and the reality
+is harder than either of us first described: the legacy devnet feeds are *years* dead, and MAG7
+equity feeds are now a **$5,000/month commercial product**. This is a deliberate repricing by Pyth,
+not an outage and not an access oversight. Meridian ships a **guarded oracle adapter interface** with
+two independent free data sources behind it; a Pyth adapter is written as the documented production
+path but cannot be exercised on this project's budget.
 
 ---
 
@@ -74,13 +76,9 @@ GET /v2/updates/price/latest?ids[]=<BTC/USD crypto feed> ->  HTTP 401 unauthoriz
 GET /v2/price_feeds?asset_type=equity                    ->  HTTP 200
 ```
 
-Crypto returns 401 too. So the wall is **general API authentication on the public Hermes endpoint**,
-not equity-specific data licensing. Both barriers plausibly exist — equity market data genuinely is
-licensed, which is why Zach is right that a free trial likely will not cover it — but the one that
-stops us today applies to every asset class.
-
-This matters for who to ask and for what: the request is for Hermes API access, and *separately*
-for equity data entitlement. Those may be two different conversations with Pyth.
+Crypto returns 401 too, so the authentication wall itself applies to every asset class. Finding 5
+explains why, and supersedes the guess recorded here first — that this was merely general API auth
+with equity licensing as a separate question. It is both, and both are priced.
 
 ## Finding 4 — The pull-oracle path is architecturally alive but unfed
 
@@ -93,8 +91,45 @@ their own transaction, so leftover stale accounts are expected litter, not evide
 Devnet staleness is not inherent to pull oracles. The blocker is Finding 3 and only Finding 3: we
 cannot obtain the signed price blob to post.
 
-**Consequence:** if credentials arrive, this path works on devnet today with no redesign. That is
-precisely why it stays behind the adapter interface rather than being written off.
+**Consequence:** the devnet *mechanism* is sound — a funded consumer could run this path today. That
+is why `PythAdapter` is written rather than deleted. Finding 5 is what makes "funded" the operative
+word.
+
+## Finding 5 — the real cause: Pyth repriced equity data, in stages, during 2026
+
+Pointed at [`docs/pyth.network/price-feeds/core/upgrade/preparing`](https://docs.pyth.network/price-feeds/core/upgrade/preparing)
+by Andre, which turned a measurement into an explanation. Pyth Core was **upgraded, not deprecated**,
+and the 401s are the intended end state of a three-step migration:
+
+| Date (2026) | Change |
+|---|---|
+| **Jun 15** | Pyth Core deprecates all extended-hours and session-based US equity feeds (~50 tickers, incl. AAPL, TSLA, NVDA, META) — moved to paid Pyth Pro |
+| **Jul 31** | Regular-session equity feeds also require an active paid plan |
+| **Aug 26, 16:00 UTC** | Core upgrade: **all** of Hermes requires a Pyth API Key. New base URL `pyth.dourolabs.app/hermes`, auth via `Authorization: Bearer $PYTH_API_KEY` |
+
+Verified: the new endpoint returns `HTTP 401 unauthorized` unauthenticated, identically to the old
+one. Both are walled; the migration is complete.
+
+**And the price list is the actual blocker** ([app.pyth.com/plans](https://app.pyth.com/plans)):
+
+| Plan | Price | API access | Asset classes |
+|---|---|---|---|
+| Free | $0/mo | **"No Pyth API access"** — view-only in Terminal, 10 s updates | — |
+| Starter | $500/mo | API key | **crypto only** |
+| Pro | from $2,500/mo | API key | all symbols incl. equities |
+| U.S. Equities | **$5,000/mo** | API key | US equities |
+| All Asset Classes | $10,000/mo | API key | everything |
+
+So the free tier grants **no API access at all**, and the cheapest paid tier that carries MAG7
+equities is **$5,000/month**. Note the asymmetry this explains: feed *metadata* is still public
+(Finding 1 found all seven MAG7 feed IDs at HTTP 200) while feed *data* is a five-figure annual
+product. The feeds exist and are advertised; the prices behind them are sold.
+
+**This settles the open question about Zach's support email.** "Emailing Pyth support and asking
+nicely" will not produce a free equity key, because Pyth did not lose this capability — they moved it
+to a price list on purpose, in three deliberate steps, over three months. Worth telling him so he
+does not block on a reply. If anyone at Peak6 already holds a Pyth Pro entitlement that is a
+different and much shorter conversation, and the only one worth having.
 
 ## Candidate replacement sources, probed
 
@@ -102,7 +137,8 @@ precisely why it stays behind the adapter interface rather than being written of
 |---|---|
 | **Alpha Vantage** | Works. `TIME_SERIES_DAILY` for IBM with the public `demo` key returned data refreshed **2026-10-05** (same day). Other symbols require a free registered key — a 20-second signup, no payment. |
 | **Stooq** (free CSV, no key) | **Unusable.** Now behind a JavaScript proof-of-work browser check; returns an HTML challenge page, not CSV. A headless service cannot consume it. |
-| Pyth via Hermes | Blocked, Finding 3. |
+| Pyth via Hermes | Blocked, Findings 3 and 5 — $5,000/month for MAG7 equities. |
+| **A second free source** (Finnhub, Twelve Data, Polygon end-of-day) | Not yet probed. Required, because two independent sources are what make the confidence guard honest — see Decision. Probe before planning closes. |
 | Switchboard On-Demand | Not probed. Pull oracle on devnet, can fetch arbitrary APIs with TEE attestation — but still needs an underlying stock data source, so it moves the attestation problem without solving the data problem. |
 
 Meridian's actual data requirement is tiny: **2 reads/day × 7 tickers = 14 requests/day** (previous
@@ -113,18 +149,34 @@ to bank an unverified number.
 
 ## Decision
 
-An **oracle adapter interface** with two implementations behind it:
+An **oracle adapter interface** — *return a price with a publish timestamp and a confidence measure,
+or refuse* — with three implementations, only two of which we can exercise:
 
-1. **`AttestedPublisher` (default on devnet).** The automation service reads the close from a free
-   stock data API, signs it, and posts it to a price account our program reads. The program applies
-   the identical guards — staleness, confidence/quality, plus a **publisher allowlist** — and fails
-   closed.
-2. **`PythAdapter` (preferred when available).** Reads a `PriceUpdateV2` posted via the pull-oracle
-   receiver. Unblocked the moment Hermes credentials exist.
+1. **`AttestedPublisher`, primary.** The automation service reads the close from a free stock data
+   API, signs it, and posts it to a price account the program reads. The program applies the guards —
+   staleness, confidence/quality, and a **publisher allowlist** — and fails closed.
+2. **`AttestedPublisher` on a second, independent free source, as the tested fallback.** Originally
+   this slot was reserved for Pyth. Finding 5 makes that impossible, and the replacement is better
+   in a way worth stating plainly:
 
-Both satisfy the same interface: *return a price with a publish timestamp and a confidence measure,
-or refuse.* The on-chain guard logic is written once and is identical for both. Swapping sources is
-a configuration change and an adapter, not a redesign.
+   > Principle IV requires the confidence measure to be **derived from something real** rather than
+   > hardcoded. A single data source gives us nothing honest to put there. **Two independent sources
+   > give us their disagreement**, which is a genuine uncertainty signal — exactly what the
+   > confidence guard was designed to consume. When the two agree, confidence is tight and settlement
+   > proceeds; when they diverge beyond a threshold, the guard trips and we fail closed rather than
+   > settling on a contested price.
+
+   So the constraint produced a better design than the plan it replaced. The fallback is now a real
+   second opinion instead of a spare tyre, and it is testable, which Principle IV demands and a
+   $5,000/month dependency could never have been.
+3. **`PythAdapter`, written but not exercised.** Reads a `PriceUpdateV2` via the pull-oracle receiver.
+   Kept because the pull-oracle path is genuinely alive (Finding 4) and because it is the honest
+   production answer: a real deployment of this product buys licensed market data. Documented as the
+   production path, and **labelled in the code as untested against live data** — not presented as a
+   working fallback it cannot be.
+
+The on-chain guard logic is written once and is identical for all three. Which sources feed it is
+configuration.
 
 ## What this does NOT change
 
@@ -147,14 +199,16 @@ that ratio is the whole return on stating requirements as behaviour rather than 
   fail-closed guards, so an absent publisher delays settlement rather than corrupting it.
 - **A free stock API could rate-limit or change shape.** Mitigated by the 14-requests/day ceiling,
   by caching the fetched close, and by the adapter boundary making the data source swappable.
-- **Confidence has no natural definition for a single-source price.** The adapter must synthesize
-  one honestly — e.g. spread across two independent sources, or a published bid/ask band — rather
-  than hardcoding a confident-looking constant. A fabricated confidence value would defeat the
-  guard it exists to feed. To be settled in planning.
+- **Confidence has no natural definition for a single-source price.** Addressed by the two-source
+  design in the Decision above: confidence is derived from the disagreement between two independent
+  providers. The divergence threshold that trips the guard is still to be set in planning, and must be
+  chosen against real observed spread between the two feeds rather than guessed.
 
 ## What would change this decision
 
-Hermes API credentials covering equity feeds. Then `PythAdapter` becomes the primary, the attested
-publisher demotes to the documented fallback that Principle IV already requires us to build and
-test, and nothing else moves. Zach's email to Pyth support is therefore worth following up on even
-though we are no longer blocked on it.
+An existing **Pyth Pro entitlement at Peak6** — the Pro tier upward carries equities, and if the
+partner already pays for one, `PythAdapter` becomes primary and the attested publisher demotes to the
+fallback. That is a question worth asking Myles Lewis, and it is the only cheap route to Pyth.
+
+What would *not* change it: Pyth support replying to Zach. The data is priced, not misplaced
+(Finding 5). Nothing short of a $5,000/month plan or a partner entitlement moves this.

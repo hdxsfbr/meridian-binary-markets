@@ -374,27 +374,52 @@ Whatever the source, the thing it posts on chain must carry three pieces of info
 ### Which oracle we actually use, and why it is not Pyth
 
 The obvious choice on Solana is **Pyth**, a first-party oracle network with equity feeds for all
-seven of our tickers. We planned on it, then checked, and it does not work on devnet:
+seven of our tickers. We planned on it, checked, and found we cannot use it:
 
-- Pyth's older "push" feeds on devnet were last updated roughly **2.4 to 3.5 years ago**. Nobody
-  runs a publisher against them any more.
-- Pyth's modern "pull" feeds work differently — *you* fetch a signed price from their API and post
-  it on chain yourself. The program for this is deployed on devnet and would work fine. But the API
-  now returns `401 Unauthorized` without credentials, for every asset class, and equity market data
-  is separately licensed on top of that.
+- Pyth's older "push" feeds on devnet were last updated roughly **2.4 to 3.5 years ago**. Nobody runs
+  a publisher against them any more.
+- Pyth's modern "pull" feeds work differently — *you* fetch a signed price from their API and post it
+  on chain yourself. That program *is* deployed on devnet and would work fine. But during 2026 Pyth
+  moved US equity data onto paid plans, and the cheapest plan carrying our tickers is **$5,000 a
+  month**. The free tier includes no API access at all. Unauthenticated requests return
+  `401 Unauthorized`.
 
-So instead, Meridian defines an **oracle adapter**: a single narrow interface that says *return a
-price with a timestamp and a confidence measure, or refuse*. Two things implement it:
+That second point is worth sitting with, because it is a kind of problem you will meet repeatedly in
+this domain: **the blocker was commercial, not technical.** Nothing was broken. The capability existed
+and worked. It simply had a price tag we were not going to pay, and no amount of engineering effort
+would have changed that. Recognising this class of obstacle early saves days.
 
-1. **An attested publisher** — our own automation service reads the closing price from a free stock
-   data API, signs it, and posts it on chain. This is the default on devnet.
-2. **A Pyth adapter** — ready to become the primary the moment credentials exist.
+So Meridian defines an **oracle adapter**: one narrow interface saying *return a price with a
+timestamp and a confidence measure, or refuse*. Three things implement it:
 
-Be clear-eyed about what #1 costs us: we are trusting ourselves, which is a genuinely weaker
-guarantee than trusting an oracle network. We handle that in three ways — the program keeps an
-**allowlist** of publisher keys so no other signer can settle a market, the guards below still apply
-in full, and the limitation is stated plainly in the project's risks note rather than glossed over.
-This is a devnet constraint, and Pyth is the documented production path.
+1. **An attested publisher** (primary) — our automation service reads the closing price from a free
+   stock data API, signs it, and posts it on chain.
+2. **The same thing on a second, independent free source** (the tested fallback).
+3. **A Pyth adapter** — written, documented as the production path a funded deployment would use, and
+   explicitly marked as untested against live data. We do not pretend it is a working fallback.
+
+### Why two sources, not one
+
+This is the nicest thing to fall out of the constraint. Look back at the second guard below:
+*confidence*. Where does a confidence number come from when you are your own oracle? You could invent
+one, but a hardcoded "always confident" value is worse than useless — it silently disables the guard
+it was supposed to feed, while looking like it works.
+
+**Two independent sources solve this honestly: their disagreement *is* the uncertainty.** If two
+providers both say META closed at $681.20, confidence is tight and we settle. If one says $681.20 and
+the other $675.00, something is wrong — bad data, a stale cache, a corporate action nobody handled —
+and the guard trips, so we refuse to settle rather than pay out on a contested number.
+
+Losing Pyth therefore produced a *better* design than the plan it replaced. The fallback is now a
+real second opinion rather than a spare tyre, and we can actually test it.
+
+### Being honest about the trust model
+
+Be clear-eyed about the cost: we are trusting ourselves, which is a genuinely weaker guarantee than
+trusting an oracle network. Three things keep that disciplined — the program holds an **allowlist** of
+publisher keys so no other signer can settle a market, the guards below still apply in full, and the
+limitation is written plainly into the project's risks note instead of glossed over. A reviewer should
+learn this from our documentation, not discover it.
 
 Full workings: [`spikes/2026-10-05-pyth-devnet.md`](spikes/2026-10-05-pyth-devnet.md).
 
