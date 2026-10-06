@@ -83,24 +83,46 @@ because the one-book/four-trade-path abstraction is a *user-facing* idea — it 
 demonstrated without a UI that actually presents Buy Yes / Buy No / Sell Yes / Sell No as four
 plain actions. Tests still prioritize the money path and settlement over breadth.
 
-## 6. OPEN — order book: build minimal in-program, or integrate Phoenix?
+## 6. RESOLVED — build a minimal in-program CLOB rather than integrate Phoenix
 
 **Date:** 2026-10-05
-**Status:** **Deferred pending a time-boxed spike.** Must be resolved and recorded here before
-planning completes.
-**Context:** The brief offers both paths explicitly: use an existing on-chain CLOB already deployed
-on the chosen chain (e.g. Phoenix on Solana), or build a minimal order book as part of the smart
-contract — which the brief calls "more ambitious, demonstrates deeper understanding". The
-complication is that Phoenix is a mainnet protocol, and the brief simultaneously requires a
-reproducible **devnet** lifecycle and forbids mainnet. If Phoenix is not usably available on
-devnet, integrating it cannot satisfy the deliverable.
-**Spike:** Verify Phoenix devnet availability and CPI ergonomics, time-boxed. Commit to a path
-immediately afterward and record the outcome here.
-**Trade-off either way:** Building the book means writing and testing a matching engine — real
-work, and the main risk to the schedule — but keeps the system self-contained, devnet-reproducible,
-and scores on the brief's own "deeper understanding" note. Integrating Phoenix removes the matching
-engine but adds an external dependency, CPI complexity, and the devnet availability risk above.
-**Handling until resolved:** `specs/001-binary-outcome-markets/spec.md` states the order book
-requirements (FR-009…FR-014) as *behaviour* — price-time priority, atomicity of the Buy No path,
-real-time updates, settlement interaction — so the spec commits to neither mechanism and does not
-need rewriting once the spike lands.
+**Status:** **Resolved by spike.** Full workings in
+[`docs/spikes/2026-10-05-phoenix-devnet.md`](docs/spikes/2026-10-05-phoenix-devnet.md).
+**Context:** The brief offers both paths: use an existing on-chain CLOB on the chosen chain (e.g.
+Phoenix on Solana), or build a minimal order book as part of the smart contract — which the brief
+calls "more ambitious, demonstrates deeper understanding". The spike was created to test the
+assumption that Phoenix might not be usably available on devnet.
+
+**The assumption was wrong, and the spike still went the other way.** Phoenix *is* deployed and
+live on devnet (1,225 program accounts, ~700 market-sized, 474 seats). Integration was a real
+option. Two other constraints decided it:
+
+1. **Rent exceeds the devnet faucet, by an order of magnitude.** Phoenix market accounts run
+   84,944–232,544 bytes. Meridian needs ~45 fresh markets *every trading day* (7 tickers × 5–7
+   deduplicated strikes), which is 19–53 SOL/day in rent alone. The devnet faucet caps a request
+   at ~2 SOL and rate-limits per day — a 10 SOL request is rejected outright. A reviewer could not
+   reproduce the lifecycle, which the deliverables require and the brief forbids working around via
+   mainnet.
+2. **Phoenix seats are a maker-side permission gate.** Resting (limit) orders require an approved
+   Seat, granted per trader per market by the market authority; takers swapping do not. With ~45
+   markets a day, an active trader needs several seats daily, each a request plus an
+   authority-signed approval. That is incompatible with FR-013 (Buy No market order must be one
+   atomic operation, one user approval) and sits awkwardly against a product whose first premise is
+   non-custodial and KYC-free.
+
+**Decision:** Build a minimal central limit order book inside the Meridian program — price-time
+priority, partial fills, cancellation, and the atomic mint-and-sell path behind Buy No.
+
+**Trade-off:** We now own a matching engine, which is genuine work and the main schedule risk in
+the project. Accepted because: it is the path the brief itself credits as demonstrating deeper
+understanding; it keeps the system self-contained and devnet-reproducible; it removes an external
+dependency, a CPI surface and a permissioning service; and because same-day expiry lets us **close
+books at settlement and reclaim the rent**, something Phoenix's lifecycle does not offer. A compact
+book at 128 orders/side costs ~3.8 SOL/day *recycled nightly*, against Phoenix's 19–53 SOL/day
+consumed permanently.
+
+**Consequence for the spec:** none. `specs/001-binary-outcome-markets/spec.md` deliberately states
+the order book requirements (FR-009…FR-014) as *behaviour* — price-time priority, atomicity of the
+Buy No path, real-time updates, settlement interaction — so it needed no rewriting when the spike
+landed. The constitution's Stack & Scope Constraints should now be amended to record the closed
+decision.

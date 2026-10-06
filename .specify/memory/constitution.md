@@ -1,15 +1,16 @@
 <!--
 Sync Impact Report
-- Version change: (none) → 1.0.0 (initial adoption)
+- Version change: 1.0.0 → 1.1.0 (MINOR: Stack & Scope Constraints materially expanded — the
+  deferred CLOB decision is closed in favour of an in-program order book, adding rent-reclamation,
+  bounded-capacity and bounded-compute constraints)
 - Modified principles: n/a (initial adoption)
 - Added sections: Core Principles (I–VII), Stack & Scope Constraints, Development Workflow,
   Governance
 - Removed sections: none
 - Template note: the resolved scaffold carries five principle slots; the project defines seven,
   per the explicit instruction that a stated principle count wins over the template default.
-- Follow-up TODOs: the CLOB decision (build minimal in-program order book vs integrate Phoenix)
-  is deliberately DEFERRED pending a time-boxed spike. See Stack & Scope Constraints. This is a
-  recorded open decision, not an unfilled placeholder.
+- Follow-up TODOs: none. The previously deferred CLOB decision was resolved by spike on
+  2026-10-05 (see DECISIONS.md §6 and docs/spikes/2026-10-05-phoenix-devnet.md).
 -->
 
 # Meridian Constitution
@@ -139,11 +140,18 @@ trading UI, a portfolio view with realized P&L, and a market-maker dashboard.
   exercise, no cross-strike netting.
 - **Performance targets:** sub-second transaction finality, settlement within 10 minutes of market
   close, real-time order book updates, oracle price staleness under 5 minutes.
-- **OPEN DECISION — CLOB implementation.** Whether to build a minimal in-program order book or to
-  integrate an existing on-chain CLOB (Phoenix) is **DEFERRED** pending a time-boxed spike that
-  verifies Phoenix devnet availability and CPI ergonomics. The spike outcome MUST be recorded in
-  `DECISIONS.md` before planning completes. If the outcome changes the stack constraints above,
-  this constitution MUST be amended first.
+- **CLOB implementation — RESOLVED 2026-10-05.** The order book is built **inside the Meridian
+  program**: price-time priority, partial fills, cancellation, and the atomic mint-and-sell path
+  behind Buy No. Phoenix integration was evaluated and rejected — see `DECISIONS.md` §6 and
+  `docs/spikes/2026-10-05-phoenix-devnet.md`. Phoenix is live on devnet, but its market accounts
+  would cost 19–53 SOL/day in rent against a faucet capped near 2 SOL/day, and its seat gate on
+  resting orders is incompatible with the one-approval Buy No requirement.
+- Because contracts are same-day expiry, market and book accounts MUST be closeable at settlement
+  so their rent is reclaimed rather than consumed daily. Book capacity is a bounded constant
+  (starting at 128 orders per side); a full book MUST reject new orders rather than corrupt state.
+- Matching MUST be bounded work per transaction. Where a crossing order would exceed the compute
+  budget, it MUST fill up to a documented limit and leave a well-defined remainder rather than
+  fail unpredictably.
 
 ## Development Workflow
 
@@ -164,4 +172,4 @@ implementation starts and again before submission, verify the $1.00 invariant te
 guarded-oracle behaviour is tested including the fallback, the devnet lifecycle is reproducible
 from scripts, and the decision and AI usage logs are current.
 
-**Version**: 1.0.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05
+**Version**: 1.1.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05

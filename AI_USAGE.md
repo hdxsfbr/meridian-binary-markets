@@ -49,3 +49,28 @@ written as behaviour instead.
 *Pruned:* generated scaffolding was rewritten rather than filled in. The spec template's five
 principle slots were expanded to seven, and placeholder user stories replaced with the seven real
 journeys.
+
+### 2026-10-05 — Phoenix devnet spike
+
+Resolved the deferred order book decision. Findings in
+`docs/spikes/2026-10-05-phoenix-devnet.md`, decision in `DECISIONS.md` §6, constitution amended to
+v1.1.0.
+
+*Where AI was wrong, and was corrected by evidence:* the spike existed because Claude had reasoned
+that Phoenix, being a mainnet protocol, might not be available on devnet — and had used that as the
+headline argument for building our own book. **That assumption was false.** Direct RPC queries
+showed Phoenix deployed and live on devnet with 1,225 program accounts and ~700 market-sized
+accounts. Had the decision been taken on the original reasoning rather than tested, it would have
+been the right call supported by a wrong justification — which the brief, grading documented
+rationale, would have exposed.
+
+*What actually decided it* came from measurement rather than recall: `getMinimumBalanceForRent-
+Exemption` on the observed Phoenix market sizes (19–53 SOL/day for ~45 markets) against an empirical
+probe of the devnet faucet ceiling (10 SOL rejected, 2 SOL rate-limited). The seat constraint was
+checked two ways — decoding `approval_status` from the 128-byte seat accounts on devnet, and
+confirming the maker/taker rule against documentation — rather than asserted from memory.
+
+*Method note:* every quantitative claim in the spike document is reproducible from the RPC calls
+recorded in it. The decision document deliberately leads with "the assumption the spike was created
+to test was wrong", because a decision log that quietly drops a disproven premise is worth less than
+one that shows it.
