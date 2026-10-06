@@ -99,11 +99,10 @@ because "we are our own oracle" was the weakest claim in the design and the one 
 hardest on. The fallback keeps the self-attested path built and tested, which Principle IV requires
 anyway, so the dependency is not load-bearing.
 
-**Open item.** RedStone's docs state the pull model requires an API key, while the gateway currently
-serves data without one. The key comes from a four-question Google Form (email, company, feeds,
-Telegram) with **no payment step, no pricing and no plan selection** — a registration gate, not a
-commercial one, and structurally unlike Pyth's published price list. Andre to submit it so access is
-durable; until then the open gateway works and the fallback covers total RedStone failure.
+**Note, not a blocker.** RedStone's docs mention an API key for the pull model, while the gateway
+serves data without one. Free registration (a four-question form, no payment step), worth doing at some
+point for durability. Nothing depends on it: the gateway works today and the fallback adapter covers
+RedStone failing entirely.
 
 ## 5. Full lifecycle plus polish, rather than a thin correctness slice
 
