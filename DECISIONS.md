@@ -54,6 +54,9 @@ spending part of the submission justifying a choice the brief already discourage
 ## 4. Pyth as primary price oracle, with a documented fallback
 
 **Date:** 2026-10-05
+**Status:** **SUPERSEDED by §7 on 2026-10-05.** Kept in full rather than edited away, because the
+reasoning below is still correct about *what the oracle must provide* — it was wrong only about
+whether Pyth can provide it on devnet. See §7 for what replaced it and why.
 **Context:** The brief requires an oracle that supplies the previous day's close (for the morning
 strike ladder) and the current day's close at 4:00 PM ET (for settlement), is readable on-chain
 during the settlement transaction, and supports both a **staleness check** and a
@@ -126,3 +129,65 @@ the order book requirements (FR-009…FR-014) as *behaviour* — price-time prio
 Buy No path, real-time updates, settlement interaction — so it needed no rewriting when the spike
 landed. The constitution's Stack & Scope Constraints should now be amended to record the closed
 decision.
+
+## 7. SUPERSEDES §4 — a guarded oracle *adapter*, with an attested devnet publisher as default
+
+**Date:** 2026-10-05
+**Status:** Decided, after verification. Full workings in
+[`docs/spikes/2026-10-05-pyth-devnet.md`](docs/spikes/2026-10-05-pyth-devnet.md).
+**Context:** Zach Gardner flagged in Slack that "Pyth on testnet is a dead end — the oracles haven't
+been updated in MONTHS, and would require an api key providing access to stock data". §4 had assumed
+Pyth would simply work on devnet. The claim was checked rather than taken on trust, and rather than
+dismissed.
+
+**Zach was right, and understated it.** Three measured findings:
+
+1. **The legacy Pyth push feeds on devnet are years dead, not months.** 594 price accounts exist;
+   the newest `valid_slot` among them is 322,338,253 against a current devnet slot of 507,978,643 —
+   a gap of 185.6M slots, i.e. **2.4 to 3.5 years**. Sampled accounts carried `pub_slot = 1`.
+2. **Hermes price reads return HTTP 401 for every asset class**, not just equities — tested META
+   (equity) and BTC/USD (crypto) side by side. The feed *metadata* endpoint is still public, which is
+   how all seven MAG7 feeds were confirmed to exist. So there are two distinct barriers: general API
+   authentication, and separately the equity data licensing Zach identified. The first one is what
+   stops us today.
+3. **The pull-oracle path is not itself dead.** The receiver program is deployed on devnet with
+   739,203 `PriceUpdateV2` accounts. In the pull model the consumer posts a freshly signed update, so
+   stale leftover accounts prove nothing — the only blocker is obtaining the signed blob, i.e.
+   finding 2. If credentials arrive, this path works on devnet with no redesign.
+
+**Decision:** Put the oracle behind an **adapter interface** — *return a price with a publish
+timestamp and a confidence measure, or refuse* — with two implementations:
+
+- **`AttestedPublisher`, the devnet default.** The automation service reads the close from a free
+  stock API (Alpha Vantage: verified live, returns same-day data, needs only a free registered key),
+  signs it, and posts it to a price account the program reads. The program applies the same guards as
+  always — staleness under 5 minutes, confidence/quality, **plus a publisher allowlist** — and fails
+  closed.
+- **`PythAdapter`, preferred whenever available.** Reads a `PriceUpdateV2` via the pull-oracle
+  receiver. Becomes primary the moment Hermes credentials exist, at which point the attested
+  publisher demotes to the documented fallback Principle IV already requires us to build and test.
+
+**Trade-off:** We become our own oracle on devnet, which is a genuinely weaker trust model than an
+oracle network, and self-attestation is the sort of thing that looks like cutting a corner if it is
+not declared. Accepted, with mitigations rather than hand-waving: an on-chain publisher allowlist so
+an unknown signer cannot settle markets; fail-closed guards so an absent publisher delays settlement
+instead of corrupting it; and an explicit entry in the required risks-and-limitations note naming
+this as a devnet limitation with Pyth as the production path. The alternative — blocking the critical
+path on a third party answering a support email — risks the whole submission on something outside our
+control. The adapter boundary means that if the email lands, we swap an implementation rather than
+redesign settlement.
+
+One thing deliberately left open for planning: **confidence has no natural definition for a
+single-source price.** The adapter must synthesize one honestly (spread between two independent
+sources, or a published bid/ask band) rather than hardcode a confident-looking constant, which would
+defeat the guard it feeds.
+
+**Consequence for the spec:** one clause. `spec.md` describes the oracle only as "an external price
+source" with guard *behaviour*, so nothing structural moved — but FR-019 listed two guards and now
+lists three, gaining publisher attestation. (An earlier note here claimed "no change at all"; that
+was one guard short.) Constitution Principle
+IV named Pyth in one sentence and was amended to vendor-neutral wording (**v1.2.0**): the principle
+now constrains the *property* — attested source, staleness bound, confidence check, fail closed,
+allowlisted publisher — and the vendor choice lives here in the decision log where it can change
+without a governance amendment. That is the second consecutive spike whose outcome landed without
+rewriting the spec, for the same reason: requirements stated as behaviour, not mechanism.

@@ -294,9 +294,10 @@ rest of the day's contracts.
   market close. [PRD FR-5]
 - **FR-018**: System MUST resolve a contract as Yes-wins when the closing price is at or above the
   strike, and No-wins otherwise; an exact match resolves as Yes-wins. [PRD FR-5, §3.1]
-- **FR-019**: System MUST reject any price used for settlement that exceeds the staleness bound or
-  fails the confidence/quality check, leaving the contract unsettled and reporting the condition,
-  rather than settling on a doubtful price. [PRD FR-5; Constitution IV]
+- **FR-019**: System MUST reject any price used for settlement that exceeds the staleness bound,
+  fails the confidence/quality check, or does not originate from an accepted price publisher,
+  leaving the contract unsettled and reporting the condition, rather than settling on a doubtful
+  price. [PRD FR-5; Constitution IV]
 - **FR-020**: System MUST provide a documented, tested fallback source for the settlement price
   when the primary source is unavailable or fails its guards. [Constitution IV]
 - **FR-021**: System MUST settle each contract at most once; a repeated settlement attempt MUST
@@ -388,8 +389,8 @@ rest of the day's contracts.
 ## Dependencies
 
 - An external price source that can supply each ticker's previous close and that day's official
-  close, readable at settlement time, and carrying age and confidence signals the system can guard
-  on. A documented fallback source is required (FR-020).
+  close, readable at settlement time, and carrying age, confidence and origin signals the system can
+  guard on. A documented fallback source is required (FR-020).
 - A US dollar stablecoin on the deployment network, used as collateral and settlement asset.
 - User-controlled wallets capable of signing transactions on the deployment network.
 - A deployment network offering sub-second transaction finality, fast enough to support real-time

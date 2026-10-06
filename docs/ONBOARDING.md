@@ -364,20 +364,54 @@ A blockchain cannot see outside itself. Our program has no way to know what META
 is no HTTP call from inside a program. An **oracle** bridges that gap: a service that publishes
 real-world data on chain, where programs can read it.
 
-We use **Pyth**, which publishes equity prices as on-chain accounts. Each price update carries
-three things we care about:
+Whatever the source, the thing it posts on chain must carry three pieces of information:
 
 - the **price**;
-- a **confidence interval** — the publisher's own uncertainty band. A wide band means the sources
-  disagree and the number should not be trusted;
+- a **confidence interval** — an uncertainty band. A wide band means the sources disagree and the
+  number should not be trusted;
 - a **publish timestamp** — how fresh the number is.
+
+### Which oracle we actually use, and why it is not Pyth
+
+The obvious choice on Solana is **Pyth**, a first-party oracle network with equity feeds for all
+seven of our tickers. We planned on it, then checked, and it does not work on devnet:
+
+- Pyth's older "push" feeds on devnet were last updated roughly **2.4 to 3.5 years ago**. Nobody
+  runs a publisher against them any more.
+- Pyth's modern "pull" feeds work differently — *you* fetch a signed price from their API and post
+  it on chain yourself. The program for this is deployed on devnet and would work fine. But the API
+  now returns `401 Unauthorized` without credentials, for every asset class, and equity market data
+  is separately licensed on top of that.
+
+So instead, Meridian defines an **oracle adapter**: a single narrow interface that says *return a
+price with a timestamp and a confidence measure, or refuse*. Two things implement it:
+
+1. **An attested publisher** — our own automation service reads the closing price from a free stock
+   data API, signs it, and posts it on chain. This is the default on devnet.
+2. **A Pyth adapter** — ready to become the primary the moment credentials exist.
+
+Be clear-eyed about what #1 costs us: we are trusting ourselves, which is a genuinely weaker
+guarantee than trusting an oracle network. We handle that in three ways — the program keeps an
+**allowlist** of publisher keys so no other signer can settle a market, the guards below still apply
+in full, and the limitation is stated plainly in the project's risks note rather than glossed over.
+This is a devnet constraint, and Pyth is the documented production path.
+
+Full workings: [`spikes/2026-10-05-pyth-devnet.md`](spikes/2026-10-05-pyth-devnet.md).
+
+### The guards
 
 **The oracle is the single most dangerous component in the system.** It is the only place where
 outside reality enters, and therefore the only place where a silent failure translates directly
-into paying the wrong person. Hence two mandatory guards on every read:
+into paying the wrong person. Hence three mandatory guards on every read:
 
 1. **Staleness** — reject any price older than 5 minutes.
 2. **Confidence** — reject any price whose confidence interval is too wide.
+3. **Attestation** — reject any price not signed by an allowlisted publisher.
+
+These guards are the reason the source is swappable at all. They are written once, on chain, and
+they do not care which adapter produced the price. When the oracle decision changed, the guards did
+not move — and neither did our requirements. That is not luck; it is what you get for specifying
+*behaviour* instead of naming a vendor.
 
 And the rule for what happens when a guard trips: **fail closed.** Refuse to settle; do not settle
 on a doubtful price.
@@ -408,7 +442,7 @@ This schedule *is* the product. All times US Eastern.
 
 | Time | What happens |
 |---|---|
-| **8:00 AM** | Automation service reads yesterday's close from Pyth, computes the strike ladder (§1.6) |
+| **8:00 AM** | Automation service reads yesterday's close through the oracle adapter, computes the strike ladder (§1.6) |
 | **8:30 AM** | Creates on-chain contracts and order books for every strike |
 | **9:00 AM** | Markets visible in the UI; minting enabled |
 | **9:30 AM** | US market opens — live trading |
@@ -432,11 +466,15 @@ Two graded targets live here: markets must exist **before** the open, and settle
   │  portfolio/P&L  │                       │  settlement          │
   └─────────────────┘                       └──────────────────────┘
                                                    ▲          ▲
-  ┌─────────────────┐   create / settle            │          │ reads
-  │  services/      │  ────────────────────────────┘          │
-  │  Node.js        │                                  ┌──────────────┐
-  │  cron lifecycle │                                  │  Pyth oracle │
-  └─────────────────┘                                  └──────────────┘
+  ┌─────────────────┐   create / settle            │          │ guarded
+  │  services/      │  ────────────────────────────┘          │ read
+  │  Node.js        │                                  ┌────────────────┐
+  │  cron lifecycle │   posts signed price             │  price account │
+  │  oracle adapter │  ──────────────────────────────▶ │  (on chain)    │
+  └────────┬────────┘                                  └────────────────┘
+           │ reads the closing price
+           ▼
+   stock data API (off chain)
 ```
 
 - **`programs/`** — Rust/Anchor, on chain. Owns contract state, the collateral pool, minting,
@@ -444,8 +482,11 @@ Two graded targets live here: markets must exist **before** the open, and settle
   broken is enforced here**, because this is the only layer a malicious user cannot bypass.
 - **`web/`** — Next.js/TypeScript. Wallet connection, the order book display, the four trade
   buttons, portfolio and P&L. Translates user intent into transactions.
-- **`services/`** — Node.js. The scheduler: creates markets each morning, triggers settlement each
-  afternoon. Has no special powers over user funds; it just does the daily chores.
+- **`services/`** — Node.js. The scheduler: creates markets each morning, publishes the signed
+  closing price, triggers settlement each afternoon. It **cannot touch user funds** — it cannot move
+  anyone's tokens or USDC. But note the one real power it does hold: its key is on the publisher
+  allowlist, so it is the thing that tells the system what the closing price was. That is why §2.7
+  cares so much about the guards around it.
 
 ## 3.3 Rules that are not negotiable
 
@@ -515,10 +556,11 @@ book if unmatched. · **MAG7** — the seven mega-cap tech stocks we support. ·
 posting resting orders, providing liquidity. · **Market maker** — a participant quoting both sides
 continuously. · **Market order** — execute immediately at the best available price. · **Mint**
 (verb) — create tokens; (noun) the account defining a token type. · **Non-custodial** — users keep
-control of their own funds. · **Oracle** — service publishing real-world data on chain. · **PDA** —
+control of their own funds. · **Oracle** — service publishing real-world data on chain. · **Oracle adapter** — the swappable
+interface our program reads prices through. · **PDA** —
 Program Derived Address; an account a program can sign for. · **Price-time priority** — better
 prices match first; ties broken by arrival order. · **Program** — deployed on-chain code; Solana's
-term for a smart contract. · **Pyth** — the price oracle we use. · **Redeem** — exchange tokens back
+term for a smart contract. · **Publisher allowlist** — the set of keys whose signed prices the program will accept. · **Redeem** — exchange tokens back
 for USDC. · **Rent** — minimum balance an account holds for its storage; refundable on close. ·
 **Seat** — Phoenix's per-trader permission to post resting orders (not used by us). · **Settlement**
 — resolving contracts against the official close. · **SPL Token** — Solana's token standard. ·

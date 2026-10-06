@@ -1,16 +1,22 @@
 <!--
 Sync Impact Report
-- Version change: 1.0.0 → 1.1.0 (MINOR: Stack & Scope Constraints materially expanded — the
+- Version change: 1.1.0 → 1.2.0 (MINOR: Principle IV materially expanded — oracle guidance
+  generalized from a named vendor to an adapter contract, adding a publisher allowlist, a
+  two-implementation requirement, an honest-confidence rule and a trust-model disclosure rule;
+  Stack & Scope Constraints gain the resolved oracle entry)
+- Modified principles: IV. Oracle Reads Are Guarded (vendor-neutral; guards unchanged and extended)
+- Prior version change: 1.0.0 → 1.1.0 (MINOR: Stack & Scope Constraints materially expanded — the
   deferred CLOB decision is closed in favour of an in-program order book, adding rent-reclamation,
   bounded-capacity and bounded-compute constraints)
-- Modified principles: n/a (initial adoption)
 - Added sections: Core Principles (I–VII), Stack & Scope Constraints, Development Workflow,
   Governance
 - Removed sections: none
 - Template note: the resolved scaffold carries five principle slots; the project defines seven,
   per the explicit instruction that a stated principle count wins over the template default.
 - Follow-up TODOs: none. The previously deferred CLOB decision was resolved by spike on
-  2026-10-05 (see DECISIONS.md §6 and docs/spikes/2026-10-05-phoenix-devnet.md).
+  2026-10-05 (see DECISIONS.md §6 and docs/spikes/2026-10-05-phoenix-devnet.md), and the oracle
+  source was re-decided the same day (DECISIONS.md §7, superseding §4, and
+  docs/spikes/2026-10-05-pyth-devnet.md).
 -->
 
 # Meridian Constitution
@@ -78,19 +84,31 @@ reciting it.
 
 ### IV. Oracle Reads Are Guarded
 
-Pyth is the primary price source, with a documented fallback for the settlement read.
+The price oracle MUST sit behind an **adapter interface** whose contract is: *return a price with a
+publish timestamp and a confidence measure, or refuse.* This principle constrains the guards, never
+the vendor — the specific price source is a decision recorded in `DECISIONS.md`, changeable without
+amending this constitution.
 
-- Every on-chain oracle read MUST enforce a staleness bound (under 5 minutes) and a
-  confidence/quality check.
-- Guarded reads MUST **fail closed**: a stale or low-confidence price blocks settlement rather
-  than settling wrong. Delayed settlement is a liveness miss; wrong settlement is a correctness
-  failure, and correctness outranks liveness.
-- The fallback path MUST be explicit, documented, and tested — not an untested escape hatch.
+- Every on-chain oracle read MUST enforce a staleness bound (under 5 minutes), a
+  confidence/quality check, and an **allowlist of accepted publishers**. A price from an
+  unrecognized signer MUST be rejected regardless of its contents.
+- Guarded reads MUST **fail closed**: a stale, low-confidence, or unattested price blocks
+  settlement rather than settling wrong. Delayed settlement is a liveness miss; wrong settlement is
+  a correctness failure, and correctness outranks liveness.
+- At least two adapter implementations MUST exist, and the fallback path MUST be explicit,
+  documented and tested — not an untested escape hatch.
+- The confidence measure MUST be derived from something real (publisher-supplied interval,
+  disagreement between independent sources, or a published bid/ask band). Hardcoding a
+  confident-looking constant is forbidden: it defeats the guard it exists to feed.
+- Any adapter whose trust model is weaker than a production oracle network MUST be disclosed in the
+  risks and limitations note, naming the stronger production path.
 - Settlement MUST be idempotent and replay-safe: a contract settles exactly once, and a repeated
   settlement transaction is a no-op rather than a second payout.
 
-Rationale: the oracle is the only place real-world truth enters the system, and it is the only
-place where a silent failure converts directly into paying the wrong side.
+Rationale: the oracle is the only place real-world truth enters the system, and the only place where
+a silent failure converts directly into paying the wrong side. Naming a vendor here was a mistake
+corrected on 2026-10-05, when Pyth proved unusable on devnet (`docs/spikes/2026-10-05-pyth-devnet.md`)
+— the guards were right and survived unchanged; only the sentence naming the source had to move.
 
 ### V. The Daily Lifecycle Is The Product
 
@@ -152,6 +170,13 @@ trading UI, a portfolio view with realized P&L, and a market-maker dashboard.
 - Matching MUST be bounded work per transaction. Where a crossing order would exceed the compute
   budget, it MUST fill up to a documented limit and leave a well-defined remainder rather than
   fail unpredictably.
+- **Oracle source — RESOLVED 2026-10-05.** Two adapters behind the Principle IV interface: an
+  **attested publisher** (automation service signs a close read from a free stock data API; program
+  verifies against a publisher allowlist) as the devnet default, and a **Pyth pull-oracle adapter**
+  as the preferred primary if Hermes credentials become available. Pyth was evaluated and is
+  currently unusable on devnet — legacy push feeds are ~2.4–3.5 years stale and Hermes price reads
+  return HTTP 401 for every asset class. See `DECISIONS.md` §7 and
+  `docs/spikes/2026-10-05-pyth-devnet.md`.
 
 ## Development Workflow
 
@@ -172,4 +197,4 @@ implementation starts and again before submission, verify the $1.00 invariant te
 guarded-oracle behaviour is tested including the fallback, the devnet lifecycle is reproducible
 from scripts, and the decision and AI usage logs are current.
 
-**Version**: 1.1.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05
+**Version**: 1.2.0 | **Ratified**: 2026-10-05 | **Last Amended**: 2026-10-05

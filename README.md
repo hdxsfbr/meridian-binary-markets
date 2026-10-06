@@ -46,7 +46,8 @@ book operation.
 
 - 100% settlement accuracy; the $1.00 invariant never violated
 - Sub-second transaction finality
-- Oracle price staleness under 5 minutes, plus a confidence check — guards fail closed
+- Oracle price staleness under 5 minutes, plus confidence and publisher-attestation checks — guards
+  fail closed
 - Full lifecycle demo reproducible on devnet: create → mint → trade → settle → redeem
 
 ## Stack
@@ -56,7 +57,11 @@ book operation.
   see `DECISIONS.md` §3 for why Solana.)
 - Frontend in TypeScript, React and Next.js
 - Node.js automation service for market creation and settlement
-- Pyth price oracle with a documented fallback, and USDC integration
+- A guarded price oracle behind a swappable adapter interface — staleness, confidence and publisher
+  allowlist checks, failing closed. Pyth is unusable on devnet (feeds years stale, API credentials
+  required); the devnet default is an attested publisher, with a Pyth adapter ready behind the same
+  interface. See `DECISIONS.md` §7 and `docs/spikes/2026-10-05-pyth-devnet.md`.
+- USDC integration (devnet test mint)
 - Secrets via environment variables (`.env.example` committed)
 
 ## Documentation
