@@ -334,3 +334,52 @@ Task: "Write services/automation/test/settle.test.ts (retry window, alert)"
   (container, foundations, Pyth day, docs) 36.
 - Every task names its file(s). Tests precede the implementation they cover in each phase.
 - Commit after each task or logical group, message prefixed with the FR advanced.
+
+---
+
+## Waves (parallel execution plan, 2026-10-06)
+
+Each agent in a wave owns a disjoint set of files and works in the same tree. The coordinator runs
+the full build and test suite at the end of every wave, commits the wave as one change, and stops for
+review before the next.
+
+**Structural rules**: Wave 2 scaffolds `programs/meridian/src/lib.rs` with every instruction wired to
+its own file and a stub body returning `NotImplemented`; after that nobody edits `lib.rs`,
+`Cargo.toml` or `mod.rs`. Wave 3E owns the web layout and navigation shell. `tests/program/helpers.ts`
+is Wave 2 only; later test agents add `tests/program/support/<area>.ts`. All dependencies are
+installed in Waves 0–2; adding one later means stopping. `.env.example` and `Makefile` are Wave 0 only.
+`services/automation/src/index.ts` is Wave 4C only.
+
+| Wave | Agent | Tasks | Blocks on |
+|---|---|---|---|
+| 0 | single | T001–T012 (serial; gate `make dev` green) | — |
+| 1 | A | T013, T014, T015 | 0 |
+| 1 | B | T016, T017, T019 | 0 |
+| 1 | C | T022, T023 | 0 |
+| 2 | single | T018, T020, T021 + lib.rs scaffold of all remaining instruction stubs | 1 |
+| 3 | A | T024, T026, T027 | 2 |
+| 3 | B | T031, T032, T035, T036, T037, T038, T039, T040 | 2 |
+| 3 | C | T042, T044 | 2 |
+| 3 | D | T067, T069 | 2 |
+| 3 | E | T061, T063 + web layout/nav shell | 2 |
+| 4 | A | T025, T028, T029, T030, T033, T041 | 3A, 3B |
+| 4 | B | T048, T051, T052, T053, T054, T055 | 3A |
+| 4 | C | T034, T043, T045, T046, T068, T070 | 3B, 3C, 3D |
+| 4 | D | T050, T060 | 1B |
+| 4 | E | T062 (useMarkets, useConfig), T071, T072 | 3E |
+| 4 | F | T076 | 1A |
+| 5 | A | T049, T056, T057, T058, T059 | 4A, 4B |
+| 5 | B | T081, T083 | 4A |
+| 5 | C | T062 (useBook), T064, T065 | 4D, 4E |
+| 5 | D | T077, T078, T079 | 4E, 4F |
+| 5 | E | T073, T074 | 4A, 4C, 4E |
+| 5 | F | T084, T085 | 4A |
+| 6 | A | T086, T087 | 5A, 5B, 4C |
+| 6 | B | T082 | 5D |
+| 6 | C | T089, T090, T091, T092 (only if `PYTH_API_KEY` exists) | 3B, 4C |
+| 6 | D | T094, T095, T096, T097, T101 (drafts) | 5 |
+| 7 | A | T088 | 6A, 5F |
+| 7 | B | T066, T075, T080 | 5C, 5D, 5E, 6A |
+| 8 | single | T093, T098, T099, T100 (serial) | 7 |
+
+Critical path: 0 → 2 → 3B → 4B → 5A → 6A → 7A. Peak concurrency: six agents (Waves 4 and 5).
