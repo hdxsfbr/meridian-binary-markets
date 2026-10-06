@@ -60,7 +60,14 @@ PYTH_API_KEY=
 PYTH_RECEIVER_PROGRAM=rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ
 FINNHUB_API_KEY=
 ALERT_WEBHOOK_URL=
-DEMO_SCALE=1
+AUTOMATION_STATUS_PORT=8787
+DEMO_SCALE=1            # 1 = book capacity 16 so a full seven-ticker day fits one airdrop; 0 = capacity 128
+NEXT_PUBLIC_CLUSTER=devnet
+NEXT_PUBLIC_RPC_URL=https://api.devnet.solana.com
+NEXT_PUBLIC_WS_URL=wss://api.devnet.solana.com
+NEXT_PUBLIC_PROGRAM_ID=
+NEXT_PUBLIC_USDC_MINT=4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU
+NEXT_PUBLIC_AUTOMATION_STATUS_URL=http://localhost:8787/status
 ```
 
 Keypairs are mounted read-only into the container and never committed (`.gitignore` already covers

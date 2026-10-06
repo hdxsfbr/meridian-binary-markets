@@ -112,7 +112,7 @@ stand-in rather than USDC integration.
 
 **Decision**: One `Book` account per market, owned by the program: a fixed header plus two
 fixed-capacity arrays (bids, asks) of 64-byte `Order` records, capacity chosen at creation
-(64 demo-scale, 128 default) so rent scales with the configuration. Price is micro-USDC per Yes token
+(16 demo-scale, 128 default) so rent scales with the configuration. Price is micro-USDC per Yes token
 in `1..=999_999`; quantity is whole tokens (6-decimal mints, one token = one dollar of claim). Matching
 is price-time priority with a hard cap of 8 fills per transaction; a taker that would need more fills
 takes 8 and either rests the remainder (limit) or receives it back (market/IOC).
@@ -126,10 +126,11 @@ need compile-time sizes.
 
 | Config | Book bytes | Rent per market (book + market + 2 mints + vault + 2 escrows) | Markets/day | SOL/day |
 |---|---|---|---|---|
-| Demo: 2 tickers × 3 strikes, cap 64 | ~8.4 KB | ~0.07 SOL | 6 | ~0.45 |
+| Demo scale: 7 tickers × 5–7 strikes, cap 16 | ~2.2 KB | ~0.027 SOL | ~45 | ~1.25 |
 | Default: 7 tickers × 5–7 strikes, cap 128 | ~16.5 KB | ~0.13 SOL | ~45 | ~5.8 |
 
-Demo-scale fits one ~2 SOL airdrop with margin. Rent is recycled: books and markets close after
+Demo scale changes only the book capacity, never the number of tickers or strikes, so it meets every
+PRD requirement (FR-001, SC-003) and still fits one ~2 SOL airdrop with margin. Rent is recycled: books and markets close after
 settlement once escrows and vault are empty.
 
 **Alternatives**: Linked-list or critbit book — more compute-efficient at scale, more code, not
@@ -215,9 +216,10 @@ operations, position-aware gating) is where defects would be expensive, so it ge
 |---|---|
 | Which Pyth feed carries the 4 PM close | `Equity.US.*/USD` (R4) |
 | Settle-read mechanism | Read a `PriceUpdateV2` our service posted to Pyth's receiver; for the mock, read our own PDA. Payload verification in our program is not needed with Pyth: the receiver verifies Wormhole signatures |
-| Demo-scale configuration | 2 tickers × 3 strikes, book cap 64, ~0.45 SOL (R7) |
+| Demo-scale configuration | full seven-ticker ladder, book cap 16, ~1.25 SOL (R7) |
 | USDC mint | Circle devnet USDC by default, local mint in tests (R6) |
 | Override delay | 3600 s default, config value, LiteSVM-tested (R3) |
+| Confidence band | 25 bps: sources agree to the cent on a normal close (R12), so 1% would never trip; revisited with real Pyth `conf` on the probe day |
 | Settlement start time | 16:00:30 ET because Pyth equity feeds stop at the bell (R4) |
 
 No `NEEDS CLARIFICATION` remains in the plan.

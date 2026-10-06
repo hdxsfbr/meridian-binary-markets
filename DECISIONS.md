@@ -105,6 +105,11 @@ in the risks note, as Principle IV demands of any trust model weaker than a prod
 token arrives by implementation's end, the fallback plan is RedStone behind the same interface, and
 the mock remains the tested fallback either way.
 
+**Confidence band, decided 2026-10-06 in planning.** `max_conf_bps = 25`. The spike showed independent
+sources agreeing on the close to the cent, so a 1% band would never trip and the guard would be
+decorative, which Principle IV forbids. 25 bps is still loose for a normal day and tight enough to catch a
+broken feed. Revisited with real Pyth `conf` values on the probe day; a change is logged here.
+
 **What the plan must settle.** Which Pyth feed ID carries the regular-session close for each ticker
 (Pyth publishes separate equity feeds; the spike's AAPL readings showed the base feed differing from the
 official 4:00 PM print); the receiver program ID and account layout on devnet, confirmed by RPC not
@@ -185,9 +190,11 @@ dependency, a CPI surface and a permissioning service; and because same-day expi
 books at settlement and reclaim the rent**, something Phoenix's lifecycle does not offer. A compact
 book at 128 orders/side costs ~3.8 SOL/day *recycled nightly*, against Phoenix's 19–53 SOL/day
 consumed permanently. Note the same faucet ceiling binds us on a reviewer's first day: 3.8 SOL is
-above a single ~2 SOL airdrop, so the lifecycle scripts MUST support a demo-scale configuration (fewer
-tickers or strikes, or 64 orders/side at ~1.9 SOL) that runs on one faucet grant, with the full
-7-ticker ladder as the production default. Recorded here so the plan does not rediscover it.
+above a single ~2 SOL airdrop, so the lifecycle scripts MUST support a demo-scale configuration that runs on one faucet grant.
+**Corrected 2026-10-06 (plan analysis):** demo scale changes only the book capacity (16 orders per side,
+~1.25 SOL for a full day) and never the ticker or strike count, because the PRD requires all seven
+stocks every day and a demo that skips tickers does not meet the requirement. 128 per side is the
+production default. Recorded here so the plan does not rediscover it.
 
 **Consequence for the spec:** none. `specs/001-binary-outcome-markets/spec.md` deliberately states
 the order book requirements (FR-009…FR-014) as *behaviour* — price-time priority, atomicity of the
@@ -214,3 +221,26 @@ cargo registry live in named volumes, and keypairs must be mounted read-only and
 layer. `solanafoundation/anchor` tops out at v1.0.2 against Anchor 1.2.0, so we pin our own versions
 rather than pull theirs — which is the point of the exercise anyway. Accepted because reproducibility is
 graded directly and version-triple breakage is a recurring, already-observed cost.
+
+## 8. Dependency pins for the build
+
+**Date:** 2026-10-06 (planning)
+**Context:** Principle II requires every major dependency to be justified here. Full workings are in
+`specs/001-binary-outcome-markets/research.md` R1–R3, R14; this is the list and the one-line reason.
+
+| Dependency | Pin | Why |
+|---|---|---|
+| Rust | 1.89 | `anchor-lang` 1.2.1 declares it as minimum |
+| Anchor | 1.2.1 | current release (2026-10-06); Pyth receiver SDK requires `^1.0.2`; fallback 1.2.0 if the pin misbehaves on first build |
+| Agave CLI | 3.1.14 | Anchor 1.2 targets the Solana v3 crate family; `stable` Docker tag; 4.x needs an unreleased Anchor feature |
+| `pyth-solana-receiver-sdk` | 2.0.0 | published, current, parses `PriceUpdateV2`; the reason Pyth beat RedStone on integration risk |
+| `@anchor-lang/core` | 1.2.1 | Anchor's TypeScript client at 1.x; `@coral-xyz/anchor` stopped at 0.32 |
+| `@solana/web3.js` | 1.99 | what wallet adapter and the Anchor client peer on; `@solana/kit` not yet supported by wallet adapter |
+| `@solana/wallet-adapter-react` | 0.15.40 | standard wallet UX on Solana; Phantom and Solflare |
+| `anchor-litesvm` + `litesvm` | 0.2.1 / 1.5 | program tests need a warpable clock for settle-after-close and the override delay |
+| Next.js | 16.4 | partner-recommended frontend stack |
+| Luxon, node-cron | current | ET schedule with DST; no heavier scheduler needed |
+| `@pythnetwork/pyth-solana-receiver` | 0.16 | posts Hermes updates to the receiver; service-side only because it pins an old Anchor client |
+
+**Trade-off:** Anchor 1.2.1 is a day old. Accepted because the fallback is one version back and the
+container makes the switch a one-line change.

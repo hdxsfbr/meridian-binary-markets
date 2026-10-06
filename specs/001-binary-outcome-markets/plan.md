@@ -41,11 +41,11 @@ the 200k CU default, matching capped at 8 fills per transaction.
 
 **Constraints**: Integer micro-units only on the money path; staleness ≤ 300 s; confidence guard;
 publisher allowlist; fail closed; override ≥ 3600 s after close; pause never blocks redemption;
-demo-scale devnet configuration fits one ~2 SOL airdrop (R7); no host toolchain (§7); no
+demo-scale configuration (full ladder, 16-order book) fits one ~2 SOL airdrop (R7); no host toolchain (§7); no
 implementation commentary in product UI.
 
-**Scale/Scope**: 7 tickers × 5–7 strikes ≈ 45 markets/day at default scale, 6 at demo scale; book
-capacity 64–128 orders per side; five product pages plus an admin page; ~17 instructions.
+**Scale/Scope**: 7 tickers × 5–7 strikes ≈ 45 markets/day at every scale; book
+capacity 16 (demo) or 128 orders per side; five product pages plus an admin page; ~17 instructions.
 
 ## Constitution Check
 
@@ -168,7 +168,7 @@ Phases 6–9 can proceed in parallel with each other once 2–5 exist; 10 is ind
 | Pyth equity feed stops at the bell; 5-minute staleness makes 16:00–16:05 the only window | Settlement job at 16:00:30 with 30 s retries; probe measures real drift; override at 17:00 (R4) |
 | Anchor 1.2.1 released today | Pin, verify in phase 1, fall back to 1.2.0 |
 | Devnet public RPC websocket limits | RPC URL is an env variable; README names free devnet RPC providers |
-| Faucet rate limit on a reviewer's first day | Demo-scale default in `make lifecycle CLUSTER=devnet`, rent printed before spend |
+| Faucet rate limit on a reviewer's first day | Demo scale (full ladder, book capacity 16, ~1.25 SOL) is the default in `make lifecycle CLUSTER=devnet`, rent printed before spend |
 | Matching engine is the main schedule risk (DECISIONS §6) | Capacity-bounded arrays, 8-fill cap, tests first; UI can ship against limit-only books if time is short, recorded as a cut |
 | Mock provider is a trust model weaker than production | Disclosed in risks note; swap is a config change |
 

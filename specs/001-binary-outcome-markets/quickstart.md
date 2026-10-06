@@ -50,8 +50,8 @@ make deploy CLUSTER=devnet
 make lifecycle CLUSTER=devnet DEMO_SCALE=1
 ```
 
-Same script against devnet with Circle USDC, 2 tickers × 3 strikes, book capacity 64. Expected: fits
-in one airdrop (rent printed before creation, ~0.45 SOL), program ID and all market addresses printed
+Same script against devnet with Circle USDC, all seven tickers with the full ladder, book capacity
+16. Expected: fits in one airdrop (rent printed before creation, ~1.25 SOL), program ID and all market addresses printed
 for the README. Rerunning `make lifecycle` on a new day creates a new set.
 
 ## Scenario 4 — scheduled jobs

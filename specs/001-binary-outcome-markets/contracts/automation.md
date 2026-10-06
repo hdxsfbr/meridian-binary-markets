@@ -23,6 +23,14 @@ pnpm --filter automation run job reclaim
 bell: `close_ts` is set to `now + N seconds` for the demo script, which is the only path where a
 market's close is not 16:00 ET. The program does not care; FR-031 still holds relative to `close_ts`.
 
+## Status endpoint
+
+`GET http://<service>:$AUTOMATION_STATUS_PORT/status` (default 8787) returns
+`{ updatedAt, markets: { [marketPubkey]: { ticker, strike, attempts, lastError, lastAttemptAt, nextRetryAt, overrideAvailableAt, settled } } }`
+from the settlement job's in-memory map. Read-only, no auth, bound to the container network; the
+admin page reads it via `NEXT_PUBLIC_AUTOMATION_STATUS_URL` and shows "Status unavailable" if it
+cannot be reached. It is the only way the admin page learns *why* a market is unsettled.
+
 ## Alert payload
 
 `POST $ALERT_WEBHOOK_URL` with `{"text": "Meridian: <ticker> unsettled after 15 min — <error>. Override available at <close_ts + delay> ET."}`.

@@ -17,11 +17,11 @@ No floats anywhere on the money path (FR-008).
 | oracle_program | Pubkey | owner required of the price account: this program (mock) or Pyth receiver |
 | publishers | [Pubkey; 4] + len | allowlist of mock publisher signers (Principle IV) |
 | max_staleness_secs | u32 | 300 |
-| max_conf_bps | u16 | confidence guard: `conf × 10_000 ≤ price × max_conf_bps` |
+| max_conf_bps | u16 | confidence guard: `conf × 10_000 ≤ price × max_conf_bps`; default 25 |
 | min_publish_offset_secs | u32 | price `publish_time ≥ close_ts − offset`; default 60 (R4, probe may adjust) |
 | override_delay_secs | u32 | 3600 minimum enforced in code regardless of config (FR-033) |
 | tickers | [TickerInfo; 7] | `symbol: [u8; 8]`, `feed_id: [u8; 32]`, `enabled: bool` |
-| default_book_capacity | u16 | 64 demo, 128 default |
+| default_book_capacity | u16 | 16 demo scale, 128 default |
 | bump | u8 | |
 
 Validation: `override_delay_secs ≥ 3600`; `max_staleness_secs ≤ 300`; `publishers.len ≥ 1` when
@@ -43,7 +43,7 @@ provider is `MockPyth`; `oracle_program` must equal the program ID when provider
 | yes_mint, no_mint | Pubkey | SPL mints, 6 decimals, authority = market PDA |
 | vault | Pubkey | USDC token account owned by market PDA |
 | book | Pubkey | |
-| pairs_outstanding | u64 | tokens; invariant `vault.amount == pairs_outstanding × 1_000_000` (FR-007) |
+| pairs_outstanding | u64 | tokens; while `Open`: `vault.amount == pairs_outstanding × 1_000_000` (FR-007). After settlement the field is frozen and informational; the live invariant becomes `vault.amount == winning_supply × 1_000_000`, and `close_market` requires the vault empty |
 | bump, vault_bump | u8 | |
 
 State transitions: `Open → Settled` via `settle_market` or `admin_settle_override`; no other
@@ -144,8 +144,8 @@ From the wallet's `Minted`, `Fill`, `PairRedeemed`, `WinningRedeemed`, `Settled`
 - `admin_settle_override(price)`: admin signer; state `Open`; `now ≥ close_ts + max(override_delay,
   3600)`; sets `settled_by_override = true`.
 - `redeem_winning(side, qty)`: state `Settled`; `side == outcome`; burns `qty`; pays
-  `qty × 1_000_000`; `pairs_outstanding` unchanged until the losing side is also gone — the vault
-  invariant is restated post-settlement as `vault.amount == winning_supply × 1_000_000`.
+  `qty × 1_000_000`; `pairs_outstanding` is frozen; the post-settlement invariant is
+  `vault.amount == winning_supply × 1_000_000`.
 - `place_order`: not paused, not settled; price in range; `qty > 0`; escrow transferred before
   matching; at most 8 fills; remainder rests (limit) or refunds (IOC).
 - `cancel_order(id)`: owner signer; refunds escrow; allowed when paused or settled.
