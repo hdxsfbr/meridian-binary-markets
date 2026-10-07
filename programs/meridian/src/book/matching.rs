@@ -7,8 +7,9 @@
 //! walking the resting side front-to-back already visits makers in exactly the order
 //! that should fill first.
 
-use anchor_lang::prelude::Pubkey;
+use anchor_lang::prelude::*;
 
+use crate::errors::MeridianError;
 use crate::state::book::Order;
 
 /// Which side of the book an order (taker or maker) sits on.
@@ -104,6 +105,22 @@ pub fn match_against(
     }
 
     MatchPlan { fills, remaining_qty }
+}
+
+/// Refuses a match plan that would cross the taker against their own resting order
+/// (`place_order`'s Ask-vs-own-Bid or Bid-vs-own-Ask, or `buy_no_market`/
+/// `sell_no_market`'s IOC leg crossing a bid/ask the same wallet is resting). Must be
+/// called on the plan *before* any funds move or anything mints (Wave 5 review fix,
+/// 2026-10-06: a self-match previously went through, moving funds pointlessly between
+/// a taker and their own resting order, and -- for `buy_no_market`/`sell_no_market`,
+/// which each mint/redeem elsewhere in the same instruction -- potentially minting
+/// first before any error unwound it).
+pub fn reject_self_match(plan: &MatchPlan, taker: &Pubkey) -> Result<()> {
+    if plan.fills.iter().any(|fill| fill.maker == *taker) {
+        msg!("self-match");
+        return Err(error!(MeridianError::InvariantViolated));
+    }
+    Ok(())
 }
 
 #[cfg(test)]
@@ -203,5 +220,28 @@ mod tests {
         let plan = match_against(&asks, 3, Side::Bid, 500_000, 3, 8);
         let idxs: Vec<usize> = plan.fills.iter().map(|f| f.idx).collect();
         assert_eq!(idxs, vec![0, 1, 2]);
+    }
+
+    #[test]
+    fn reject_self_match_errors_when_any_fill_makers_the_taker() {
+        let taker = Pubkey::new_unique();
+        let other = Pubkey::new_unique();
+        let bystander = Pubkey::new_unique();
+        let plan = MatchPlan {
+            fills: vec![
+                FillPlan { idx: 0, maker_order_id: 1, maker: other, price: 500_000, qty: 1 },
+                FillPlan { idx: 1, maker_order_id: 2, maker: taker, price: 500_000, qty: 1 },
+            ],
+            remaining_qty: 0,
+        };
+        assert!(reject_self_match(&plan, &taker).is_err());
+        assert!(reject_self_match(&plan, &bystander).is_ok());
+    }
+
+    #[test]
+    fn reject_self_match_ok_on_empty_plan() {
+        let taker = Pubkey::new_unique();
+        let plan = MatchPlan::default();
+        assert!(reject_self_match(&plan, &taker).is_ok());
     }
 }

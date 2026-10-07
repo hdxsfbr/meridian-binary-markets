@@ -36,6 +36,7 @@ import {
   PROGRAM_ID,
   bookPda,
   configPda,
+  decodeBook,
   marketPda,
   mockPricePda,
   noMintPda,
@@ -44,10 +45,40 @@ import {
   vaultPda,
   yesEscrowPda,
   yesMintPda,
+  type BookHeader,
   type Ticker,
 } from "@meridian/sdk";
 
 const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
+
+/** mainnet-beta's well-known genesis hash. Refused outright, regardless of `SOLANA_CLUSTER`. */
+export const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
+/** devnet's well-known genesis hash. Required when `SOLANA_CLUSTER=devnet`. */
+export const DEVNET_GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
+
+/**
+ * Fix #3: refuses to proceed if `connection` is pointed at the wrong
+ * cluster, checked via its genesis hash rather than trusting
+ * `SOLANA_RPC_URL`'s hostname: mainnet-beta's genesis hash is refused
+ * unconditionally (this service never targets mainnet, no matter what
+ * `SOLANA_CLUSTER` says), `SOLANA_CLUSTER=devnet` additionally requires
+ * devnet's own genesis hash, and `SOLANA_CLUSTER=localnet` accepts any
+ * genesis hash that isn't mainnet's. Called once at startup, before any
+ * transaction.
+ */
+export async function assertGenesisHash(connection: Connection, cluster: "devnet" | "localnet"): Promise<void> {
+  const genesisHash = await connection.getGenesisHash();
+  if (genesisHash === MAINNET_GENESIS_HASH) {
+    throw new Error(
+      `assertGenesisHash: refusing to proceed -- the RPC endpoint's genesis hash (${genesisHash}) is mainnet-beta's; this service never targets mainnet`,
+    );
+  }
+  if (cluster === "devnet" && genesisHash !== DEVNET_GENESIS_HASH) {
+    throw new Error(
+      `assertGenesisHash: refusing to proceed -- SOLANA_CLUSTER=devnet but the RPC endpoint's genesis hash is "${genesisHash}", expected devnet's "${DEVNET_GENESIS_HASH}"`,
+    );
+  }
+}
 
 /** Anchor's `AlreadySettled` error code (programs/meridian/src/errors.rs). */
 const ALREADY_SETTLED_CODE = "AlreadySettled";
@@ -438,6 +469,102 @@ export class ChainClient {
       publicKey: r.publicKey,
       account: decodeMarket(r.account),
     }));
+  }
+
+  /**
+   * All `Settled` markets, optionally narrowed to those settled at or before
+   * `olderThanTs` (Unix seconds) -- used by the `reclaim` job
+   * (contracts/automation.md: "`Settled` market older than 1 day"). Unlike
+   * `fetchOpenMarkets`'s `tradingDay` narrowing, this can't be a server-side
+   * `memcmp` filter (it's a `<=` range, not an exact byte match), so the
+   * `olderThanTs` cutoff is applied client-side after the `state == Settled`
+   * server-side filter narrows the set.
+   */
+  async fetchSettledMarkets(olderThanTs?: number): Promise<MarketRecord[]> {
+    const filters: GetProgramAccountsFilter[] = [
+      {
+        memcmp: {
+          offset: MARKET_STATE_OFFSET,
+          bytes: utils.bytes.bs58.encode(Buffer.from([1])), // MarketState::Settled == 1
+        },
+      },
+    ];
+
+    const records = await this.program.account.market.all(filters);
+    const decoded: MarketRecord[] = records.map((r: { publicKey: PublicKey; account: Record<string, unknown> }) => ({
+      publicKey: r.publicKey,
+      account: decodeMarket(r.account),
+    }));
+    if (olderThanTs === undefined) return decoded;
+    return decoded.filter((m) => m.account.settledAt <= olderThanTs);
+  }
+
+  /** `close_book`: admin-only, requires `market` `Settled` with an empty book/escrows. */
+  async closeBook(market: PublicKey): Promise<void> {
+    await this.sendClose("closeBook", market);
+  }
+
+  /** `close_market`: admin-only, requires `close_book` already ran and the vault empty. */
+  async closeMarket(market: PublicKey): Promise<void> {
+    await this.sendClose("closeMarket", market);
+  }
+
+  /** Shared account list for `close_book`/`close_market` -- see `close.rs`'s `CloseAccounts`. */
+  private async sendClose(method: "closeBook" | "closeMarket", market: PublicKey): Promise<void> {
+    const [config] = configPda(PROGRAM_ID);
+    const [book] = bookPda(PROGRAM_ID, market);
+    const [usdcEscrow] = usdcEscrowPda(PROGRAM_ID, market);
+    const [yesEscrow] = yesEscrowPda(PROGRAM_ID, market);
+    const [vault] = vaultPda(PROGRAM_ID, market);
+    const [yesMint] = yesMintPda(PROGRAM_ID, market);
+    const [noMint] = noMintPda(PROGRAM_ID, market);
+
+    await this.program.methods[method]()
+      .accountsStrict({
+        admin: this.adminKeypair.publicKey,
+        config,
+        market,
+        book,
+        usdcEscrow,
+        yesEscrow,
+        vault,
+        yesMint,
+        noMint,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .signers([this.adminKeypair])
+      .rpc();
+  }
+
+  /**
+   * Reads and decodes the raw Book account's header at `book` (bid/ask
+   * counts, needed by `reclaim` to decide whether `close_book` is safe to
+   * call). Returns `null` if the account doesn't exist (already closed).
+   */
+  async fetchBookHeader(book: PublicKey): Promise<BookHeader | null> {
+    const info = await this.connection.getAccountInfo(book, "confirmed");
+    if (!info) return null;
+    return decodeBook(info.data).header;
+  }
+
+  /**
+   * An SPL token account's raw base-unit balance, or `0n` if the account is
+   * positively absent (already closed). Used by `reclaim` to check
+   * escrow/vault emptiness before calling `close_book`/`close_market`.
+   *
+   * Fix #23: `0n` is only ever returned when `getAccountInfo` confirms the
+   * account doesn't exist. Any other failure (RPC timeout, rate limit,
+   * transient network error) is rethrown rather than swallowed -- silently
+   * treating "the read failed" the same as "the account is empty" would let
+   * `reclaim` wrongly `close_book`/`close_market` a market whose escrow or
+   * vault actually still holds funds. The caller (`reclaimOneMarket`) is
+   * expected to catch this per-market and skip with a logged reason.
+   */
+  async getTokenAccountBalance(pubkey: PublicKey): Promise<bigint> {
+    const info = await this.connection.getAccountInfo(pubkey, "confirmed");
+    if (info === null) return 0n;
+    const res = await this.connection.getTokenAccountBalance(pubkey, "confirmed");
+    return BigInt(res.value.amount);
   }
 }
 

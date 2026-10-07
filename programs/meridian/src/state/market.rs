@@ -54,8 +54,17 @@ pub struct Market {
     pub no_mint: Pubkey,
     /// USDC token account owned by the market PDA.
     pub vault: Pubkey,
-    /// This market's Book account.
+    /// This market's Book account. `Pubkey::default()` both before `create_book`
+    /// finishes *and* after `close_book` has run -- use `book_closed`, not this field,
+    /// to tell "never finished" apart from "already closed" (Wave 5 review fix,
+    /// 2026-10-06).
     pub book: Pubkey,
+    /// Set by `close_book` once it has closed (or, for a book that never finished
+    /// sizing, reclaimed the partial allocation of) this market's Book account and its
+    /// two escrows. `close_market` requires this before it will run, instead of
+    /// trusting `book == Pubkey::default()` alone, which can't distinguish "book never
+    /// finished" from "book already closed" (Wave 5 review fix, 2026-10-06).
+    pub book_closed: bool,
     /// Per-side capacity `create_book` builds `book` at. Set from `create_market`'s/
     /// `add_strike`'s `capacity` arg; `create_book` reads this instead of taking its own
     /// `capacity` argument, so a stray mismatched call can't start a second, differently
@@ -122,6 +131,7 @@ mod tests {
             no_mint: Pubkey::default(),
             vault: Pubkey::default(),
             book: Pubkey::default(),
+            book_closed: false,
             book_capacity: 16,
             pairs_outstanding: 0,
             bump: 0,

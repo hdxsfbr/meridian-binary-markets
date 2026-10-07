@@ -92,6 +92,7 @@ fn create_or_add_strike(
     // Set for real by `create_book` once the Book account reaches its final size;
     // `Pubkey::default()` until then (see this file's module doc comment).
     market.book = Pubkey::default();
+    market.book_closed = false;
     market.book_capacity = capacity;
     market.pairs_outstanding = 0;
     market.bump = market_bump;

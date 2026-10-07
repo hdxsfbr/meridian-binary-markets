@@ -120,6 +120,11 @@ pub fn handle_place_order<'info>(
         matching::match_against(opposite_slice, opposite_count, side, price, qty, MAX_FILLS)
     };
 
+    // Before any funds move or anything is mutated: a resting order belonging to this
+    // same taker must never cross against their own `place_order` (Wave 5 review fix,
+    // 2026-10-06).
+    matching::reject_self_match(&plan, &user_key)?;
+
     // Fewer `remaining_accounts` than planned fills must FAIL the instruction outright
     // -- never silently drop fills and rest the leftover as a crossed order.
     if ctx.remaining_accounts.len() < plan.fills.len() {

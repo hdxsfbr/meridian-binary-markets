@@ -6,7 +6,7 @@
 //! ("Redeem Pair" row, "Invariant checks executed in code").
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Burn, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
 
 use crate::errors::MeridianError;
 use crate::events::PairRedeemed;
@@ -14,8 +14,20 @@ use crate::math::pairs_to_usdc;
 use crate::state::config::Config;
 use crate::state::market::{Market, MarketState, Outcome, SEED as MARKET_SEED};
 
-pub fn handle_redeem_pair(mut ctx: Context<RedeemPair>, qty: u64) -> Result<()> {
-    redeem_pair_core(&mut ctx, qty)
+pub fn handle_redeem_pair(ctx: Context<RedeemPair>, qty: u64) -> Result<()> {
+    let accounts = ctx.accounts;
+    redeem_pair_core(
+        &mut accounts.market,
+        &mut accounts.yes_mint,
+        &mut accounts.no_mint,
+        &mut accounts.vault,
+        &accounts.user,
+        &accounts.user_usdc,
+        &accounts.user_yes,
+        &accounts.user_no,
+        &accounts.token_program,
+        qty,
+    )
 }
 
 /// Core of `redeem_pair`: qty guard, burn `qty` of each of the user's Yes/No, USDC
@@ -23,14 +35,27 @@ pub fn handle_redeem_pair(mut ctx: Context<RedeemPair>, qty: u64) -> Result<()> 
 /// the market is `Settled`, per data-model.md: the field is frozen post-settlement), the
 /// vault-equation invariant check, and the `PairRedeemed` event.
 ///
-/// Factored out of `handle_redeem_pair` for the same reason as `mint_pair_core` in
-/// `mint_pair.rs` -- see that function's doc comment for the reuse contract a later
-/// wave's caller needs to match (account roles/types, not necessarily names).
+/// Factored out of `handle_redeem_pair` (Wave 5, T056-058 refactor: takes explicit
+/// account references rather than a typed `Context<RedeemPair>`) for the same reason as
+/// `mint_pair_core` in `mint_pair.rs` -- see that function's doc comment for the reuse
+/// contract a caller needs to match (account roles/types, not necessarily names).
 ///
 /// Unlike `mint_pair`, `redeem_pair` has no paused/open guard: it is allowed in any
 /// market state and while `config.paused` (FR-006, FR-034), so this function takes no
 /// `Config` account at all.
-pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Result<()> {
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn redeem_pair_core<'info>(
+    market: &mut Account<'info, Market>,
+    yes_mint: &mut Account<'info, Mint>,
+    no_mint: &mut Account<'info, Mint>,
+    vault: &mut Account<'info, TokenAccount>,
+    user: &Signer<'info>,
+    user_usdc: &Account<'info, TokenAccount>,
+    user_yes: &Account<'info, TokenAccount>,
+    user_no: &Account<'info, TokenAccount>,
+    token_program: &Program<'info, Token>,
+    qty: u64,
+) -> Result<()> {
     require!(qty > 0, MeridianError::ZeroQuantity);
 
     // Yes/No mints and the USDC vault all use the same 6-decimal scale (data-model.md
@@ -40,11 +65,11 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
 
     token::burn(
         CpiContext::new(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             Burn {
-                mint: ctx.accounts.yes_mint.to_account_info(),
-                from: ctx.accounts.user_yes.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
+                mint: yes_mint.to_account_info(),
+                from: user_yes.to_account_info(),
+                authority: user.to_account_info(),
             },
         ),
         usdc_amount,
@@ -52,11 +77,11 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
 
     token::burn(
         CpiContext::new(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             Burn {
-                mint: ctx.accounts.no_mint.to_account_info(),
-                from: ctx.accounts.user_no.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
+                mint: no_mint.to_account_info(),
+                from: user_no.to_account_info(),
+                authority: user.to_account_info(),
             },
         ),
         usdc_amount,
@@ -64,11 +89,11 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
 
     // Market PDA signer seeds, in the documented order (data-model.md "Market"):
     // `["market", ticker, trading_day_le, strike_le, bump]`.
-    let ticker = ctx.accounts.market.ticker;
-    let trading_day_bytes = ctx.accounts.market.trading_day.to_le_bytes();
-    let strike_bytes = ctx.accounts.market.strike.to_le_bytes();
-    let bump = [ctx.accounts.market.bump];
-    let market_key = ctx.accounts.market.key();
+    let ticker = market.ticker;
+    let trading_day_bytes = market.trading_day.to_le_bytes();
+    let strike_bytes = market.strike.to_le_bytes();
+    let bump = [market.bump];
+    let market_key = market.key();
     let seeds: [&[u8]; 5] = [
         MARKET_SEED,
         ticker.as_ref(),
@@ -80,11 +105,11 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
 
     token::transfer(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             Transfer {
-                from: ctx.accounts.vault.to_account_info(),
-                to: ctx.accounts.user_usdc.to_account_info(),
-                authority: ctx.accounts.market.to_account_info(),
+                from: vault.to_account_info(),
+                to: user_usdc.to_account_info(),
+                authority: market.to_account_info(),
             },
             signer_seeds,
         ),
@@ -96,9 +121,8 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
     // 1_000_000`, which `redeem_winning` (not this instruction) is responsible for. A
     // still-`Open` market keeps the ordinary `vault.amount == pairs_outstanding *
     // 1_000_000` form, which this decrement maintains.
-    let is_open = ctx.accounts.market.state == MarketState::Open;
+    let is_open = market.state == MarketState::Open;
     let pairs_outstanding = if is_open {
-        let market = &mut ctx.accounts.market;
         market.pairs_outstanding = market
             .pairs_outstanding
             .checked_sub(qty)
@@ -122,24 +146,24 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
     // so no scaling is needed. The winning mint is whichever of Yes/No matches
     // `market.outcome`; reload it too, since the `burn` CPIs above mutated its supply
     // without updating this in-memory `Account<Mint>`.
-    ctx.accounts.vault.reload()?;
+    vault.reload()?;
     match pairs_outstanding {
         Some(pairs_outstanding) => {
             let expected_vault_amount = pairs_to_usdc(pairs_outstanding)?;
             require!(
-                ctx.accounts.vault.amount >= expected_vault_amount,
+                vault.amount >= expected_vault_amount,
                 MeridianError::InvariantViolated
             );
         }
         None => {
-            let winning_supply = match ctx.accounts.market.outcome {
+            let winning_supply = match market.outcome {
                 Outcome::Yes => {
-                    ctx.accounts.yes_mint.reload()?;
-                    ctx.accounts.yes_mint.supply
+                    yes_mint.reload()?;
+                    yes_mint.supply
                 }
                 Outcome::No => {
-                    ctx.accounts.no_mint.reload()?;
-                    ctx.accounts.no_mint.supply
+                    no_mint.reload()?;
+                    no_mint.supply
                 }
                 Outcome::Unset => {
                     msg!("redeem_pair: settled market has Unset outcome");
@@ -147,7 +171,7 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
                 }
             };
             require!(
-                ctx.accounts.vault.amount >= winning_supply,
+                vault.amount >= winning_supply,
                 MeridianError::InvariantViolated
             );
         }
@@ -155,7 +179,7 @@ pub(crate) fn redeem_pair_core(ctx: &mut Context<RedeemPair>, qty: u64) -> Resul
 
     emit!(PairRedeemed {
         market: market_key,
-        user: ctx.accounts.user.key(),
+        user: user.key(),
         qty,
     });
 

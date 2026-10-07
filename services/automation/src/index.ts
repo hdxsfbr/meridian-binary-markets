@@ -16,12 +16,13 @@ import { schedule } from "node-cron";
 
 import { loadConfig, type AppConfig } from "./config.js";
 import { loadAdminKeypair, loadPublisherKeypair } from "./keys.js";
-import { ChainClient } from "./chain.js";
+import { assertGenesisHash, ChainClient } from "./chain.js";
 import { MockPythProvider } from "./providers/MockPythProvider.js";
 import type { PriceProvider } from "./providers/PriceProvider.js";
 import { runMorningJob } from "./jobs/morning.js";
 import { runSettleJob, settlementStatus } from "./jobs/settle.js";
 import { isWithinPublishWindow, runPublisherJob, runPublisherTick } from "./jobs/publisher.js";
+import { runReclaimJob } from "./jobs/reclaim.js";
 import { startStatusServer } from "./status.js";
 import { log, logError } from "./log.js";
 
@@ -100,13 +101,11 @@ async function assertOracleProviderMatchesChain(runtime: Runtime): Promise<void>
 }
 
 async function dispatchJob(name: string, flags: Flags): Promise<void> {
-  if (name === "reclaim") {
-    console.log("reclaim: not implemented until Wave 5");
-    return;
-  }
-
   const cfg = loadConfig();
   const runtime = buildRuntime(cfg);
+  // Fix #3: checked once at startup, before any transaction -- via the connection's genesis
+  // hash rather than trusting SOLANA_RPC_URL's hostname.
+  await assertGenesisHash(runtime.chain.connection, cfg.solanaCluster);
   // Fix #14: every chain-backed job (not just `start`) refuses to run against a mismatched
   // ORACLE_PROVIDER -- previously only the long-running `start` process checked this.
   await assertOracleProviderMatchesChain(runtime);
@@ -136,6 +135,13 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
       );
       return;
     }
+    case "reclaim": {
+      await runReclaimJob(
+        { chain: runtime.chain },
+        { day, allSettled: flagBoolean(flags, "all-settled"), dryRun: flagBoolean(flags, "dry-run") },
+      );
+      return;
+    }
     default:
       throw new Error(`unknown job "${name}"; expected morning, settle, publisher, or reclaim`);
   }
@@ -144,6 +150,8 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
 async function runStart(): Promise<void> {
   const cfg = loadConfig();
   const runtime = buildRuntime(cfg);
+  // Fix #3: checked once at startup, before any transaction.
+  await assertGenesisHash(runtime.chain.connection, cfg.solanaCluster);
   await assertOracleProviderMatchesChain(runtime);
 
   startStatusServer(cfg.automationStatusPort, settlementStatus, cfg.webOrigin);
@@ -191,7 +199,23 @@ async function runStart(): Promise<void> {
     { timezone: ET_TIMEZONE },
   );
 
-  log({ job: "index", step: "cron", ok: true, error: "morning 08:00, settle 16:00:30, publisher every minute gated 09:25-16:10 (America/New_York)" });
+  schedule(
+    "0 20 * * 1-5",
+    () => {
+      runReclaimJob({ chain: runtime.chain }).catch((err) =>
+        logError({ job: "reclaim", step: "cron", ok: false, error: (err as Error).message }),
+      );
+    },
+    { timezone: ET_TIMEZONE },
+  );
+
+  log({
+    job: "index",
+    step: "cron",
+    ok: true,
+    error:
+      "morning 08:00, settle 16:00:30, publisher every minute gated 09:25-16:10, reclaim 20:00 (America/New_York)",
+  });
 }
 
 async function main(): Promise<void> {

@@ -15,33 +15,57 @@ use crate::math::pairs_to_usdc;
 use crate::state::config::Config;
 use crate::state::market::{Market, SEED as MARKET_SEED};
 
-pub fn handle_mint_pair(mut ctx: Context<MintPair>, qty: u64) -> Result<()> {
-    mint_pair_core(&mut ctx, qty)
+pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
+    let accounts = ctx.accounts;
+    mint_pair_core(
+        &accounts.config,
+        &mut accounts.market,
+        &accounts.yes_mint,
+        &accounts.no_mint,
+        &mut accounts.vault,
+        &accounts.user,
+        &accounts.user_usdc,
+        &accounts.user_yes,
+        &accounts.user_no,
+        &accounts.token_program,
+        qty,
+    )
 }
 
 /// Core of `mint_pair`: not-paused/open/qty guards, USDC user -> vault, two `mint_to`s
 /// (Yes and No) to the user with the market PDA as signer, `pairs_outstanding += qty`,
 /// the vault-equation invariant check, and the `Minted` event.
 ///
-/// Factored out of `handle_mint_pair` so a later wave's `buy_no_market` / `buy_no_limit`
-/// (`contracts/program-instructions.md`: both mint a pair as their first step before
-/// trading the Yes side away) can reuse this logic in-process instead of issuing a
-/// self-CPI back into this program's own `mint_pair` instruction. Those instructions
-/// don't need the exact `MintPair` `Accounts` struct -- they need an `Accounts` struct
-/// whose fields fill the same *roles* with the same types and constraints as the ones
-/// below (`user: Signer`, `config: Account<Config>`, `market: Account<Market>` mut,
-/// `yes_mint`/`no_mint: Account<Mint>` mut matching `market.yes_mint`/`market.no_mint`,
-/// `vault: Account<TokenAccount>` mut matching `market.vault`, `user_usdc`: the user's
-/// USDC `TokenAccount`, `user_yes`/`user_no`: the user's Yes/No `TokenAccount`s,
-/// `token_program: Program<Token>`). Given such a struct, either call this function with
-/// a `Context` built from it directly (if the field names line up), or copy this
-/// function's body -- it is short and self-contained on purpose.
+/// Factored out of `handle_mint_pair` (Wave 5, T056-058 refactor: takes explicit
+/// account references rather than a typed `Context<MintPair>`) so `buy_no_market` /
+/// `buy_no_limit` (`contracts/program-instructions.md`: both mint a pair as their first
+/// step before trading the Yes side away) can reuse this logic in-process instead of
+/// issuing a self-CPI back into this program's own `mint_pair` instruction. Any caller
+/// whose accounts fill the same roles (`user: Signer`, `config: Account<Config>`,
+/// `market: Account<Market>` mut, `yes_mint`/`no_mint: Account<Mint>` mut matching
+/// `market.yes_mint`/`market.no_mint`, `vault: Account<TokenAccount>` mut matching
+/// `market.vault`, `user_usdc`: the user's USDC `TokenAccount`, `user_yes`/`user_no`:
+/// the user's Yes/No `TokenAccount`s, `token_program: Program<Token>`) can call this
+/// directly.
 ///
 /// Guard order: `!config.paused` (`Paused`), `market.is_open()` (`MarketSettled`),
 /// `qty > 0` (`ZeroQuantity`).
-pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()> {
-    require!(!ctx.accounts.config.paused, MeridianError::Paused);
-    require!(ctx.accounts.market.is_open(), MeridianError::MarketSettled);
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn mint_pair_core<'info>(
+    config: &Account<'info, Config>,
+    market: &mut Account<'info, Market>,
+    yes_mint: &Account<'info, Mint>,
+    no_mint: &Account<'info, Mint>,
+    vault: &mut Account<'info, TokenAccount>,
+    user: &Signer<'info>,
+    user_usdc: &Account<'info, TokenAccount>,
+    user_yes: &Account<'info, TokenAccount>,
+    user_no: &Account<'info, TokenAccount>,
+    token_program: &Program<'info, Token>,
+    qty: u64,
+) -> Result<()> {
+    require!(!config.paused, MeridianError::Paused);
+    require!(market.is_open(), MeridianError::MarketSettled);
     require!(qty > 0, MeridianError::ZeroQuantity);
 
     // Yes/No mints and the USDC vault all use the same 6-decimal scale (data-model.md
@@ -51,11 +75,11 @@ pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()
 
     token::transfer(
         CpiContext::new(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             Transfer {
-                from: ctx.accounts.user_usdc.to_account_info(),
-                to: ctx.accounts.vault.to_account_info(),
-                authority: ctx.accounts.user.to_account_info(),
+                from: user_usdc.to_account_info(),
+                to: vault.to_account_info(),
+                authority: user.to_account_info(),
             },
         ),
         usdc_amount,
@@ -63,11 +87,11 @@ pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()
 
     // Market PDA signer seeds, in the documented order (data-model.md "Market"):
     // `["market", ticker, trading_day_le, strike_le, bump]`.
-    let ticker = ctx.accounts.market.ticker;
-    let trading_day_bytes = ctx.accounts.market.trading_day.to_le_bytes();
-    let strike_bytes = ctx.accounts.market.strike.to_le_bytes();
-    let bump = [ctx.accounts.market.bump];
-    let market_key = ctx.accounts.market.key();
+    let ticker = market.ticker;
+    let trading_day_bytes = market.trading_day.to_le_bytes();
+    let strike_bytes = market.strike.to_le_bytes();
+    let bump = [market.bump];
+    let market_key = market.key();
     let seeds: [&[u8]; 5] = [
         MARKET_SEED,
         ticker.as_ref(),
@@ -79,11 +103,11 @@ pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()
 
     token::mint_to(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             MintTo {
-                mint: ctx.accounts.yes_mint.to_account_info(),
-                to: ctx.accounts.user_yes.to_account_info(),
-                authority: ctx.accounts.market.to_account_info(),
+                mint: yes_mint.to_account_info(),
+                to: user_yes.to_account_info(),
+                authority: market.to_account_info(),
             },
             signer_seeds,
         ),
@@ -92,25 +116,22 @@ pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()
 
     token::mint_to(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
+            token_program.key(),
             MintTo {
-                mint: ctx.accounts.no_mint.to_account_info(),
-                to: ctx.accounts.user_no.to_account_info(),
-                authority: ctx.accounts.market.to_account_info(),
+                mint: no_mint.to_account_info(),
+                to: user_no.to_account_info(),
+                authority: market.to_account_info(),
             },
             signer_seeds,
         ),
         usdc_amount,
     )?;
 
-    let pairs_outstanding = {
-        let market = &mut ctx.accounts.market;
-        market.pairs_outstanding = market
-            .pairs_outstanding
-            .checked_add(qty)
-            .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
-        market.pairs_outstanding
-    };
+    market.pairs_outstanding = market
+        .pairs_outstanding
+        .checked_add(qty)
+        .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+    let pairs_outstanding = market.pairs_outstanding;
 
     // Invariant (data-model.md "Market", program-instructions.md "Invariant checks
     // executed in code"): reload the vault, since the `transfer` CPI above mutated its
@@ -119,16 +140,16 @@ pub(crate) fn mint_pair_core(ctx: &mut Context<MintPair>, qty: u64) -> Result<()
     // least* the backing for `pairs_outstanding`, not exactly that amount. Surplus from
     // such transfers is never paid out -- redemptions always pay exactly `qty *
     // 1_000_000` (see `redeem_pair.rs`).
-    ctx.accounts.vault.reload()?;
+    vault.reload()?;
     let expected_vault_amount = pairs_to_usdc(pairs_outstanding)?;
     require!(
-        ctx.accounts.vault.amount >= expected_vault_amount,
+        vault.amount >= expected_vault_amount,
         MeridianError::InvariantViolated
     );
 
     emit!(Minted {
         market: market_key,
-        user: ctx.accounts.user.key(),
+        user: user.key(),
         qty,
     });
 

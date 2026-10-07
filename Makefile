@@ -14,7 +14,7 @@ COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm dev
 RUN_PORTS := $(COMPOSE) run --rm --service-ports dev
 
-.PHONY: dev build test-program lifecycle deploy jobs web test-web shell clean deps
+.PHONY: dev build test-program lifecycle deploy init-config jobs web test-web shell clean deps
 
 ## deps: install the pnpm workspace with a frozen lockfile.
 deps:
@@ -69,16 +69,21 @@ lifecycle: deps
 	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm run lifecycle'
 
 ## deploy: build and deploy the program to CLUSTER (default devnet; use
-## `make dev` for a localnet deploy). Uses /run/keys/admin.json if present,
-## otherwise the default Solana CLI wallet.
-deploy: build
-	$(RUN) bash -c '\
-		set -euo pipefail; \
-		if [ -f /run/keys/admin.json ]; then WALLET=/run/keys/admin.json; \
-		elif [ -f ~/.config/solana/id.json ]; then WALLET=~/.config/solana/id.json; \
-		else echo "no wallet found: expected /run/keys/admin.json or ~/.config/solana/id.json"; exit 1; fi; \
-		anchor deploy --provider.cluster $(CLUSTER) --provider.wallet $$WALLET \
-	'
+## CLUSTER=localnet for a local-validator deploy). Delegates to
+## scripts/deploy.ts (scripts/package.json "deploy"), which runs
+## scripts/anchor-build.sh, anchor-deploys, and verifies the deployed
+## program id and executable flag. Uses /run/keys/admin.json if present,
+## else the default Solana CLI wallet, else the repo-relative keys/admin.json
+## written by `airdrop --create-keys` (scripts/lib/keys.ts). Refuses to
+## proceed if the RPC endpoint's genesis hash looks like mainnet-beta, or
+## disagrees with CLUSTER=devnet (scripts/lib/client.ts).
+deploy: deps
+	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm --filter @meridian/scripts run deploy'
+
+## init-config: idempotently create (or print) the on-chain Config
+## singleton. Delegates to scripts/init-config.ts.
+init-config: deps
+	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm --filter @meridian/scripts run init-config'
 
 ## jobs: start the automation service (cron-driven morning/settle/publisher jobs).
 jobs: deps

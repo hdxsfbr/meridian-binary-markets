@@ -296,20 +296,15 @@ describe("toInstructionPlan: sellNo limit reports deposit and eventualProceeds s
 });
 
 describe("describeTransientState", () => {
-  it("renders noHeldYesResting when a buy_no_limit is partially filled", () => {
-    const position: Position = { yes: 2n, no: 2n, mintedPairs: 0n };
-    const restingAsks = [order(1n, PublicKey.unique(), 600_000n, 2n, 1n)];
-    expect(describeTransientState(position, restingAsks)).toBe("noHeldYesResting");
+  it("renders noHeldYesResting when No is available and a Yes ask rests", () => {
+    expect(describeTransientState({ noAvailable: 2n, restingAskQty: 2n })).toBe("noHeldYesResting");
   });
 
   it("is null once there is no resting Yes ask", () => {
-    const position: Position = { yes: 2n, no: 2n, mintedPairs: 0n };
-    expect(describeTransientState(position, [])).toBeNull();
+    expect(describeTransientState({ noAvailable: 2n, restingAskQty: 0n })).toBeNull();
   });
 
-  it("is null for a plain minted pair (not a transient buy_no_limit state)", () => {
-    const position: Position = { yes: 4n, no: 4n, mintedPairs: 4n };
-    const restingAsks = [order(1n, PublicKey.unique(), 600_000n, 2n, 1n)];
-    expect(describeTransientState(position, restingAsks)).toBeNull();
+  it("is null for a plain minted pair (no No available beyond the held pair)", () => {
+    expect(describeTransientState({ noAvailable: 0n, restingAskQty: 2n })).toBeNull();
   });
 });

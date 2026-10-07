@@ -1041,3 +1041,47 @@ fn removed_orders_leave_zeroed_tail_slots_in_raw_book_bytes() {
         assert_eq!(slot.remaining, 0, "tail slot {i} beyond ask_count should be zeroed");
     }
 }
+
+#[test]
+fn place_order_ask_crossing_the_takers_own_resting_bid_is_refused_and_nothing_moves() {
+    let (mut env, market) = setup();
+
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    mint_pairs_for(&mut env, &user, &market, user_usdc, 5);
+    let user_yes = yes_ata(&user, &market);
+
+    // Rest a bid for this same user first.
+    send_place_order(&mut env, &user, &market, user_usdc, user_yes, SIDE_BID, 650_000, 5, TIF_LIMIT, &[])
+        .expect("resting bid should succeed");
+
+    let usdc_before = read_token_amount(&env, user_usdc);
+    let yes_before = read_token_amount(&env, user_yes);
+    let escrow_usdc_before = read_token_amount(&env, market.usdc_escrow);
+    let escrow_yes_before = read_token_amount(&env, market.yes_escrow);
+
+    // An ask at or below 650_000 crosses the user's own resting bid -- must be refused
+    // (Wave 5 review fix, 2026-10-06) before anything moves, not matched against
+    // themselves.
+    let result = send_place_order(
+        &mut env,
+        &user,
+        &market,
+        user_usdc,
+        user_yes,
+        SIDE_ASK,
+        600_000,
+        5,
+        TIF_LIMIT,
+        &[user_usdc],
+    );
+    assert_err(&result, MeridianError::InvariantViolated);
+
+    assert_eq!(read_token_amount(&env, user_usdc), usdc_before, "nothing should have moved");
+    assert_eq!(read_token_amount(&env, user_yes), yes_before, "nothing should have moved");
+    assert_eq!(read_token_amount(&env, market.usdc_escrow), escrow_usdc_before);
+    assert_eq!(read_token_amount(&env, market.yes_escrow), escrow_yes_before);
+
+    let header = env.read_book_header(market.book);
+    assert_eq!(header.bid_count, 1, "the user's resting bid should be untouched");
+    assert_eq!(header.ask_count, 0, "no ask should have been rested or matched");
+}

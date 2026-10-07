@@ -110,7 +110,15 @@ pub mod meridian {
         instructions::handle_cancel_order(ctx, order_id)
     }
 
-    pub fn buy_no_market(ctx: Context<BuyNoMarket>, qty: u64, min_yes_price: u64) -> Result<()> {
+    // Named lifetime (same reason as `place_order` above): `buy_no_market` reads
+    // `ctx.remaining_accounts` (bid makers' Yes token accounts) alongside its typed
+    // `ctx.accounts` fields in the same CPIs. See `instructions/buy_no_market.rs`'s
+    // `handle_buy_no_market` doc comment.
+    pub fn buy_no_market<'info>(
+        ctx: Context<'info, BuyNoMarket<'info>>,
+        qty: u64,
+        min_yes_price: u64,
+    ) -> Result<()> {
         instructions::handle_buy_no_market(ctx, qty, min_yes_price)
     }
 
@@ -118,7 +126,15 @@ pub mod meridian {
         instructions::handle_buy_no_limit(ctx, qty, price)
     }
 
-    pub fn sell_no_market(ctx: Context<SellNoMarket>, qty: u64, max_yes_price: u64) -> Result<()> {
+    // Named lifetime (same reason as `buy_no_market` above): `sell_no_market` reads
+    // `ctx.remaining_accounts` (ask makers' USDC token accounts) alongside its typed
+    // `ctx.accounts` fields in the same CPIs. See `instructions/sell_no_market.rs`'s
+    // `handle_sell_no_market` doc comment.
+    pub fn sell_no_market<'info>(
+        ctx: Context<'info, SellNoMarket<'info>>,
+        qty: u64,
+        max_yes_price: u64,
+    ) -> Result<()> {
         instructions::handle_sell_no_market(ctx, qty, max_yes_price)
     }
 

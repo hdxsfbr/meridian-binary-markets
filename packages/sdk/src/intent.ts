@@ -315,19 +315,21 @@ export function toInstructionPlan(
   }
 }
 
+export type TransientStateArgs = {
+  /** No tokens available beyond any held pair (the wallet's net No exposure). */
+  noAvailable: bigint;
+  /** Total remaining quantity on the wallet's resting Yes ask(s) for this market. */
+  restingAskQty: bigint;
+};
+
 /**
  * FR-014's transient display: when a `buy_no_limit` has not fully filled,
- * the user holds both Yes and No (beyond any minted-pair baseline) while a
- * Yes ask still rests on the book. Returns `"noHeldYesResting"` in that
- * case so the UI can render "No held, Yes resting"; otherwise `null`.
+ * the user holds No (beyond any minted-pair baseline) while a Yes ask still
+ * rests on the book. Returns `"noHeldYesResting"` in that case so the UI can
+ * render "No held, Yes resting"; otherwise `null`.
  */
-export function describeTransientState(
-  position: Position,
-  restingYesAsks: Order[],
-): "noHeldYesResting" | null {
-  const heldYes = position.yes - position.mintedPairs;
-  const heldNo = position.no - position.mintedPairs;
-  if (heldYes > 0n && heldNo > 0n && restingYesAsks.length > 0) {
+export function describeTransientState(args: TransientStateArgs): "noHeldYesResting" | null {
+  if (args.noAvailable > 0n && args.restingAskQty > 0n) {
     return "noHeldYesResting";
   }
   return null;

@@ -132,6 +132,55 @@ export type UseMarketsResult = {
   error: boolean;
 };
 
+const ALL_MARKETS_REFRESH_INTERVAL_MS = 30_000;
+
+/**
+ * Every `Market` account across every trading day, unfiltered (item 11):
+ * `/admin`'s "Unsettled markets" section must catch a market that closed on
+ * a previous trading day and never settled, which the day-scoped
+ * `useMarkets` can never see once the day rolls over.
+ */
+export function useAllMarkets(): UseMarketsResult {
+  const program = useProgram();
+  const [markets, setMarkets] = useState<MarketAccount[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function load() {
+      try {
+        const accounts = (await accountClient(program, "market").all()) as Array<{
+          publicKey: PublicKey;
+          account: RawMarket;
+        }>;
+        if (cancelled) {
+          return;
+        }
+        setMarkets(accounts.map(({ publicKey, account }) => decodeMarket(publicKey, account)));
+        setError(false);
+        setLoading(false);
+      } catch {
+        if (!cancelled) {
+          setError(true);
+          setLoading(false);
+        }
+      }
+    }
+
+    setLoading(true);
+    void load();
+    const interval = setInterval(load, ALL_MARKETS_REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [program]);
+
+  return { markets, loading, error };
+}
+
 const REFRESH_INTERVAL_MS = 30_000;
 const MAX_RETRIES = 5;
 const RETRY_BASE_MS = 1_000;
