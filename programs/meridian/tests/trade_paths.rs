@@ -1156,3 +1156,45 @@ fn sell_no_market_fill_event_is_present_in_logs() {
         meta.logs.join("\n")
     );
 }
+
+#[test]
+fn buy_no_market_refused_once_close_ts_has_passed() {
+    let (mut env, market) = setup();
+    let makers_usdc = seed_bids(&mut env, &market, 1, 6, 650_000);
+    let (taker, taker_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts);
+    let result = send_buy_no_market(&mut env, &taker, &market, taker_usdc, 6, 650_000, &makers_usdc);
+    assert_err(&result, MeridianError::MarketClosed);
+    assert_eq!(read_token_amount(&env, taker_usdc), 10_000 * ONE_USDC);
+    assert_escrow_invariants(&env, &market);
+}
+
+#[test]
+fn buy_no_limit_refused_once_close_ts_has_passed() {
+    let (mut env, market) = setup();
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts + 1);
+    let result = send_buy_no_limit(&mut env, &user, &market, user_usdc, 5, 700_000);
+    assert_err(&result, MeridianError::MarketClosed);
+    assert_eq!(read_token_amount(&env, user_usdc), 10_000 * ONE_USDC);
+}
+
+#[test]
+fn sell_no_market_refused_once_close_ts_has_passed() {
+    let (mut env, market) = setup();
+    let ask_makers = seed_asks(&mut env, &market, 1, 5, 400_000);
+    let (seller, seller_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    mint_pairs_for(&mut env, &seller, &market, seller_usdc, 5);
+    let no_before = read_token_amount(&env, no_ata(&seller, &market));
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts + 1);
+    let result = send_sell_no_market(&mut env, &seller, &market, seller_usdc, 5, 400_000, &ask_makers);
+    assert_err(&result, MeridianError::MarketClosed);
+    assert_eq!(read_token_amount(&env, no_ata(&seller, &market)), no_before, "no No was taken");
+    assert_escrow_invariants(&env, &market);
+}

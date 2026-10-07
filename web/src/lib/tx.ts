@@ -404,7 +404,7 @@ export async function sendTx(
 }
 
 /** Known on-chain error names this file maps to user-facing copy (see `trade-copy.ts`). */
-const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "WrongSide", "SelfMatch"] as const;
+const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "MarketClosed", "WrongSide", "SelfMatch"] as const;
 
 function extractErrorName(error: unknown): string | undefined {
   if (error !== null && typeof error === "object") {

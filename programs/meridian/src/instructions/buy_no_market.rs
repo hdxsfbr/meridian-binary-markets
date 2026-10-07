@@ -44,6 +44,10 @@ pub fn handle_buy_no_market<'info>(
 ) -> Result<()> {
     require!(!ctx.accounts.config.paused, MeridianError::Paused);
     require!(ctx.accounts.market.is_open(), MeridianError::MarketSettled);
+    require!(
+        Clock::get()?.unix_timestamp < ctx.accounts.market.close_ts,
+        MeridianError::MarketClosed
+    );
     require!(qty > 0, MeridianError::ZeroQuantity);
     require!(
         min_yes_price >= 1 && min_yes_price <= PRICE_MAX,

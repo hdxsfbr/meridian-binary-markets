@@ -28,6 +28,10 @@ use crate::state::market::{Market, SEED as MARKET_SEED};
 pub fn handle_buy_no_limit(ctx: Context<BuyNoLimit>, qty: u64, price: u64) -> Result<()> {
     require!(!ctx.accounts.config.paused, MeridianError::Paused);
     require!(ctx.accounts.market.is_open(), MeridianError::MarketSettled);
+    require!(
+        Clock::get()?.unix_timestamp < ctx.accounts.market.close_ts,
+        MeridianError::MarketClosed
+    );
     require!(qty > 0, MeridianError::ZeroQuantity);
     require!(price >= 1 && price <= PRICE_MAX, MeridianError::PriceOutOfRange);
 

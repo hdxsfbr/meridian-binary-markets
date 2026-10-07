@@ -92,9 +92,18 @@ impl Market {
         ]
     }
 
-    /// Whether the market still accepts mint, place_order, buy_no_*, sell_no_market.
+    /// Whether the market is unsettled (`Open` state). Trading additionally
+    /// requires `now < close_ts`; see `accepts_trading`.
     pub fn is_open(&self) -> bool {
         self.state == MarketState::Open
+    }
+
+    /// Whether the market still accepts mint, place_order, buy_no_*, and
+    /// sell_no_market at `now`: unsettled *and* before its close time. After
+    /// the close the outcome is knowable, so new positions are refused
+    /// (`MarketClosed`) while cancel and, once settled, redeem stay available.
+    pub fn accepts_trading(&self, now: i64) -> bool {
+        self.is_open() && now < self.close_ts
     }
 
     /// Whether the market has settled (redeem_pair/redeem_winning/cancel_order allowed).
@@ -155,6 +164,18 @@ mod tests {
     fn resolve_below_strike_is_no() {
         let m = market_with_strike(100_000_000);
         assert_eq!(m.resolve(99_999_999), Outcome::No);
+    }
+
+    #[test]
+    fn accepts_trading_only_while_open_and_before_close() {
+        let mut m = market_with_strike(1);
+        m.close_ts = 1_000;
+        assert!(m.accepts_trading(999));
+        assert!(!m.accepts_trading(1_000), "at close_ts the market is closed");
+        assert!(!m.accepts_trading(5_000));
+        m.close_ts = 10_000;
+        m.state = MarketState::Settled;
+        assert!(!m.accepts_trading(999), "settled markets never trade");
     }
 
     #[test]

@@ -67,6 +67,10 @@ pub fn handle_place_order<'info>(
 ) -> Result<()> {
     require!(!ctx.accounts.config.paused, MeridianError::Paused);
     require!(ctx.accounts.market.is_open(), MeridianError::MarketSettled);
+    require!(
+        Clock::get()?.unix_timestamp < ctx.accounts.market.close_ts,
+        MeridianError::MarketClosed
+    );
     require!(price >= 1 && price <= PRICE_MAX, MeridianError::PriceOutOfRange);
     require!(qty > 0, MeridianError::ZeroQuantity);
 

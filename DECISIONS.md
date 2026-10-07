@@ -465,3 +465,21 @@ program's own terms before the user is asked to sign, and the same code path wor
 devnet, and any RPC the wallet cannot reach. Trading after a market's close is still hidden only in
 the UI; the program accepts mint and order placement until settlement, which is tracked as an open
 question rather than decided here.
+
+## 16. Trading stops at the close time on-chain, not just in the UI
+
+**Date:** 2026-10-07 (manual UI QA; decided by Andre)
+**Context:** `Market::is_open()` only checked the lifecycle state, so `mint_pair`, `place_order`,
+`buy_no_market`, `buy_no_limit` and `sell_no_market` kept working between a market's `close_ts` and
+its settlement. The web app hid trading in that window ("Settlement pending") and the market-maker
+panel was patched to stop offering those markets, but anyone calling the program directly could
+still take a maker's stale resting order once the closing price was public, with no risk.
+**Decision:** The five trading instructions require `Clock::now < market.close_ts` and refuse with a
+new `MarketClosed` error (appended to the enum so existing codes keep their numbers).
+`cancel_order`, `redeem_pair` and, after settlement, `redeem_winning` are unaffected, so a maker
+can always pull a resting order after the close. `settle_market` and `admin_settle_override` keep
+their existing "at or after close" rules. Covered by litesvm tests that warp the clock to the close
+and past it for each path, plus a cancel-after-close test.
+**Trade-off:** A market that closes but never settles (oracle refusing every retry, operator
+override not yet allowed) has a frozen book for up to an hour. That is the intended behaviour:
+nothing about the outcome changes in that hour, and the escrows stay refundable through cancel.

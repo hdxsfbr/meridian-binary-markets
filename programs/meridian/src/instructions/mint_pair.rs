@@ -48,7 +48,7 @@ pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
 /// the user's Yes/No `TokenAccount`s, `token_program: Program<Token>`) can call this
 /// directly.
 ///
-/// Guard order: `!config.paused` (`Paused`), `market.is_open()` (`MarketSettled`),
+/// Guard order: `!config.paused` (`Paused`), `market.is_open()` (`MarketSettled`), `now < close_ts` (`MarketClosed`),
 /// `qty > 0` (`ZeroQuantity`).
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn mint_pair_core<'info>(
@@ -66,6 +66,10 @@ pub(crate) fn mint_pair_core<'info>(
 ) -> Result<()> {
     require!(!config.paused, MeridianError::Paused);
     require!(market.is_open(), MeridianError::MarketSettled);
+    require!(
+        Clock::get()?.unix_timestamp < market.close_ts,
+        MeridianError::MarketClosed
+    );
     require!(qty > 0, MeridianError::ZeroQuantity);
 
     // Yes/No mints and the USDC vault all use the same 6-decimal scale (data-model.md

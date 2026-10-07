@@ -10,6 +10,7 @@ import {
   INVALID_INPUT,
   KIND_LABEL,
   MARKET_SETTLED,
+  MARKET_CLOSED,
   MINTED_PAIR,
   NO_HELD_YES_RESTING,
   NO_LIQUIDITY,
@@ -106,6 +107,7 @@ describe("programErrorCopy", () => {
     expect(programErrorCopy("BookFull")).toBe(BOOK_FULL);
     expect(programErrorCopy("InsufficientFill")).toBe(NO_LIQUIDITY);
     expect(programErrorCopy("MarketSettled")).toBe(MARKET_SETTLED);
+    expect(programErrorCopy("MarketClosed")).toBe(MARKET_CLOSED);
   });
 
   it("falls back to a generic message for WrongSide and unknown errors", () => {

@@ -53,4 +53,6 @@ pub enum MeridianError {
     InvariantViolated,
     #[msg("Instruction is not implemented yet")]
     NotImplemented,
+    #[msg("Market has closed and is awaiting settlement")]
+    MarketClosed,
 }

@@ -30,6 +30,7 @@ export const NO_ONLY_IN_PAIR = "Your No is paired with Yes. Sell Yes, or redeem 
 export const HOLDINGS_LABEL = "You hold";
 export const BOOK_FULL = "The order book is full right now";
 export const MARKET_SETTLED = "This contract has settled";
+export const MARKET_CLOSED = "This contract has closed and is waiting for settlement";
 export const SENDING = "Sending…";
 export const CANCEL = "Cancel";
 export const CANCELLING = "Cancelling…";
@@ -76,6 +77,8 @@ export function programErrorCopy(name: string | undefined, detail?: string): str
       return NO_LIQUIDITY;
     case "MarketSettled":
       return MARKET_SETTLED;
+    case "MarketClosed":
+      return MARKET_CLOSED;
     case "SelfMatch":
       return SELF_MATCH;
     default:

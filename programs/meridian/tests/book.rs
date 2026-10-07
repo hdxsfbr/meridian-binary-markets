@@ -1085,3 +1085,46 @@ fn place_order_ask_crossing_the_takers_own_resting_bid_is_refused_and_nothing_mo
     assert_eq!(header.bid_count, 1, "the user's resting bid should be untouched");
     assert_eq!(header.ask_count, 0, "no ask should have been rested or matched");
 }
+
+#[test]
+fn place_order_refused_once_close_ts_has_passed() {
+    let (mut env, market) = setup();
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    let user_yes = yes_ata(&user, &market);
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts);
+    let result = send_place_order(&mut env, &user, &market, user_usdc, user_yes, SIDE_BID, 650_000, 1, TIF_LIMIT, &[]);
+    assert_err(&result, MeridianError::MarketClosed);
+    assert_eq!(read_token_amount(&env, user_usdc), 10_000 * ONE_USDC, "a refused order takes no funds");
+    assert_eq!(env.read_book_header(market.book).bid_count, 0);
+}
+
+#[test]
+fn mint_pair_refused_once_close_ts_has_passed() {
+    let (mut env, market) = setup();
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts + 1);
+    let result = send_mint_pair(&mut env, &user, &market, user_usdc, 1);
+    assert_err(&result, MeridianError::MarketClosed);
+    assert_eq!(read_token_amount(&env, user_usdc), 10_000 * ONE_USDC);
+}
+
+#[test]
+fn cancel_order_still_works_after_close_ts() {
+    let (mut env, market) = setup();
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+    let user_yes = yes_ata(&user, &market);
+    send_place_order(&mut env, &user, &market, user_usdc, user_yes, SIDE_BID, 650_000, 4, TIF_LIMIT, &[]).expect("bid should rest");
+    let usdc_before = read_token_amount(&env, user_usdc);
+    let close_ts = env.fetch::<Market>(market.market).close_ts;
+
+    env.warp_to(close_ts + 60);
+    send_cancel_order(&mut env, &user, &market, user_usdc, user_yes, 1).expect("cancel must stay available after close");
+
+    assert_eq!(read_token_amount(&env, user_usdc), usdc_before + 650_000 * 4);
+    assert_eq!(env.read_book_header(market.book).bid_count, 0);
+    assert_escrow_invariants(&env, &market);
+}
