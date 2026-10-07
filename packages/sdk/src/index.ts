@@ -19,3 +19,6 @@ export function loadIdl(): Record<string, unknown> {
   const raw = readFileSync(idlPath, "utf8");
   return JSON.parse(raw) as Record<string, unknown>;
 }
+
+export * from "./types";
+export * from "./pda";

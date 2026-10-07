@@ -1,5 +1,10 @@
 use anchor_lang::prelude::*;
 
+pub mod errors;
+pub mod events;
+pub mod math;
+pub mod state;
+
 declare_id!("8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia");
 
 // Wave 0 skeleton: proves the Rust + Anchor + Agave toolchain builds and runs

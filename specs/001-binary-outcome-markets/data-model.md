@@ -52,16 +52,19 @@ transition. `Settled` markets refuse mint, place_order, buy_no_*, sell_no_market
 
 ### Book — PDA `["book", market]`, program-owned, variable size
 
-Header (fixed, little-endian):
+Header (fixed, little-endian), 120 bytes after the 8-byte discriminator:
 
 | Field | Type |
 |---|---|
 | market | Pubkey |
-| capacity | u16 |
-| bid_count, ask_count | u16 |
+| usdc_escrow | Pubkey |
+| yes_escrow | Pubkey |
 | next_order_id | u64 |
 | next_seq | u64 |
-| usdc_escrow, yes_escrow | Pubkey |
+| capacity | u16 |
+| bid_count | u16 |
+| ask_count | u16 |
+| (padding) | 2 bytes |
 
 Body: `capacity` bids then `capacity` asks, each an `Order` (64 bytes):
 
