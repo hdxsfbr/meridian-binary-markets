@@ -52,3 +52,6 @@ test-results/
 
 # claude worktrees
 .claude/worktrees/
+
+# generated from the Anchor build
+packages/sdk/src/idl.ts
