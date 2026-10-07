@@ -75,8 +75,30 @@ make dev
 
 is the one command a reviewer needs. It builds the pinned Docker image, installs the pnpm
 workspace, builds the Anchor program, runs the Rust/litesvm program test suite, starts a local
-`solana-test-validator`, deploys the program to it, and serves the web app on
-`http://localhost:3000`.
+`solana-test-validator`, deploys the program to it, creates the on-chain config, runs the full
+create → mint → trade → settle → redeem lifecycle once as a smoke test, seeds today's strike
+ladder for one ticker with a resting ask, and serves the web app on `http://localhost:3000`.
+
+### Trading in the browser against the local stack
+
+The local validator is a private chain, so a browser wallet needs to be pointed at it and funded:
+
+- **Fund a wallet.** `make shell`, then
+  `pnpm --filter @meridian/scripts run fund-wallet -- <your-pubkey> --sol 2 --usdc 100`
+  (localnet only; mints from the local test USDC mint).
+- **Phantom.** Settings → Developer Settings → enable Testnet Mode and pick **Localnet**. Phantom
+  only talks to `localhost:8899`, and only connects to pages served from `localhost` or HTTPS, so
+  open the app at `http://localhost:3000`. If the stack runs on another machine, tunnel both ports
+  first: `ssh -N -L 3000:localhost:3000 -L 8899:localhost:8899 -L 8900:localhost:8900 <host>`.
+  Phantom cannot simulate or broadcast on Localnet itself; the app simulates and broadcasts through
+  its own RPC connection and only asks the wallet to sign.
+- **Solflare.** Add a custom network with RPC `http://127.0.0.1:8899` instead; it needs no tunnel
+  when the stack runs locally.
+- **Without a wallet extension.** `E2E=1 make dev` enables an in-page test wallet (never built in
+  production). Paste a base58 secret key into `sessionStorage.__MERIDIAN_E2E_SECRET__` in the
+  browser console, reload, and pick **Test Wallet** from the connect menu.
+- **Serving to another machine.** `BIND_HOST=0.0.0.0 PUBLIC_HOST=<hostname> make dev` binds the
+  ports on all interfaces and tells the web app which RPC host the browser should use.
 
 **Prerequisites** — the only things that need to exist on the host:
 
@@ -104,7 +126,7 @@ blocks, serving the web app until you stop it.
 
 | Target | What it does |
 | --- | --- |
-| `make dev` | the Wave-0 gate described above: build, test, deploy to a local validator, serve the web app |
+| `make dev` | build, test, deploy to a local validator, run the lifecycle smoke test, seed today's markets, serve the web app |
 | `make deps` | install the pnpm workspace with a frozen lockfile only |
 | `make build` | install deps and compile the Anchor program only |
 | `make test-program` | build then run the Rust/litesvm program test suite (`programs/meridian/tests/*.rs`) |
@@ -113,7 +135,7 @@ blocks, serving the web app until you stop it.
 | `make init-config` | idempotently create (or print) the on-chain `Config` singleton |
 | `make jobs` | start the automation service's cron schedule (morning/settle/publisher/reclaim jobs) |
 | `make web` | run the Next.js dev server against the cluster configured in `.env` |
-| `make test-web` | Vitest translation-layer tests (no browser/Playwright suite exists yet — planned for Wave 7) |
+| `make test-web` | Playwright browser flows against a fresh local validator (trade, portfolio, admin) |
 | `make shell` | open an interactive shell in the dev container |
 | `make clean` | remove containers, named volumes, and local `node_modules`/`.next` output |
 

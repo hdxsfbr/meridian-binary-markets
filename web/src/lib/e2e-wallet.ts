@@ -166,7 +166,11 @@ export function installE2eWallet(): void {
   ) {
     return;
   }
-  const secretBase58 = window.__MERIDIAN_E2E_SECRET__;
+  // Playwright injects the secret before load; a human driving a test-mode
+  // instance by hand can set `sessionStorage.__MERIDIAN_E2E_SECRET__` and
+  // reload. Both paths exist only outside production with NEXT_PUBLIC_E2E=1.
+  const secretBase58 =
+    window.__MERIDIAN_E2E_SECRET__ ?? window.sessionStorage?.getItem("__MERIDIAN_E2E_SECRET__") ?? undefined;
   if (!secretBase58 || secretBase58 === installedFor) {
     return;
   }

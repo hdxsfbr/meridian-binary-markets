@@ -11,6 +11,7 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useSendTransaction } from "../lib/wallet-send";
 import {
   type Action,
   type Book as SdkBook,
@@ -41,6 +42,12 @@ import {
   estimateLabel,
   guidanceCopy,
   settledOutcomeCopy,
+  NO_YES_TO_SELL,
+  NO_NO_TO_SELL,
+  YES_ONLY_IN_PAIR,
+  NO_ONLY_IN_PAIR,
+  HOLDINGS_LABEL,
+  lockedUntilFilledLabel,
 } from "@/lib/trade-copy";
 
 export type TradePanelProps = {
@@ -74,13 +81,14 @@ function parsePriceMicro(input: string): bigint | undefined {
 export function TradePanel({ market, config }: TradePanelProps) {
   const program = useProgram();
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey } = useWallet();
+  const sendTransaction = useSendTransaction();
 
   const book = useBook(market.pubkey);
   const position = usePosition(market.pubkey, publicKey ?? undefined);
 
   const [kind, setKind] = useState<Kind>("market");
-  const [qtyInput, setQtyInput] = useState("");
+  const [qtyInput, setQtyInput] = useState("1");
   const [priceInput, setPriceInput] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [lastError, setLastError] = useState<string | null>(null);
@@ -136,7 +144,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
       const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint };
       const ix = await planToInstruction(ctx, plan);
       await sendTx(connection, sendTransaction, [ix], publicKey);
-      setQtyInput("");
+      setQtyInput("1");
       setPriceInput("");
     } catch (error) {
       setLastError(mapSendError(error));
@@ -208,11 +216,15 @@ export function TradePanel({ market, config }: TradePanelProps) {
       ) : null}
       {transientState === "noHeldYesResting" ? <p className="text-sm text-black/70">{NO_HELD_YES_RESTING}</p> : null}
 
+      <p className="text-sm text-black/70">
+        {HOLDINGS_LABEL}: {position.yes.toString()} Yes · {position.no.toString()} No
+      </p>
+
       <div className="mt-2 flex gap-2">
-        <button type="button" aria-pressed={kind === "market"} onClick={() => setKind("market")}>
+        <button type="button" aria-pressed={kind === "market"} className={`rounded border px-3 py-1 text-sm ${kind === "market" ? "border-black bg-black text-white" : "border-black/20 text-black/70 hover:border-black/50"}`} onClick={() => setKind("market")}>
           {KIND_LABEL.market}
         </button>
-        <button type="button" aria-pressed={kind === "limit"} onClick={() => setKind("limit")}>
+        <button type="button" aria-pressed={kind === "limit"} className={`rounded border px-3 py-1 text-sm ${kind === "limit" ? "border-black bg-black text-white" : "border-black/20 text-black/70 hover:border-black/50"}`} onClick={() => setKind("limit")}>
           {KIND_LABEL.limit}
         </button>
       </div>
@@ -221,6 +233,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
         <label className="flex flex-col text-sm">
           Quantity
           <input
+            className="mt-1 w-32 rounded border border-black/20 px-2 py-1 text-sm disabled:bg-black/5"
             type="text"
             inputMode="numeric"
             value={qtyInput}
@@ -232,6 +245,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
           <label className="flex flex-col text-sm">
             Price ($)
             <input
+              className="mt-1 w-32 rounded border border-black/20 px-2 py-1 text-sm disabled:bg-black/5"
               type="text"
               inputMode="decimal"
               value={priceInput}
@@ -256,19 +270,40 @@ export function TradePanel({ market, config }: TradePanelProps) {
               return (
                 <div key={action} className="col-span-2 flex items-center justify-between">
                   <span className="text-sm text-black/70">{guidanceCopy(code)}</span>
-                  <button type="button" disabled={busy !== null} onClick={() => closeFirst(closeAction)}>
+                  <button type="button" className="rounded border border-black/20 bg-black px-3 py-2 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:bg-black/30" disabled={busy !== null} onClick={() => closeFirst(closeAction)}>
                     {busy === `close-${closeAction}` ? SENDING : closeButtonLabel(code)}
                   </button>
                 </div>
               );
             }
 
-            const guidance = plan !== undefined && "code" in plan ? guidanceCopy(plan.code) : null;
-            const estimate = plan !== undefined && !("code" in plan) ? estimateLabel(plan.estimate.cost, plan.estimate.fills) : null;
+            const noHoldings =
+              (action === "sellYes" && position.netYes <= 0n) || (action === "sellNo" && position.netNo <= 0n);
+            const guidance = noHoldings
+              ? action === "sellYes"
+                ? position.yes > 0n
+                  ? YES_ONLY_IN_PAIR
+                  : NO_YES_TO_SELL
+                : position.no > 0n
+                  ? NO_ONLY_IN_PAIR
+                  : NO_NO_TO_SELL
+              : plan !== undefined && "code" in plan
+                ? guidanceCopy(plan.code)
+                : null;
+            let estimate: string | null = null;
+            if (!noHoldings && plan !== undefined && !("code" in plan)) {
+              if (plan.ix === "buy_no_limit") {
+                estimate = lockedUntilFilledLabel(plan.qty * 1_000_000n, 1_000_000n - plan.price);
+              } else if (plan.ix === "place_order" && plan.estimate.deposit !== undefined) {
+                estimate = lockedUntilFilledLabel(plan.estimate.deposit);
+              } else {
+                estimate = estimateLabel(plan.estimate.cost, plan.estimate.fills);
+              }
+            }
 
             return (
               <div key={action} className="flex flex-col">
-                <button type="button" disabled={busy !== null || plan === undefined} onClick={() => submit(action)}>
+                <button type="button" className="rounded border border-black/20 bg-black px-3 py-2 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:bg-black/30" disabled={noHoldings || busy !== null || plan === undefined} onClick={() => submit(action)}>
                   {busy === action ? SENDING : ACTION_LABEL[action]}
                 </button>
                 {estimate !== null ? <span className="text-xs text-black/70">{estimate}</span> : null}

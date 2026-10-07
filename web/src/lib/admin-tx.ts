@@ -87,6 +87,7 @@ export async function sendTx(
     }
     return { ok: true, signature };
   } catch (error) {
+    console.error("[meridian] admin transaction failed", error);
     return { ok: false, error: describeError(error) };
   }
 }

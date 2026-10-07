@@ -1,0 +1,8 @@
+{
+  "brand": {"name":"Meridian", "direction":"Flow", "tagline":"Trade the outcome"},
+  "colors": {"indigo":"#6366F1","violet":"#A855F7","cyan":"#22D3EE","midnight":"#0B1026","yesDark":"#2DD4BF","noDark":"#FB7185","yesLight":"#0F766E","noLight":"#BE123C"},
+  "typography": {"ui":"Inter, system-ui, sans-serif", "numbers":"IBM Plex Mono, monospace"},
+  "radii": {"sm":8,"md":12,"lg":18},
+  "spacingPx": [4,8,12,16,24,32],
+  "logo": {"preferred":"logos/logo.svg","darkBackground":"logos/logo-dark.svg","whiteOneColor":"logos/logo-white.svg","icon":"logos/logo-mark.svg"}
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { formatStrike, formatUsd } from "@/lib/format";
 import type { PositionRowData } from "@/lib/positions-view";
 
@@ -36,7 +37,18 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
         <span className="font-semibold">
           {row.ticker} {formatStrike(row.strike)}
         </span>
-        <span className="text-sm text-black/60">{row.state === "settled" ? "Settled" : "Open"}</span>
+        <span className="flex items-center gap-3 text-sm">
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs ${row.state === "settled" ? "bg-black/10 text-black/70" : "bg-emerald-100 text-emerald-800"}`}
+          >
+            {row.state === "settled" ? "Settled" : "Open"}
+          </span>
+          {row.state === "settled" ? null : (
+            <Link href={`/trade/${row.ticker}`} className="underline">
+              Trade
+            </Link>
+          )}
+        </span>
       </div>
 
       {row.state === "settled" && row.settlementPriceMicro !== undefined && row.winningSide ? (

@@ -379,6 +379,19 @@ export async function sendTx(
   const { blockhash, lastValidBlockHeight } = await connection.getLatestBlockhash();
   tx.recentBlockhash = blockhash;
 
+  // Simulate through the app's own connection first. Wallets simulate on
+  // their own RPC and some (Phantom in Localnet mode) cannot; this also turns
+  // a program refusal into a readable error with the program's logs before
+  // the user is asked to sign anything.
+  const simulation = await connection.simulateTransaction(tx);
+  if (simulation.value.err) {
+    const logs = simulation.value.logs ?? [];
+    console.error("[meridian] simulation failed", simulation.value.err, logs);
+    const anchorLine = logs.find((l) => l.includes("Error Code:")) ?? logs.find((l) => l.includes("failed"));
+    const selfMatch = logs.some((l) => l.includes("self-match"));
+    throw new Error(`Simulation failed: ${selfMatch ? "SelfMatch" : ""} ${anchorLine ?? JSON.stringify(simulation.value.err)}`);
+  }
+
   const signature = await sendTransaction(tx, connection);
   const confirmation = await connection.confirmTransaction({ signature, blockhash, lastValidBlockHeight }, "confirmed");
   if (confirmation.value.err) {
@@ -391,7 +404,7 @@ export async function sendTx(
 }
 
 /** Known on-chain error names this file maps to user-facing copy (see `trade-copy.ts`). */
-const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "WrongSide"] as const;
+const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "WrongSide", "SelfMatch"] as const;
 
 function extractErrorName(error: unknown): string | undefined {
   if (error !== null && typeof error === "object") {
@@ -418,5 +431,7 @@ function extractErrorName(error: unknown): string | undefined {
  */
 export function mapSendError(error: unknown): string {
   const name = extractErrorName(error);
-  return programErrorCopy(name);
+  const message = error instanceof Error ? error.message : undefined;
+  const detail = message?.match(/Error Message: ([^.]+)\./)?.[1];
+  return programErrorCopy(name, name === undefined ? detail : undefined);
 }

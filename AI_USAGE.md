@@ -390,3 +390,35 @@ Where it went right:
 
 Current numbers: 261 Rust tests, 108 SDK tests, 107 web tests, 114 automation tests (plus 1
 skipped), and 62 scripts tests.
+
+### 2026-10-07 — Manual UI QA pass, driven by the model
+
+Andre's instruction after the first browser session failed on the very first trade: "test all the
+features via the UI, fix what you find, raise if anything is ambiguous." Claude Code (Fable 5.1)
+drove the running stack itself — first through the desktop preview browser with the in-page test
+wallet, then headlessly with Playwright scripts when the preview disconnected — as the taker, the
+maker, a visitor, and the operator, and fixed what it found in place rather than reporting a list.
+
+What it found and fixed, in order: Phantom could not simulate or broadcast on Localnet (the app
+now simulates, surfaces the program's reason, has the wallet sign only, and broadcasts itself —
+`DECISIONS.md` §15); a self-match refusal caused by simulating at `finalized` commitment; cost
+basis showing $0.00 because the test validator pruned history; the portfolio not refreshing
+balances after mint, redeem, quote submit, or cancel; the admin Add strike form failing silently
+because the browser `Buffer` polyfill lacks `writeBigUInt64LE` (every PDA derivation threw; fixed
+in the SDK with `DataView`, and the admin page now logs the raw error and shows a success notice);
+the market-maker panel offering to mint and quote on markets already past their close; a settled and
+an open market with the same ticker and strike rendering as identical rows; "You pay $0.00" quoted
+when a book has no asks; a duplicated empty-state message; and sell copy that told a trader holding
+a minted pair they held nothing to sell.
+
+Where the earlier process fell short: the Playwright suite passed throughout, because it ran the
+same wallet shim the fixes above never touched. None of the five smoke flows exercised a real
+wallet's send path, finalized-versus-confirmed simulation state, history retention over time, or
+the admin page's PDA derivation in a browser. The suite proved the pages rendered and the
+translation layer agreed with the program; it did not prove a person could trade. Andre's
+"test dat shit before wasting my time" was the right call, and the standing rule since is that the
+model drives the real UI with the test wallet before handing a build over.
+
+Raised rather than decided: whether realized P&L should show the losing leg's write-off before
+the winning side is redeemed, and whether the program itself should refuse mint and order
+placement after a market's close time (today only the UI hides it).

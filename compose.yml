@@ -35,10 +35,10 @@ services:
       - pnpm-store:/home/dev/.pnpm-store
       - ./keys:/run/keys:ro
     ports:
-      - "127.0.0.1:${WEB_PORT:-3000}:3000"
-      - "127.0.0.1:${RPC_PORT:-8899}:8899"
-      - "127.0.0.1:${WS_PORT:-8900}:8900"
-      - "127.0.0.1:${STATUS_PORT:-8787}:8787"
+      - "${BIND_HOST:-127.0.0.1}:${WEB_PORT:-3000}:3000"
+      - "${BIND_HOST:-127.0.0.1}:${RPC_PORT:-8899}:8899"
+      - "${BIND_HOST:-127.0.0.1}:${WS_PORT:-8900}:8900"
+      - "${BIND_HOST:-127.0.0.1}:${STATUS_PORT:-8787}:8787"
     env_file:
       - path: ./.env
         required: false

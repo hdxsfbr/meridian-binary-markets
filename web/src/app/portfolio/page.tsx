@@ -9,6 +9,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useSendTransaction } from "../../lib/wallet-send";
 import { PlaceOrderSide, TimeInForce } from "@meridian/sdk";
 import { associatedTokenAddress } from "@/lib/ata";
 import { formatUsd } from "@/lib/format";
@@ -30,7 +31,8 @@ import { PositionRow } from "@/components/PositionRow";
 import { MakerPanel } from "@/components/MakerPanel";
 
 export default function PortfolioPage() {
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey } = useWallet();
+  const sendTransaction = useSendTransaction();
   const { connection } = useConnection();
   const program = useProgram();
   const config = useConfig();
@@ -41,6 +43,7 @@ export default function PortfolioPage() {
 
   const [usdcMint, setUsdcMint] = useState<PublicKey | null>(null);
   const [usdcBalanceMicro, setUsdcBalanceMicro] = useState<bigint | null>(null);
+  const [balanceTick, setBalanceTick] = useState(0);
   const [minting, setMinting] = useState(false);
   const [redeemingKey, setRedeemingKey] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -88,7 +91,7 @@ export default function PortfolioPage() {
       cancelled = true;
       clearInterval(interval);
     };
-  }, [publicKey, usdcMint, program]);
+  }, [publicKey, usdcMint, program, balanceTick]);
 
   const handleMint = useCallback(
     async (market: MarketLike, qty: bigint) => {
@@ -98,7 +101,8 @@ export default function PortfolioPage() {
       setActionError(null);
       setMinting(true);
       try {
-        await mintPair(program, publicKey, market, usdcMint, qty);
+        await mintPair(program, connection, sendTransaction, publicKey, market, usdcMint, qty);
+        setBalanceTick((n) => n + 1);
         refresh();
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Minting pair did not go through. Please try again.");
@@ -106,7 +110,7 @@ export default function PortfolioPage() {
         setMinting(false);
       }
     },
-    [publicKey, usdcMint, program, refresh],
+    [publicKey, usdcMint, program, connection, sendTransaction, refresh],
   );
 
   const handleRedeemPair = useCallback(
@@ -117,7 +121,8 @@ export default function PortfolioPage() {
       setActionError(null);
       setRedeemingKey(`${row.marketKey}:pair`);
       try {
-        await redeemPair(program, publicKey, toRedeemMarket(row), usdcMint, row.pairsHeld);
+        await redeemPair(program, connection, sendTransaction, publicKey, toRedeemMarket(row), usdcMint, row.pairsHeld);
+        setBalanceTick((n) => n + 1);
         refresh();
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Redeeming pair did not go through. Please try again.");
@@ -125,7 +130,7 @@ export default function PortfolioPage() {
         setRedeemingKey(null);
       }
     },
-    [publicKey, usdcMint, program, refresh],
+    [publicKey, usdcMint, program, connection, sendTransaction, refresh],
   );
 
   const handleSubmitQuote = useCallback(
@@ -144,6 +149,7 @@ export default function PortfolioPage() {
           makers: [],
         });
         await sendTx(connection, sendTransaction, [ix], publicKey);
+        setBalanceTick((n) => n + 1);
         refresh();
         myOrders.refresh();
       } catch (err) {
@@ -162,7 +168,8 @@ export default function PortfolioPage() {
       setRedeemingKey(`${row.marketKey}:winning`);
       try {
         const qty = row.winningSide === "yes" ? row.yes : row.no;
-        await redeemWinning(program, publicKey, toRedeemMarket(row), usdcMint, row.winningSide, qty);
+        await redeemWinning(program, connection, sendTransaction, publicKey, toRedeemMarket(row), usdcMint, row.winningSide, qty);
+        setBalanceTick((n) => n + 1);
         refresh();
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Redeeming winning tokens did not go through. Please try again.");
@@ -170,7 +177,7 @@ export default function PortfolioPage() {
         setRedeemingKey(null);
       }
     },
-    [publicKey, usdcMint, program, refresh],
+    [publicKey, usdcMint, program, connection, sendTransaction, refresh],
   );
 
   if (!publicKey) {
@@ -182,7 +189,12 @@ export default function PortfolioPage() {
     );
   }
 
-  const openMarkets: MarketLike[] = markets.filter((m) => m.state === "open");
+  // Markets past their close are waiting on settlement: no minting or quoting
+  // there, matching the trade panel's "settlement pending" state.
+  const nowSeconds = Math.floor(Date.now() / 1000);
+  const openMarkets: MarketLike[] = markets
+    .filter((m) => m.state === "open" && Number(m.closeTs) > nowSeconds)
+    .sort((a, b) => (a.ticker === b.ticker ? (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0) : a.ticker < b.ticker ? -1 : 1));
   const today = todayTradingDay();
   const todaysOpenMarkets = openMarkets.filter((m) => todayTradingDay(Number(m.closeTs) * 1000) === today);
   const paused = config?.paused ?? false;
@@ -238,8 +250,14 @@ export default function PortfolioPage() {
         availableUsdcMicro={availableUsdcMicro}
         onSubmitQuote={handleSubmitQuote}
         myOrders={myOrders.rows}
-        onCancelOrder={(row: MyOrderRow) => myOrders.cancelOne(row)}
-        onCancelAllOnMarket={(marketKey: string) => myOrders.cancelAllOnMarket(marketKey)}
+        onCancelOrder={async (row: MyOrderRow) => {
+          await myOrders.cancelOne(row);
+          setBalanceTick((n) => n + 1);
+        }}
+        onCancelAllOnMarket={async (marketKey: string) => {
+          await myOrders.cancelAllOnMarket(marketKey);
+          setBalanceTick((n) => n + 1);
+        }}
         cancelling={myOrders.cancelling}
         myOrdersError={myOrders.error}
         booksByMarket={myOrders.books}

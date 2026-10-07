@@ -1,7 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
+
+// Client-only: the button's label depends on browser wallet state (see Nav.tsx).
+const WalletMultiButton = dynamic(
+  () => import("@solana/wallet-adapter-react-ui").then((m) => m.WalletMultiButton),
+  { ssr: false },
+);
 import { TICKERS } from "@meridian/sdk";
 import { formatUsd } from "@/lib/format";
 import { PayoffLine } from "@/components/PayoffLine";

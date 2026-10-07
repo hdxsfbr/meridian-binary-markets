@@ -19,8 +19,11 @@ function u64LE(value: bigint): Buffer {
   if (typeof value !== "bigint" || value < 0n || value >= 1n << 64n) {
     throw new Error(`u64LE: ${value} is not a bigint in [0, 2^64)`);
   }
+  // DataView rather than `Buffer.writeBigUInt64LE`: the browser Buffer
+  // polyfill bundled by Next lacks the BigInt writers, which made every
+  // PDA derivation throw in the web app.
   const buf = Buffer.alloc(8);
-  buf.writeBigUInt64LE(value, 0);
+  new DataView(buf.buffer, buf.byteOffset, 8).setBigUint64(0, value, true);
   return buf;
 }
 

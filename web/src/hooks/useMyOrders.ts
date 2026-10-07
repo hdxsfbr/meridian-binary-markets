@@ -20,6 +20,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useSendTransaction } from "../lib/wallet-send";
 import type { PublicKey } from "@solana/web3.js";
 import { bookPda, decodeBook, type Book } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
@@ -63,7 +64,7 @@ export type UseMyOrdersResult = {
 export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
   const program = useProgram();
   const { connection } = useConnection();
-  const { sendTransaction } = useWallet();
+  const sendTransaction = useSendTransaction();
   const { markets } = useAllMarkets();
   const [books, setBooks] = useState<Map<string, Book | null>>(new Map());
   const [loading, setLoading] = useState(true);

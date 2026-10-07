@@ -447,13 +447,13 @@ function u32LE(n: number): Buffer {
 
 function u64LE(n: bigint): Buffer {
   const b = Buffer.alloc(8);
-  b.writeBigUInt64LE(BigInt.asUintN(64, n), 0);
+  new DataView(b.buffer, b.byteOffset, 8).setBigUint64(0, BigInt.asUintN(64, n), true);
   return b;
 }
 
 function i64LE(n: bigint): Buffer {
   const b = Buffer.alloc(8);
-  b.writeBigInt64LE(BigInt.asIntN(64, n), 0);
+  new DataView(b.buffer, b.byteOffset, 8).setBigInt64(0, BigInt.asIntN(64, n), true);
   return b;
 }
 

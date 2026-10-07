@@ -10,6 +10,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useSendTransaction } from "../../lib/wallet-send";
 import { PublicKey } from "@solana/web3.js";
 import { configPda, TICKERS, type Ticker } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
@@ -90,7 +91,8 @@ function useAdminConfig(): RawConfigFull | null {
 }
 
 export default function AdminPage() {
-  const { publicKey, connected, sendTransaction } = useWallet();
+  const { publicKey, connected } = useWallet();
+  const sendTransaction = useSendTransaction();
   const { connection } = useConnection();
   const program = useProgram();
   const config = useConfig();
@@ -115,6 +117,7 @@ export default function AdminPage() {
   const [capacityInput, setCapacityInput] = useState("16");
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const isAdmin = connected && publicKey !== null && adminConfig !== null && publicKey.equals(adminConfig.admin);
 
@@ -158,9 +161,11 @@ export default function AdminPage() {
   async function run(label: string, action: () => Promise<void>) {
     setBusy(label);
     setActionError(null);
+    setActionNotice(null);
     try {
       await action();
-    } catch {
+    } catch (error) {
+      console.error("[meridian] admin action failed", error);
       setActionError("That action did not go through. Try again.");
     } finally {
       setBusy(null);
@@ -211,6 +216,7 @@ export default function AdminPage() {
         setActionError(result.error);
       } else {
         setStrikeInput("");
+        setActionNotice(`Added ${selectedTicker} ${formatStrike(strikeMicro)}.`);
       }
     });
   }
@@ -234,6 +240,7 @@ export default function AdminPage() {
       <h1 className="text-2xl font-semibold">Admin</h1>
 
       {actionError ? <p className="mt-4 text-red-700">{actionError}</p> : null}
+      {actionNotice ? <p className="mt-4 text-emerald-800">{actionNotice}</p> : null}
 
       <section className="mt-6 rounded border border-black/10 p-4">
         <h2 className="text-lg font-semibold">Config</h2>

@@ -36,7 +36,7 @@ dev:
 		pnpm install --frozen-lockfile; \
 		bash scripts/anchor-build.sh; \
 		cargo test -p meridian --tests -- --test-threads=1; \
-		(solana-test-validator --quiet --reset --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 &) ; \
+		(solana-test-validator --quiet --reset --limit-ledger-size 100000000 --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 &) ; \
 		validator_ready=0; \
 		for i in $$(seq 1 30); do solana cluster-version -u http://127.0.0.1:8899 >/dev/null 2>&1 && { validator_ready=1; break; }; sleep 1; done; \
 		if [ "$$validator_ready" -ne 1 ]; then echo "validator did not come up, see /tmp/validator.log"; cat /tmp/validator.log; exit 1; fi; \
@@ -47,7 +47,7 @@ dev:
 		pnpm --filter @meridian/scripts run init-config; \
 		pnpm --filter @meridian/scripts run lifecycle -- --close-in 60; \
 		pnpm exec tsx web/e2e/today-market.ts; \
-		export NEXT_PUBLIC_CLUSTER=localnet NEXT_PUBLIC_RPC_URL=http://127.0.0.1:'"$${RPC_PORT:-8899}"' NEXT_PUBLIC_WS_URL=ws://127.0.0.1:'"$${WS_PORT:-8900}"' NEXT_PUBLIC_PROGRAM_ID=$$(solana-keygen pubkey keys/program-keypair.json); \
+		export NEXT_PUBLIC_E2E='"$(E2E)"' NEXT_ALLOWED_DEV_ORIGINS='"$${PUBLIC_HOST:-127.0.0.1}"' NEXT_PUBLIC_CLUSTER=localnet NEXT_PUBLIC_RPC_URL=http://'"$${PUBLIC_HOST:-127.0.0.1}"':'"$${RPC_PORT:-8899}"' NEXT_PUBLIC_WS_URL=ws://'"$${PUBLIC_HOST:-127.0.0.1}"':'"$${WS_PORT:-8900}"' NEXT_PUBLIC_PROGRAM_ID=$$(solana-keygen pubkey keys/program-keypair.json); \
 		pnpm --filter web run dev -p 3000 > /tmp/web.log 2>&1 & \
 		WEB_PID=$$!; \
 		web_ready=0; \
@@ -115,7 +115,7 @@ test-integration: deps
 	$(RUN) bash -c '\
 		set -euo pipefail; \
 		bash scripts/anchor-build.sh; \
-		solana-test-validator --quiet --reset --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 & \
+		solana-test-validator --quiet --reset --limit-ledger-size 100000000 --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 & \
 		VALIDATOR_PID=$$!; \
 		trap "kill $$VALIDATOR_PID >/dev/null 2>&1 || true" EXIT; \
 		validator_ready=0; \
@@ -168,7 +168,7 @@ test-web:
 		set -euo pipefail; \
 		pnpm install --frozen-lockfile; \
 		bash scripts/anchor-build.sh; \
-		solana-test-validator --quiet --reset --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 & \
+		solana-test-validator --quiet --reset --limit-ledger-size 100000000 --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 & \
 		VALIDATOR_PID=$$!; \
 		WEB_PID=""; \
 		cleanup() { [ -n "$$WEB_PID" ] && kill -- "-$$WEB_PID" >/dev/null 2>&1; kill "$$VALIDATOR_PID" >/dev/null 2>&1 || true; }; \

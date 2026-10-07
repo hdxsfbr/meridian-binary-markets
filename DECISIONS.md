@@ -440,3 +440,28 @@ not exceed ~615 KB without re-deriving this budget) in `docs/deployment.md`.
 **Trade-off:** None — this replaces an estimate with RPC-measured numbers and a clean-clone
 cross-check; the risk it forecloses is a reviewer's deploy attempt stalling partway through (as the
 clean-clone run reproduced) for a reason the docs didn't quantify precisely enough.
+
+## 15. Browser transaction path: the app simulates and broadcasts, the wallet only signs
+
+**Date:** 2026-10-07 (manual UI QA against the local stack with Phantom)
+**Context:** `@solana/wallet-adapter`'s default `sendTransaction` hands the whole transaction to the
+wallet, which simulates and broadcasts on its own RPC. Phantom's Localnet mode is hard-wired to
+`localhost:8899` and cannot simulate or broadcast there at all, so every trade failed with the
+wallet's generic "Unexpected error" and no program message. Two related problems surfaced in the
+same pass: a simulation run at `finalized` commitment saw a resting order the user had just
+cancelled and refused a Sell No as a self-match, and the test validator's default history
+retention (10,000 shreds) pruned the fills the portfolio derives cost basis from within minutes.
+**Decision:** The web app builds the transaction, simulates it through its own RPC connection at
+`confirmed` commitment, surfaces the program's error line (SelfMatch, Paused, …) as the user-facing
+reason when simulation fails, asks the wallet only to sign (`signTransaction`), and broadcasts the
+signed bytes itself (`sendRawTransaction`, preflight on). The adapter's `sendTransaction` remains
+the fallback for wallets that expose no `signTransaction`. The app's `ConnectionProvider` runs at
+`confirmed`; every `solana-test-validator` start in the `Makefile` passes
+`--limit-ledger-size 100000000`. The same pass found that the browser `Buffer` polyfill lacks
+`writeBigUInt64LE`, so the SDK's PDA and event encoders use `DataView` instead.
+**Trade-off:** The wallet's own simulation preview is bypassed, so the wallet shows the
+transaction without a balance-change estimate. In exchange every refusal is explained in the
+program's own terms before the user is asked to sign, and the same code path works on localnet,
+devnet, and any RPC the wallet cannot reach. Trading after a market's close is still hidden only in
+the UI; the program accepts mint and order placement until settlement, which is tracked as an open
+question rather than decided here.

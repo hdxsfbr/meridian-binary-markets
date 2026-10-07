@@ -1,0 +1,24 @@
+/* Meridian Flow — implementation tokens. WCAG validation required in final UI. */
+:root {
+  --md-indigo: #6366F1; --md-violet: #A855F7; --md-cyan: #22D3EE;
+  --md-midnight: #0B1026; --md-navy-900: #101A34; --md-navy-800: #192640;
+  --md-white: #F8FAFC; --md-slate-100: #E2E8F0; --md-slate-400: #94A3B8;
+  --md-bg: #0B1026; --md-surface: #111B35; --md-surface-raised: #182440;
+  --md-border: #293654; --md-text: #F8FAFC; --md-text-muted: #A9B5C9;
+  --md-yes: #2DD4BF; --md-no: #FB7185; --md-warning: #FBBF24;
+  --md-brand-gradient: linear-gradient(110deg,#A855F7 0%,#6366F1 48%,#22D3EE 100%);
+  --md-radius-sm: 8px; --md-radius-md: 12px; --md-radius-lg: 18px;
+  --md-space-1: 4px; --md-space-2: 8px; --md-space-3: 12px;
+  --md-space-4: 16px; --md-space-6: 24px; --md-space-8: 32px;
+  --md-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --md-font-numeric: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+[data-theme="light"] {
+  --md-bg: #F8FAFC; --md-surface: #FFFFFF; --md-surface-raised: #F1F5F9;
+  --md-border: #CBD5E1; --md-text: #0B1026; --md-text-muted: #475569;
+  --md-yes: #0F766E; --md-no: #BE123C;
+}
+.md-numeric { font-family: var(--md-font-numeric); font-variant-numeric: tabular-nums; }
+.md-brand-gradient { background: var(--md-brand-gradient); }
+.md-focus-visible:focus-visible { outline: 2px solid var(--md-cyan); outline-offset: 3px; }
+/* Yes/No use text labels/icons as well as color. Never signal state by hue alone. */

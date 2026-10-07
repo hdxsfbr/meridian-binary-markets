@@ -10,7 +10,7 @@ const nextConfig: NextConfig = {
   // every button on the page renders from SSR but no React event handler
   // ever attaches. Harmless outside dev (this option is a no-op in production
   // builds).
-  allowedDevOrigins: ["127.0.0.1"],
+  allowedDevOrigins: ["127.0.0.1", ...(process.env.NEXT_ALLOWED_DEV_ORIGINS ?? "").split(",").map((s) => s.trim()).filter(Boolean)],
 };
 
 export default nextConfig;

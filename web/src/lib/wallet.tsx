@@ -2,15 +2,20 @@
 
 /**
  * Wraps the app in the Solana wallet-adapter providers: connection (RPC +
- * websocket from `NEXT_PUBLIC_*` env), the wallet list (Phantom, Solflare),
- * and the connect/select modal. Autoconnects on load.
+ * websocket from `NEXT_PUBLIC_*` env), the wallet list, and the connect/select
+ * modal. Autoconnects on load.
+ *
+ * No wallet adapters are registered explicitly: Phantom, Solflare and the
+ * other current browser wallets announce themselves through the Wallet
+ * Standard and wallet-adapter picks them up automatically. Registering the
+ * legacy `PhantomWalletAdapter` alongside that produced a second, never-ready
+ * "Phantom" entry in the modal, and choosing it failed with
+ * WalletNotReadyError.
  */
 
 import { useMemo } from "react";
-import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import { ConnectionProvider, WalletProvider } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
-import { PhantomWalletAdapter, SolflareWalletAdapter } from "@solana/wallet-adapter-wallets";
 import { installE2eWallet } from "./e2e-wallet";
 
 import "@solana/wallet-adapter-react-ui/styles.css";
@@ -26,33 +31,11 @@ if (process.env.NODE_ENV !== "production" && process.env.NEXT_PUBLIC_E2E === "1"
 
 const RPC_ENDPOINT = process.env.NEXT_PUBLIC_RPC_URL ?? "https://api.devnet.solana.com";
 const WS_ENDPOINT = process.env.NEXT_PUBLIC_WS_URL ?? "wss://api.devnet.solana.com";
-const CLUSTER = process.env.NEXT_PUBLIC_CLUSTER ?? "devnet";
-
-/**
- * Maps `NEXT_PUBLIC_CLUSTER` to the `WalletAdapterNetwork` the Solflare adapter
- * wants. `WalletAdapterNetwork` has no "localnet" member, so a local validator
- * is mapped to `Devnet` as the closest available setting. Mainnet is never
- * returned here, regardless of the configured cluster.
- */
-function solflareNetwork(cluster: string): WalletAdapterNetwork {
-  switch (cluster) {
-    case "devnet":
-      return WalletAdapterNetwork.Devnet;
-    case "localnet":
-      return WalletAdapterNetwork.Devnet; // closest available setting; see doc comment above.
-    default:
-      return WalletAdapterNetwork.Devnet;
-  }
-}
-
 export function WalletProviders({ children }: { children: React.ReactNode }) {
-  const wallets = useMemo(
-    () => [new PhantomWalletAdapter(), new SolflareWalletAdapter({ network: solflareNetwork(CLUSTER) })],
-    [],
-  );
+  const wallets = useMemo(() => [], []);
 
   return (
-    <ConnectionProvider endpoint={RPC_ENDPOINT} config={{ wsEndpoint: WS_ENDPOINT }}>
+    <ConnectionProvider endpoint={RPC_ENDPOINT} config={{ wsEndpoint: WS_ENDPOINT, commitment: "confirmed" }}>
       <WalletProvider wallets={wallets} autoConnect>
         <WalletModalProvider>{children}</WalletModalProvider>
       </WalletProvider>

@@ -9,7 +9,8 @@
     "lifecycle": "tsx lifecycle.ts",
     "rent-estimate": "tsx rent-estimate.ts",
     "airdrop": "tsx airdrop.ts",
-    "test": "vitest run --passWithNoTests"
+    "test": "vitest run --passWithNoTests",
+    "fund-wallet": "tsx fund-wallet.ts"
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.1",

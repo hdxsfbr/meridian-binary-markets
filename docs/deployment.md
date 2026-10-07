@@ -250,6 +250,26 @@ running outside the provided `compose.yml` (e.g. a custom CI runner), the same f
 the `litesvm` 0.12.0 loader the program tests run against. See `DECISIONS.md` §7 if you hit this
 while building manually outside the provided scripts.
 
+**A browser wallet will not connect to the local stack, or sends fail with "Unexpected error".**
+Phantom's Localnet mode is hard-wired to `localhost:8899` and only connects on `localhost` or HTTPS
+origins, so a stack reached via a LAN hostname (`http://my-box:3000`) shows "connecting" forever.
+Tunnel the three ports to the laptop (`ssh -N -L 3000:localhost:3000 -L 8899:localhost:8899
+-L 8900:localhost:8900 <host>`) and open `http://localhost:3000`. Phantom also cannot simulate or
+broadcast transactions on Localnet; the web app therefore simulates through its own RPC connection,
+asks the wallet only to sign, and broadcasts itself, so a program refusal surfaces as the program's
+message rather than a wallet error. Solflare with a custom RPC of `http://127.0.0.1:8899` avoids the
+tunnel when the stack runs on the same machine. Fund the wallet with
+`pnpm --filter @meridian/scripts run fund-wallet -- <pubkey>` from `make shell` (localnet only).
+
+**Portfolio shows a $0.00 cost basis after a few minutes on localnet.** `solana-test-validator`
+prunes transaction history after 10,000 shreds by default, and cost basis is derived from
+history. Every validator start in the `Makefile` passes `--limit-ledger-size 100000000`; if you
+start one by hand, pass the same flag.
+
+**Admin page shows "Status unavailable".** That column reads the automation service's status
+endpoint (`NEXT_PUBLIC_AUTOMATION_STATUS_URL`). `make dev` does not start the service; run
+`make jobs` in a second terminal, or ignore the column when only the web app is under test.
+
 **First-caller-becomes-admin on `initialize_config`.** There is no check restricting who may call
 `initialize_config` first. `make deploy` only deploys and verifies the program — it does **not**
 call `initialize_config` for you. Run `make init-config` immediately afterward (§1.3); the window

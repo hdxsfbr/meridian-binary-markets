@@ -69,7 +69,7 @@ export function MakerPanel({
   const summaryRows = useMemo(() => {
     const byMarket = new Map<
       string,
-      { marketKey: string; ticker: string; strike: bigint; exposure: bigint; pairsHeld: bigint }
+      { marketKey: string; ticker: string; strike: bigint; exposure: bigint; pairsHeld: bigint; settled: boolean }
     >();
     for (const row of rows) {
       byMarket.set(row.marketKey, {
@@ -78,6 +78,7 @@ export function MakerPanel({
         strike: row.strike,
         exposure: row.exposure,
         pairsHeld: row.pairsHeld,
+        settled: row.state === "settled",
       });
     }
     for (const order of myOrders) {
@@ -88,6 +89,7 @@ export function MakerPanel({
           strike: order.strike,
           exposure: 0n,
           pairsHeld: 0n,
+          settled: false,
         });
       }
     }
@@ -170,6 +172,7 @@ export function MakerPanel({
                 <div key={row.marketKey} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span>
                     {row.ticker} {formatStrike(row.strike)}
+                    {row.settled ? <span className="ml-2 text-xs text-black/60"> · Settled</span> : null}
                   </span>
                   <span>Exposure (Yes − No): {row.exposure.toString()}</span>
                   <span>Pairs held: {row.pairsHeld.toString()}</span>

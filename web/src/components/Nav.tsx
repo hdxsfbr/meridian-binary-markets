@@ -2,7 +2,15 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { WalletMultiButton } from "@solana/wallet-adapter-react-ui";
+import dynamic from "next/dynamic";
+
+// The wallet button's label depends on wallet state that only exists in the
+// browser (detected extensions, autoconnect), so it is rendered client-side
+// only; a server render would always say "Select Wallet" and mismatch.
+const WalletMultiButton = dynamic(
+  () => import("@solana/wallet-adapter-react-ui").then((m) => m.WalletMultiButton),
+  { ssr: false },
+);
 
 const LINKS: Array<{ href: string; label: string; match: (path: string) => boolean }> = [
   { href: "/markets", label: "Markets", match: (p) => p === "/markets" },

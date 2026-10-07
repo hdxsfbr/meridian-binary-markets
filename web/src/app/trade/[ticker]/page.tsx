@@ -10,6 +10,7 @@
 
 import { use, useMemo, useState } from "react";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { useSendTransaction } from "../../../lib/wallet-send";
 import { earliestCloseTs, todayTradingDay } from "@/lib/markets";
 import { useConfig } from "@/hooks/useConfig";
 import { useMarkets, type MarketAccount } from "@/hooks/useMarkets";
@@ -37,7 +38,8 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
 
   const program = useProgram();
   const { connection } = useConnection();
-  const { publicKey, sendTransaction } = useWallet();
+  const { publicKey } = useWallet();
+  const sendTransaction = useSendTransaction();
 
   const config = useConfig();
   const day = todayTradingDay();
@@ -54,7 +56,11 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
   const [cancelError, setCancelError] = useState<string | null>(null);
 
   const selected: MarketAccount | null =
-    tickerMarkets.find((m) => m.pubkey.toBase58() === selectedKey) ?? tickerMarkets[0] ?? null;
+    tickerMarkets.find((m) => m.pubkey.toBase58() === selectedKey) ??
+    // Default to the middle of the ladder (the rounded previous close), which is
+    // where quotes cluster, rather than the lowest strike.
+    tickerMarkets[Math.floor(tickerMarkets.length / 2)] ??
+    null;
 
   const book = useBook(selected?.pubkey);
   const position = usePosition(selected?.pubkey, publicKey ?? undefined);
@@ -132,14 +138,12 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
               <div className="mt-6">
                 <h2 className="font-semibold">Your open orders</h2>
                 <div className="mt-2">
-                  <OrderList orders={position.restingOrders} onCancel={handleCancel} cancelling={cancelling} />
+                  <OrderList orders={position.restingOrders} askIds={new Set(book.asks.map((o) => o.id.toString()))} onCancel={handleCancel} cancelling={cancelling} />
                   {cancelError !== null ? <p className="mt-2 text-sm text-red-700">{cancelError}</p> : null}
                 </div>
               </div>
             </div>
-          ) : (
-            <p className="text-black/70">No contracts yet today.</p>
-          )}
+          ) : null}
         </div>
       )}
     </div>
