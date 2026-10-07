@@ -89,11 +89,12 @@ test.describe("trade", () => {
     await priceInput.fill(FLOW2_PRICE);
     await takerPage.getByRole("button", { name: "Buy Yes", exact: true }).click();
 
-    // Success clears both inputs (TradePanel's `execute`); a failed send
-    // leaves them as-is and surfaces red error text instead. This resolves
-    // at the moment the transaction is confirmed -- the reference point the
-    // 1s latency budget is measured from.
-    await expect(qtyInput).toHaveValue("", { timeout: 20_000 });
+    // Success clears the price and resets quantity to 1 (TradePanel's
+    // `execute`); a failed send leaves them as-is and surfaces red error text
+    // instead. The price field is the one that visibly changes here, and it
+    // resolves at the moment the transaction is confirmed -- the reference
+    // point the 1s latency budget is measured from.
+    await expect(priceInput).toHaveValue("", { timeout: 20_000 });
     const confirmedAtMs = Date.now();
 
     await viewerSeen;
@@ -119,7 +120,7 @@ test.describe("trade", () => {
     const qtyInput = page.getByLabel("Quantity");
     await qtyInput.fill(FLOW3_QTY);
     await page.getByRole("button", { name: "Buy No", exact: true }).click();
-    await expect(qtyInput).toHaveValue("", { timeout: 20_000 });
+    await expect(qtyInput).toHaveValue("1", { timeout: 20_000 });
 
     // Position-gating proof the wallet now holds only No (FR-015): Buy Yes
     // is replaced by "Close your No position first" rather than a live
