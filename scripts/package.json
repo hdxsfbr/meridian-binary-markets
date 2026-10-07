@@ -1,0 +1,28 @@
+{
+  "name": "@meridian/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "deploy": "tsx deploy.ts",
+    "init-config": "tsx init-config.ts",
+    "lifecycle": "tsx lifecycle.ts",
+    "rent-estimate": "tsx rent-estimate.ts",
+    "airdrop": "tsx airdrop.ts",
+    "test": "vitest run --passWithNoTests"
+  },
+  "dependencies": {
+    "@anchor-lang/core": "1.2.1",
+    "@meridian/sdk": "workspace:*",
+    "@solana/web3.js": "^1.99.0",
+    "luxon": "^3.5.0",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/luxon": "^3.4.0",
+    "@types/node": "^22.0.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

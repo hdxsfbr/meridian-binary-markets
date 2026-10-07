@@ -1,4 +1,5 @@
 packages:
+  - scripts
   - "packages/sdk"
   - "services/automation"
   - "web"
