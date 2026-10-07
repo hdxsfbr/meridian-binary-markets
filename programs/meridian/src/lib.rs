@@ -10,7 +10,7 @@ pub mod state;
 
 use instructions::*;
 
-declare_id!("8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia");
+declare_id!("3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn");
 
 // Do not edit: instruction bodies live in instructions/<name>.rs. This file only wires
 // each `#[program]` entry point to its handler and `Accounts` struct. Wave 2 scaffolded

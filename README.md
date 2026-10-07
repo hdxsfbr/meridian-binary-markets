@@ -2,16 +2,33 @@
 
 Binary stock outcome markets on Solana. Gauntlet AI partner project for Peak6.
 
-## Overview
+> **Status: Wave 6 draft.** This README, and the docs it links to under `docs/`, are being
+> finalized in Wave 8 after the Wave 7 devnet deployment run. Anything that depends on that run
+> (program ID, market addresses, live screenshots) is marked "to be filled after deployment."
 
-Meridian is a non-custodial dApp for trading binary outcome contracts tied to the daily closing
-prices of the MAG7 US equities (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA). Each contract asks
-whether a stock will close **at or above** a strike price. Contracts are same-day expiry (0DTE).
-Yes/No tokens settle at $1 USDC if correct and $0 if wrong, so max gain and loss are both known at
-entry. No KYC, no custody, no margin.
+## What Meridian is
 
-**The $1.00 invariant:** Yes payout + No payout = exactly $1.00 USDC, for every contract, always.
-Ties go to Yes — the rule is at-or-above.
+Every stock market day, Meridian lets anyone trade a simple yes/no question for each of seven
+tech stocks: *"Will AAPL close at or above $230 today?"* You buy a Yes or a No token for less
+than a dollar, and at 4:00 PM ET it resolves to exactly $1.00 or exactly $0.00, depending on
+where the stock actually closed. There are no margin calls, no assignment risk, and no surprise
+losses beyond what you paid — the most you can lose is your entry price, and the most you can
+make is known the moment you place the trade. You always keep your own wallet keys — nothing is
+ever deposited with a company or a custodian — but the program itself does hold your USDC and
+tokens while a position is open: minting locks USDC in the market's on-chain vault until you
+redeem or the market settles, and a resting limit order locks its USDC or tokens in an on-chain
+escrow until it fills or you cancel it. Redeeming or cancelling returns funds to your wallet
+immediately; nothing is held by anyone other than the program itself at any point.
+
+Under the hood, Meridian is a non-custodial application built on Solana. A Rust/Anchor program
+holds every rule that must never be broken — minting, redemption, order matching, and settlement
+— so that no client, including ours, can cheat the outcome. A Node.js automation service runs the
+daily schedule (create markets before the open, settle shortly after the close) and a Next.js
+frontend lets a trader connect a wallet and trade. The one architectural idea worth understanding
+before touching the code is the **"one book, two perspectives"** model: each strike has a single
+order book (Yes vs USDC), and "Buy No" / "Sell No" are just the Yes book read from the other side.
+See `docs/architecture.md` for the full explanation, and `docs/ONBOARDING.md` if you are new to
+either trading systems or Solana.
 
 ## Scope
 
@@ -29,7 +46,7 @@ The central architectural idea: each strike has **exactly one order book** — t
 against USDC. Because Yes + No = $1.00, selling a Yes is economically identical to buying a No, so
 no separate No book is needed. Buy Yes and Sell No are the same side of the book; Buy No and Sell
 Yes are the other. The frontend presents four plain actions and translates intent into the correct
-book operation.
+book operation. Details and worked examples: `docs/architecture.md`.
 
 ## Daily lifecycle (ET)
 
@@ -39,8 +56,8 @@ book operation.
 | Contracts and order books created | 8:30 AM |
 | Markets visible, minting enabled | 9:00 AM |
 | Trading open | 9:30 AM to 4:00 PM |
-| Settlement | ~4:05 PM (within 10 min of close) |
-| Redemption | from 4:05 PM, indefinitely |
+| Settlement | 16:00–16:05 PM (see `docs/architecture.md` for why the window is exactly that) |
+| Redemption | from settlement, indefinitely |
 
 ## Targets
 
@@ -50,31 +67,139 @@ book operation.
   fail closed
 - Full lifecycle demo reproducible on devnet: create → mint → trade → settle → redeem
 
-## Stack
+## One-command setup
 
-- Solana programs in Rust with Anchor — **devnet deployment is required to pass**; never mainnet,
-  never real funds. (EVM L2s such as Arbitrum or Base were acceptable alternatives per the brief;
-  see `DECISIONS.md` §3 for why Solana.)
-- Frontend in TypeScript, React and Next.js
-- Node.js automation service for market creation and settlement
-- **Pyth** price oracle behind a guarded provider interface — staleness, confidence and
-  publisher-attestation checks, failing closed. Pyth's equity feeds require a Pyth Pro token we are
-  arranging; until it arrives the service runs a Pyth-shaped mock provider that posts a signed price
-  from a free stock API through the same interface and guards. The provider is a config switch.
-  See `DECISIONS.md` §4 and `docs/spikes/2026-10-05-pyth-devnet.md`.
-- USDC integration (devnet test mint)
-- Secrets via environment variables (`.env.example` committed)
+```
+make dev
+```
+
+is the one command a reviewer needs. It builds the pinned Docker image, installs the pnpm
+workspace, builds the Anchor program, runs the Rust/litesvm program test suite, starts a local
+`solana-test-validator`, deploys the program to it, and serves the web app on
+`http://localhost:3000`.
+
+**Prerequisites** — the only things that need to exist on the host:
+
+- Docker, with Compose **2.24 or later** (`docker compose version`)
+- `make`
+- Bash
+
+Nothing else is installed on the host — not Rust, not Node, not the Solana CLI, not Anchor. The
+toolchain lives entirely inside the container (see "Toolchain" below and `DECISIONS.md` §7 for
+why). On **Apple Silicon** the image runs under x86_64 emulation, because Agave (Solana's
+validator/CLI) publishes no `linux/arm64` installer — builds and the validator are noticeably
+slower than on an x86_64 host, but the same `make dev` works.
+
+### What `make dev` actually does
+
+In order: builds the `dev` image from the pinned `Dockerfile`; runs `pnpm install
+--frozen-lockfile` inside the container; builds the Anchor program with `scripts/anchor-build.sh`
+(`--arch v1`, see Toolchain); runs `cargo test -p meridian --tests` against the Rust/litesvm
+program suite; starts `solana-test-validator` and waits for it to come up; airdrops the local
+wallet and `anchor deploy`s the program to it; starts the Next.js dev server on `:3000` and waits
+for it to answer; then prints the resolved `rustc`/`anchor`/`solana`/`node`/`pnpm` versions and
+blocks, serving the web app until you stop it.
+
+## Makefile targets
+
+| Target | What it does |
+| --- | --- |
+| `make dev` | the Wave-0 gate described above: build, test, deploy to a local validator, serve the web app |
+| `make deps` | install the pnpm workspace with a frozen lockfile only |
+| `make build` | install deps and compile the Anchor program only |
+| `make test-program` | build then run the Rust/litesvm program test suite (`programs/meridian/tests/*.rs`) |
+| `make lifecycle` | run the create → mint → trade → settle → redeem script (`CLUSTER` and `DEMO_SCALE` env vars select the target cluster and book capacity) |
+| `make deploy` | build and deploy the program to `CLUSTER` (default `devnet`; use `CLUSTER=localnet` for a local-validator deploy) |
+| `make init-config` | idempotently create (or print) the on-chain `Config` singleton |
+| `make jobs` | start the automation service's cron schedule (morning/settle/publisher/reclaim jobs) |
+| `make web` | run the Next.js dev server against the cluster configured in `.env` |
+| `make test-web` | Vitest translation-layer tests (no browser/Playwright suite exists yet — planned for Wave 7) |
+| `make shell` | open an interactive shell in the dev container |
+| `make clean` | remove containers, named volumes, and local `node_modules`/`.next` output |
+
+`CLUSTER` (`devnet` by default, or `localnet`) and `DEMO_SCALE` (`1` = book capacity 16, fits one
+faucet airdrop; `0` = capacity 128, the production default) are environment variables most targets
+respect — see `docs/deployment.md` for devnet-specific walkthroughs.
+
+## `.env.example` walkthrough
+
+Copy `.env.example` to `.env` and fill in secrets; `.env` is gitignored and never committed.
+
+- **Cluster and RPC** — `SOLANA_CLUSTER`, `SOLANA_RPC_URL`, `SOLANA_WS_URL` select devnet or
+  localnet and the endpoints the service, scripts, and web app read/write through.
+- **Keys** — `ADMIN_KEYPAIR_PATH` and `PUBLISHER_KEYPAIR_PATH` point at keypairs mounted read-only
+  into the container at `/run/keys/`. They are never baked into the image. `scripts/airdrop.ts
+  --create-keys` can generate development keys under the repo-relative, gitignored `keys/`
+  directory as a fallback.
+- **Collateral** — `USDC_MINT` is Circle's devnet USDC mint by default; get test USDC from
+  `faucet.circle.com` (see below).
+- **Oracle** — `ORACLE_PROVIDER` (`mock` | `pyth`) must agree with the on-chain `Config`; the
+  service refuses to start on a mismatch. `PYTH_HERMES_URL`, `PYTH_API_KEY`, and
+  `PYTH_RECEIVER_PROGRAM` configure the real Pyth path; `FINNHUB_API_KEY` feeds the mock provider's
+  two-source price check. See `docs/architecture.md` and `docs/risks-and-limitations.md` for what
+  "mock" means here and why it is not a shortcut around the guards.
+- **Alerting and status** — `ALERT_WEBHOOK_URL` (settlement-retry alerts),
+  `AUTOMATION_STATUS_PORT`/`WEB_ORIGIN` (the automation service's status endpoint).
+- **Ports** — `WEB_PORT`, `RPC_PORT`, `WS_PORT`, `STATUS_PORT` are host-side port bindings; change
+  any of them if the default is already taken on your machine (see `docs/deployment.md`
+  troubleshooting).
+- **Demo scale** — `DEMO_SCALE` (`1` or `0`) as above.
+- **Browser-facing (`NEXT_PUBLIC_*`)** — cluster, RPC/WS endpoints, the deployed program ID (filled
+  in after `make deploy`), the USDC mint, and the automation status URL, all read by the web app at
+  build/runtime.
+
+## Getting devnet SOL and devnet USDC
+
+- **SOL**: `pnpm --filter @meridian/scripts run airdrop` requests 2 SOL for the admin keypair on
+  the configured cluster. On devnet this is rate-limited; if it fails, use
+  `https://faucet.solana.com` manually. `localnet` airdrops always succeed. A devnet deploy needs
+  several of these requests, not one or two — the program-data account plus its temporary deploy
+  buffer need on the order of 7–9 SOL total. See `docs/deployment.md` §1.1 for the exact figures
+  and the full funding sequence a fresh devnet deploy needs.
+- **USDC**: devnet Circle USDC (mint `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`) is available
+  from `faucet.circle.com` — connect the same wallet you'll use in the browser.
+
+## Running tests
+
+| Package | Command | What it covers |
+| --- | --- | --- |
+| Program (Rust/litesvm) | `make test-program` | mint/redeem invariant, oracle guards, settlement, override delay, pause, order book matching, trade paths |
+| SDK | `pnpm --filter @meridian/sdk run test` | PDA derivation, Book decoding, strike ladder, intent-to-instruction translation |
+| Web | `make test-web` | Vitest translation-layer tests (no browser/Playwright suite exists yet — planned for Wave 7) |
+| Automation | `pnpm --filter automation run test` | job logic, CLI flag parsing, calendar/holiday handling, providers |
+| Scripts | `pnpm --filter @meridian/scripts run test` | deploy/init-config/airdrop/lifecycle helpers |
+
+As of this wave: 261 Rust program tests, 108 SDK tests, 107 web tests, 108 automation tests (107
+passing, 1 skipped), and 60 scripts tests — all passing, verified by running each package's test
+command directly.
+
+## Project layout
+
+```
+programs/meridian/     Rust/Anchor program: accounts, instructions, oracle guards, order book
+packages/sdk/           Shared TypeScript: IDL client, PDAs, Book decoder, strike ladder, intent translation
+services/automation/    Node.js scheduler: morning/settle/publisher/reclaim jobs, CLI, oracle providers
+web/                    Next.js app: Landing, Markets, Trade, Portfolio, History, Admin
+scripts/                Operational scripts: deploy, init-config, lifecycle, airdrop, rent-estimate
+tests/                  Integration test suite (local validator, tests/integration/lifecycle.test.ts) — no browser/Playwright suite yet (Wave 7)
+specs/001-binary-outcome-markets/  spec-kit artifacts: plan, research, data-model, quickstart, contracts, tasks
+docs/                   This documentation set
+```
 
 ## Documentation
 
 | Document | Purpose |
 | --- | --- |
 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
+| [`docs/architecture.md`](docs/architecture.md) | Accounts, instructions, the one-book mechanic, oracle guards, rent lifecycle, automation schedule, frontend data flow |
+| [`docs/deployment.md`](docs/deployment.md) | Devnet deploy, step by step, with troubleshooting |
+| [`docs/risks-and-limitations.md`](docs/risks-and-limitations.md) | Honest limitations of the current build; no regulatory or compliance claims |
+| [`docs/demo-script.md`](docs/demo-script.md) | The demo video walkthrough: create → mint → trade → settle → redeem |
 | [`docs/PRD.md`](docs/PRD.md) | Requirements FR-1…FR-12, merged from the portal brief and the partner PDF |
 | [`docs/Gauntlet-Project-Meridian.pdf`](docs/Gauntlet-Project-Meridian.pdf) | The partner's original brief |
 | [`docs/spikes/`](docs/spikes/) | Investigations behind specific decisions |
 | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Engineering principles governing the project |
-| [`specs/001-binary-outcome-markets/spec.md`](specs/001-binary-outcome-markets/spec.md) | Feature specification |
+| [`specs/001-binary-outcome-markets/`](specs/001-binary-outcome-markets/) | Feature spec, plan, research, data model, quickstart, contracts, tasks |
 | [`DECISIONS.md`](DECISIONS.md) | Running decision log with trade-offs |
 | [`AI_USAGE.md`](AI_USAGE.md) | AI usage log (required deliverable) |
 
@@ -104,22 +229,6 @@ Commits reference the requirement they advance, e.g. `FR-5: oracle settlement wi
 Peak6 — PEAK6 Labs, the internal innovation and applied AI team, building Apex's Non-Traditional
 Assets Platform (prediction markets, crypto trading, tokenization).
 Technical contact: Myles Lewis (mlewis@peak6.com).
-
-## Getting started
-
-The toolchain is a pinned Docker image rather than a host install — Anchor's
-anchor/solana-cli/rustc version triple breaks obscurely when mismatched, and the devnet lifecycle has
-to be reproducible by a reviewer with no manual steps. See `DECISIONS.md` §7.
-
-```
-make dev
-```
-
-is the one command: it builds the image, installs the pnpm workspace, builds the Anchor program,
-runs the program test suite on LiteSVM, starts `solana-test-validator`, deploys the program to it,
-and serves the web placeholder on `http://localhost:3000`. Nothing else needs to be installed on the
-host except Docker. On Apple Silicon the image runs under x86_64 emulation (Agave publishes no
-linux/arm64 installer), so builds and the validator are slower than on an x86_64 host.
 
 ## Toolchain
 

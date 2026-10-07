@@ -6,10 +6,10 @@ resolution = true
 skip-lint = false
 
 [programs.devnet]
-meridian = "8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia"
+meridian = "3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn"
 
 [programs.localnet]
-meridian = "8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia"
+meridian = "3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn"
 
 [provider]
 cluster = "devnet"

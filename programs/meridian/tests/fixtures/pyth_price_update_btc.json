@@ -1,0 +1,13 @@
+{
+  "pubkey": null,
+  "owner": "rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ",
+  "slot": null,
+  "feedId": "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
+  "publishTime": 1791386621,
+  "price": "8295349239504",
+  "conf": "2131913739",
+  "expo": -8,
+  "synthetic": true,
+  "syntheticReason": "devnet airdrop failed/rate-limited; built from real Hermes-observed price/conf/expo/publishTime/feedId values using the receiver SDK's own Borsh coder, but never posted by a transaction on devnet and never signature/VAA-verified by the receiver program -- pubkey/slot are null because no account was ever actually created on chain. This is a layout-and-guard test fixture only, not an end-to-end posting or verification proof.",
+  "capturedAt": "2026-10-07T15:23:50.822Z"
+}

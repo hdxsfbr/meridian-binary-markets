@@ -8,28 +8,36 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
-import { useWallet } from "@solana/wallet-adapter-react";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { PlaceOrderSide, TimeInForce } from "@meridian/sdk";
 import { associatedTokenAddress } from "@/lib/ata";
 import { formatUsd } from "@/lib/format";
+import { todayTradingDay } from "@/lib/markets";
 import { getUsdcMint, mintPair, redeemPair, redeemWinning, type RedeemMarket } from "@/lib/redeem-tx";
+import { fetchUsdcMint, mapSendError, placeOrder, sendTx, type BuildCtx } from "@/lib/tx";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
+import { restingTotalsByMarket, type MyOrderRow } from "@/lib/maker-view";
+import type { QuoteSide } from "@/components/MakerQuoteForm";
 
 function toRedeemMarket(row: PositionRowData): RedeemMarket {
   return { pubkey: row.marketPubkey, yesMint: row.yesMint, noMint: row.noMint, vault: row.vault };
 }
 import { useConfig } from "@/hooks/useConfig";
+import { useMyOrders } from "@/hooks/useMyOrders";
 import { usePositions } from "@/hooks/usePositions";
 import { useProgram } from "@/hooks/useProgram";
 import { PositionRow } from "@/components/PositionRow";
 import { MakerPanel } from "@/components/MakerPanel";
 
 export default function PortfolioPage() {
-  const { publicKey } = useWallet();
+  const { publicKey, sendTransaction } = useWallet();
+  const { connection } = useConnection();
   const program = useProgram();
   const config = useConfig();
   const { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, refresh } = usePositions(
     publicKey ?? null,
   );
+  const myOrders = useMyOrders(publicKey ?? null);
 
   const [usdcMint, setUsdcMint] = useState<PublicKey | null>(null);
   const [usdcBalanceMicro, setUsdcBalanceMicro] = useState<bigint | null>(null);
@@ -120,6 +128,31 @@ export default function PortfolioPage() {
     [publicKey, usdcMint, program, refresh],
   );
 
+  const handleSubmitQuote = useCallback(
+    async (market: MarketLike, side: QuoteSide, priceMicro: bigint, qty: bigint) => {
+      if (!publicKey) {
+        throw new Error("Connect a wallet to trade.");
+      }
+      try {
+        const usdcMint = await fetchUsdcMint(program);
+        const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint };
+        const ix = await placeOrder(ctx, {
+          side: side === "bid" ? PlaceOrderSide.Bid : PlaceOrderSide.Ask,
+          price: priceMicro,
+          qty,
+          tif: TimeInForce.Limit,
+          makers: [],
+        });
+        await sendTx(connection, sendTransaction, [ix], publicKey);
+        refresh();
+        myOrders.refresh();
+      } catch (err) {
+        throw new Error(mapSendError(err));
+      }
+    },
+    [publicKey, program, connection, sendTransaction, refresh, myOrders],
+  );
+
   const handleRedeemWinning = useCallback(
     async (row: (typeof rows)[number]) => {
       if (!publicKey || !usdcMint || !row.winningSide) {
@@ -150,7 +183,11 @@ export default function PortfolioPage() {
   }
 
   const openMarkets: MarketLike[] = markets.filter((m) => m.state === "open");
+  const today = todayTradingDay();
+  const todaysOpenMarkets = openMarkets.filter((m) => todayTradingDay(Number(m.closeTs) * 1000) === today);
   const paused = config?.paused ?? false;
+  const restingTotals = restingTotalsByMarket(myOrders.rows);
+  const availableUsdcMicro = usdcBalanceMicro ?? 0n;
 
   return (
     <div className="flex flex-col gap-8 px-6 py-4">
@@ -190,12 +227,24 @@ export default function PortfolioPage() {
 
       <MakerPanel
         openMarkets={openMarkets}
+        quoteMarkets={todaysOpenMarkets}
         rows={rows}
         fillsCountByMarket={fillsCountByMarket}
+        restingTotalsByMarket={restingTotals}
+        realizedPnlMicro={summary.realizedPnlMicro}
         onMint={handleMint}
         disabled={paused}
         minting={minting}
+        availableUsdcMicro={availableUsdcMicro}
+        onSubmitQuote={handleSubmitQuote}
+        myOrders={myOrders.rows}
+        onCancelOrder={(row: MyOrderRow) => myOrders.cancelOne(row)}
+        onCancelAllOnMarket={(marketKey: string) => myOrders.cancelAllOnMarket(marketKey)}
+        cancelling={myOrders.cancelling}
+        myOrdersError={myOrders.error}
+        booksByMarket={myOrders.books}
       />
+      {myOrders.lastError !== null ? <p className="text-red-700">{myOrders.lastError}</p> : null}
     </div>
   );
 }

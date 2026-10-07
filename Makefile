@@ -10,11 +10,15 @@ DEMO_SCALE ?= 1
 export CLUSTER
 export DEMO_SCALE
 
+# Extra CLI flags passed through to `scripts/lifecycle.ts`, e.g.
+# `make lifecycle LIFECYCLE_ARGS="--close-in 60 --tickers AAPL"`.
+LIFECYCLE_ARGS ?=
+
 COMPOSE := docker compose
 RUN := $(COMPOSE) run --rm dev
 RUN_PORTS := $(COMPOSE) run --rm --service-ports dev
 
-.PHONY: dev build test-program lifecycle deploy init-config jobs web test-web shell clean deps
+.PHONY: dev build test-program lifecycle deploy init-config jobs web test-web test-integration shell clean deps
 
 ## deps: install the pnpm workspace with a frozen lockfile.
 deps:
@@ -63,10 +67,12 @@ build:
 test-program:
 	$(RUN) bash -c 'set -euo pipefail; bash scripts/anchor-build.sh && cargo test -p meridian --tests -- --test-threads=1'
 
-## lifecycle: run the create -> mint -> trade -> settle -> redeem script.
-## Wave 0: placeholder only (scripts/lifecycle.ts prints a notice).
+## lifecycle: run the create -> mint -> trade -> settle -> redeem demo
+## (tasks.md T086) against CLUSTER (default devnet; use CLUSTER=localnet for
+## a local-validator run). Pass extra flags via LIFECYCLE_ARGS, e.g.
+## `make lifecycle CLUSTER=localnet LIFECYCLE_ARGS="--close-in 60"`.
 lifecycle: deps
-	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm run lifecycle'
+	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm --filter @meridian/scripts run lifecycle -- $(LIFECYCLE_ARGS)'
 
 ## deploy: build and deploy the program to CLUSTER (default devnet; use
 ## CLUSTER=localnet for a local-validator deploy). Delegates to
@@ -84,6 +90,39 @@ deploy: deps
 ## singleton. Delegates to scripts/init-config.ts.
 init-config: deps
 	$(RUN) bash -c 'CLUSTER=$(CLUSTER) DEMO_SCALE=$(DEMO_SCALE) pnpm --filter @meridian/scripts run init-config'
+
+## test-integration: starts a fresh local validator, deploys the program,
+## initializes Config, and runs the lifecycle integration test
+## (tests/integration/lifecycle.test.ts, tasks.md T087) against it end to
+## end. Always localnet -- never takes a CLUSTER override. Unsets
+## USDC_MINT/PYTH_RECEIVER_PROGRAM (which `.env`'s devnet defaults would
+## otherwise leak into this container's environment) so `init-config`
+## creates a fresh admin-controlled test mint instead of trying to
+## initialize Config against a devnet mint that doesn't exist on this
+## validator. Self-contained: the validator is always stopped on exit
+## (success or failure) via a trap that kills its captured PID directly --
+## not `pkill -f solana-test-validator`, which matches by substring against
+## every process's full command line, including this very script's own
+## `bash -c '...'` invocation (its argv literally contains the string
+## "solana-test-validator" several times over), killing the script itself
+## with SIGTERM right as it was about to exit 0.
+test-integration: deps
+	$(RUN) bash -c '\
+		set -euo pipefail; \
+		bash scripts/anchor-build.sh; \
+		solana-test-validator --quiet --reset --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 & \
+		VALIDATOR_PID=$$!; \
+		trap "kill $$VALIDATOR_PID >/dev/null 2>&1 || true" EXIT; \
+		validator_ready=0; \
+		for i in $$(seq 1 40); do solana cluster-version -u http://127.0.0.1:8899 >/dev/null 2>&1 && { validator_ready=1; break; }; sleep 1; done; \
+		if [ "$$validator_ready" -ne 1 ]; then echo "validator did not come up, see /tmp/validator.log"; cat /tmp/validator.log; exit 1; fi; \
+		unset USDC_MINT PYTH_RECEIVER_PROGRAM; \
+		export CLUSTER=localnet SOLANA_RPC_URL=http://127.0.0.1:8899 ORACLE_PROVIDER=mock DEMO_SCALE=1; \
+		pnpm --filter @meridian/scripts run airdrop -- --create-keys; \
+		pnpm --filter @meridian/scripts run deploy; \
+		pnpm --filter @meridian/scripts run init-config; \
+		pnpm --filter @meridian/tests run integration \
+	'
 
 ## jobs: start the automation service (cron-driven morning/settle/publisher jobs).
 jobs: deps

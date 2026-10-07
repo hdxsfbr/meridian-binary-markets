@@ -1,7 +1,7 @@
 /**
  * Automation service entry point (contracts/automation.md, tasks.md T046).
  *
- * Two modes:
+ * Three modes:
  *   `job <morning|settle|publisher|reclaim> [flags]` -- runs one job to completion
  *      and exits. The CLI entry points contract (contracts/automation.md).
  *   `start` -- registers the cron schedule (America/New_York) for morning
@@ -9,6 +9,9 @@
  *      own internal 60 s loop until the window closes), and starts the status
  *      HTTP server. Refuses to start if `ORACLE_PROVIDER` disagrees with the
  *      on-chain `Config.oracle_provider`.
+ *   `probe <pyth> [flags]` -- the Pyth token-day probe (research.md R5, tasks.md
+ *      T090); never touches the cron/job machinery above, does not require
+ *      `ORACLE_PROVIDER=pyth` to be set.
  */
 
 import { Connection, PublicKey } from "@solana/web3.js";
@@ -18,6 +21,7 @@ import { loadConfig, type AppConfig } from "./config.js";
 import { loadAdminKeypair, loadPublisherKeypair } from "./keys.js";
 import { assertGenesisHash, ChainClient } from "./chain.js";
 import { MockPythProvider } from "./providers/MockPythProvider.js";
+import { PythReceiverProvider } from "./providers/PythReceiverProvider.js";
 import type { PriceProvider } from "./providers/PriceProvider.js";
 import { runMorningJob } from "./jobs/morning.js";
 import { runSettleJob, settlementStatus } from "./jobs/settle.js";
@@ -25,6 +29,7 @@ import { isWithinPublishWindow, runPublisherJob, runPublisherTick } from "./jobs
 import { runReclaimJob } from "./jobs/reclaim.js";
 import { startStatusServer } from "./status.js";
 import { log, logError } from "./log.js";
+import { runPyth } from "./probe/pyth.js";
 
 const ET_TIMEZONE = "America/New_York";
 
@@ -83,8 +88,18 @@ function buildRuntime(cfg: AppConfig): Runtime {
     }
     provider = new MockPythProvider({ chain, finnhubApiKey: cfg.finnhubApiKey });
   } else {
-    // contracts/oracle-provider.md "Pyth side": lands in a later wave.
-    throw new Error("PythReceiverProvider is not implemented until a later wave");
+    if (!cfg.pythApiKey) {
+      throw new Error("PYTH_API_KEY is required when ORACLE_PROVIDER=pyth");
+    }
+    provider = new PythReceiverProvider({
+      chain,
+      connection,
+      publisherKeypair,
+      receiverProgramId: new PublicKey(cfg.pythReceiverProgram),
+      hermesBaseUrl: cfg.pythHermesUrl,
+      pythApiKey: cfg.pythApiKey,
+      finnhubApiKey: cfg.finnhubApiKey,
+    });
   }
 
   return { chain, provider, cfg };
@@ -234,6 +249,14 @@ async function main(): Promise<void> {
     return; // cron + the status server keep the process alive
   }
 
+  if (cmd === "probe") {
+    if (sub !== "pyth") {
+      throw new Error('usage: probe pyth [--feed <hex>] [--post]');
+    }
+    await runPyth(parseFlags(rest));
+    return;
+  }
+
   if (cmd === "dry-run") {
     // Smoke-test path (item 1): exercises the real module boundary --
     // config.ts, keys.ts, chain.ts (which imports @meridian/sdk) -- without
@@ -247,7 +270,8 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    "usage: automation job <morning|settle|publisher|reclaim> [flags] | automation start | automation dry-run",
+    "usage: automation job <morning|settle|publisher|reclaim> [flags] | automation start | " +
+      "automation probe pyth [flags] | automation dry-run",
   );
   process.exitCode = 1;
 }

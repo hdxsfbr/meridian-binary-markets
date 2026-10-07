@@ -7,11 +7,13 @@
     "build": "tsc -p tsconfig.json",
     "start": "tsx src/index.ts start",
     "job": "tsx src/index.ts job",
+    "probe": "tsx src/index.ts probe",
     "test": "vitest run --passWithNoTests"
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.1",
     "@meridian/sdk": "workspace:*",
+    "@pythnetwork/pyth-solana-receiver": "0.13.0",
     "@solana/web3.js": "^1.99.0",
     "luxon": "^3.5.0",
     "node-cron": "^3.0.3",

@@ -4,6 +4,7 @@ import type { Ticker } from "@meridian/sdk";
 import { runSettleJob, settlementStatus, __resetSettlementStatus, type SettleChain } from "../src/jobs/settle";
 import type { MarketAccount, MarketRecord } from "../src/chain";
 import type { PriceProvider } from "../src/providers/PriceProvider";
+import { HermesError } from "../src/sources/hermes";
 
 const MARKET_PUBKEY = new PublicKey("11111111111111111111111111111112");
 const PRICE_ACCOUNT = new PublicKey("11111111111111111111111111111113");
@@ -90,6 +91,75 @@ describe("runSettleJob", () => {
     expect(entry.settled).toBe(false);
     expect(entry.attempts).toBeGreaterThan(1);
     expect(entry.nextRetryAt).toBeUndefined(); // fix #18: cleared on the alert (terminal) path
+  });
+
+  it("fix #4: classifies Hermes 401/403/429 as terminal -- alerts once immediately, no 30s retry", async () => {
+    const record = marketRecord();
+    const chain: SettleChain = {
+      async fetchOpenMarkets() {
+        return [record];
+      },
+      async fetchConfig() {
+        return { overrideDelaySecs: 3600 };
+      },
+      async settleMarket() {
+        throw new Error("should never be reached: publish failed before any settleMarket call");
+      },
+      fetchMarket: alwaysOpenFetchMarket,
+    };
+    const provider = fakeProvider(async () => {
+      throw new HermesError(403, "Not entitled: feed requires an upgraded plan");
+    });
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+
+    // Note: no `vi.advanceTimersByTimeAsync` loop here -- a terminal classification
+    // must resolve the job immediately, without waiting out the 30s retry cadence or
+    // the 15-minute alert window.
+    await runSettleJob({ chain, provider, alertFn, alertWebhookUrl: "https://example.test/webhook" }, { day: 20261006 });
+
+    expect(alertFn).toHaveBeenCalledTimes(1);
+    const [alertInput] = alertFn.mock.calls[0] as [{ error: string }];
+    expect(alertInput.error).toMatch(/HTTP 403/);
+    expect(alertInput.error).toMatch(/entitlement/i);
+
+    const entry = settlementStatus.get(MARKET_PUBKEY.toBase58())!;
+    expect(entry.settled).toBe(false);
+    expect(entry.attempts).toBe(1); // never retried
+    expect(entry.nextRetryAt).toBeUndefined();
+  });
+
+  it("keeps retrying a non-Hermes publish failure on the normal 30s/15min cadence", async () => {
+    const record = marketRecord();
+    const chain: SettleChain = {
+      async fetchOpenMarkets() {
+        return [record];
+      },
+      async fetchConfig() {
+        return { overrideDelaySecs: 3600 };
+      },
+      async settleMarket() {
+        throw new Error("should never be reached: publish failed before any settleMarket call");
+      },
+      fetchMarket: alwaysOpenFetchMarket,
+    };
+    const provider = fakeProvider(async () => {
+      throw new Error("RPC timeout");
+    });
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+
+    const runPromise = runSettleJob(
+      { chain, provider, alertFn, alertWebhookUrl: "https://example.test/webhook" },
+      { day: 20261006 },
+    );
+
+    for (let i = 0; i < 31; i += 1) {
+      await vi.advanceTimersByTimeAsync(30_000);
+    }
+    await runPromise;
+
+    expect(alertFn).toHaveBeenCalledTimes(1);
+    const entry = settlementStatus.get(MARKET_PUBKEY.toBase58())!;
+    expect(entry.attempts).toBeGreaterThan(1); // retried, unlike the Hermes-terminal case above
   });
 
   it("treats AlreadySettled as success with no alert", async () => {

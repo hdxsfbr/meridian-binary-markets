@@ -4,7 +4,8 @@
   "private": true,
   "type": "commonjs",
   "scripts": {
-    "program": "echo 'program tests are Rust: make test-program'"
+    "program": "echo 'program tests are Rust: make test-program'",
+    "integration": "mocha --require tsx --timeout 600000 'integration/**/*.test.ts'"
   },
   "dependencies": {
     "@anchor-lang/core": "1.2.1",

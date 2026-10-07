@@ -1,3 +1,4 @@
+import { PROGRAM_ID } from "../src/index";
 import { PublicKey } from "@solana/web3.js";
 import { describe, expect, it } from "vitest";
 import {
@@ -31,9 +32,9 @@ function pk(seed: number): PublicKey {
 /** Wraps `encodeEventForTest`'s single log line as a minimal, realistic log array. */
 function wrapLog(line: string): string[] {
   return [
-    "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia invoke [1]",
+    `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
     line,
-    "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia success",
+    `Program ${PROGRAM_ID.toBase58()} success`,
   ];
 }
 
@@ -189,9 +190,9 @@ describe("parseEventsFromLogs / encodeEventForTest round trip", () => {
 
   it("ignores an unrelated program's 'Program data:' line", () => {
     const logs = [
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia invoke [1]",
+      `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       "Program data: bm90LWEtcmVhbC1ldmVudA==", // base64 of "not-a-real-event", no matching discriminator
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia success",
+      `Program ${PROGRAM_ID.toBase58()} success`,
     ];
     const events: MeridianEvent[] = parseEventsFromLogs(logs, SIGNATURE, SLOT);
     expect(events).toHaveLength(0);
@@ -207,10 +208,10 @@ describe("parseEventsFromLogs / encodeEventForTest round trip", () => {
     const minted: MintedData = { market: pk(21), user: pk(22), qty: 1n };
     const redeemed: PairRedeemedData = { market: pk(21), user: pk(22), qty: 1n };
     const logs = [
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia invoke [1]",
+      `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       encodeEventForTest("Minted", minted),
       encodeEventForTest("PairRedeemed", redeemed),
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia success",
+      `Program ${PROGRAM_ID.toBase58()} success`,
     ];
     const events = parseEventsFromLogs(logs, SIGNATURE, SLOT);
     expect(events.map((e) => e.name)).toEqual(["Minted", "PairRedeemed"]);
@@ -220,13 +221,13 @@ describe("parseEventsFromLogs / encodeEventForTest round trip", () => {
     const otherProgram = pk(50).toBase58();
     const minted: MintedData = { market: pk(23), user: pk(24), qty: 9n };
     const logs = [
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia invoke [1]",
+      `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       `Program ${otherProgram} invoke [2]`,
       // Even though this line decodes cleanly against our IDL, it was
       // emitted while `otherProgram` was executing (CPI), not us.
       encodeEventForTest("Minted", minted),
       `Program ${otherProgram} success`,
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia success",
+      `Program ${PROGRAM_ID.toBase58()} success`,
     ];
     const events = parseEventsFromLogs(logs, SIGNATURE, SLOT);
     expect(events).toHaveLength(0);
@@ -235,9 +236,9 @@ describe("parseEventsFromLogs / encodeEventForTest round trip", () => {
   it("parseEventsFromTransaction yields no events for a failed transaction", () => {
     const minted: MintedData = { market: pk(25), user: pk(26), qty: 2n };
     const logs = [
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia invoke [1]",
+      `Program ${PROGRAM_ID.toBase58()} invoke [1]`,
       encodeEventForTest("Minted", minted),
-      "Program 8Xf2M9XCYadh2mM8cTSDvwFpMCr3EX3TbU35P3SPkEia success",
+      `Program ${PROGRAM_ID.toBase58()} success`,
     ];
     const tx = {
       transaction: { signatures: [SIGNATURE] },

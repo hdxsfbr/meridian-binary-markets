@@ -94,6 +94,55 @@ they would keep updating after 16:00 but report after-hours prints, not the clos
 Until then the `MockPyth` provider carries every test. None of the four items changes the program
 interface; they set config values.
 
+**2026-10-07 probe results (Wave 6C, T089-T093)**: the key is active but not yet entitled to
+`Equity.US` feeds. `GET /v2/updates/price/latest?ids[]=<Equity.US.AAPL>` returned HTTP 403 every
+time, body `Not entitled: feed <id> (no grant accepts this feed (asset type 'equity', instrument
+type 'spot', exchange 1))` -- a clean, typed rejection (`HermesError`), not an auth failure, so R4's
+feed/auth shape is confirmed and only the plan entitlement is missing. The same key *is* entitled to
+crypto: `GET .../latest?ids[]=<Crypto.BTC/USD>` returned HTTP 200 every time, with `publish_time`
+matching wall clock to the second (drift 0s across several runs a few minutes apart), confirming
+Hermes's auth/shape and the staleness math end to end against a real feed. `services/automation/src/probe/pyth.ts`
+(`pnpm --filter @meridian/automation run probe pyth [--post]`) therefore proves the whole path --
+Hermes fetch, `@pythnetwork/pyth-solana-receiver` instruction building, and (when funded) posting --
+against BTC/USD instead of AAPL; swapping back to the equity feed once the account is upgraded is a
+`Config.tickers[].feed_id` change, not a code change (item 3's point already held).
+
+Item 3 (post to the devnet receiver, read the resulting `PriceUpdateV2` in a LiteSVM test) could not
+complete the on-chain post: the publisher key had 0 SOL and `solana airdrop` returned HTTP 429
+("You've either reached your airdrop limit today or the airdrop faucet has run dry") on the one
+attempt the probe makes (no retry loop, per the probe-vs-changelog rule -- a faucet 429 means use
+`faucet.solana.com`, not hammer the RPC). Per this task's fallback instruction, `probe pyth --post`
+then builds the `PriceUpdateV2` fixture directly from the real Hermes-observed BTC price using the
+receiver SDK's own Anchor/Borsh account coder (same bytes a real post would have produced), writes it
+to `programs/meridian/tests/fixtures/pyth_price_update_btc.bin`, and marks the JSON sidecar
+`synthetic: true` with the reason. `programs/meridian/tests/oracle_pyth_real.rs` loads that fixture
+into LiteSVM under the real receiver program id as owner and derives every expectation (price, feed
+id, publish time) by deserializing the fixture with the program's own `PriceUpdateV2::try_deserialize`
++ `normalize_price`, rather than hardcoding the captured price, since the BTC feed moves between
+probe runs; it proves `settle_market` against `OracleProvider::PythReceiver` settles Yes above strike,
+No below strike, and `OracleStale` at `publish_time + 301`s -- the real account layout and the
+guard chain's handling of a `VerificationLevel::Full` value parse correctly end to end. What this
+does *not* prove: no transaction was ever broadcast to devnet, and no Wormhole guardian signature
+was actually verified by the receiver program on chain -- the fixture's `verification_level: Full`
+field is data we set directly, not a value a real verification step produced. Item 3 will be
+re-run against an actual posted-and-confirmed devnet transaction (not just a locally-built
+fixture) once the faucet allows an airdrop; nothing about the program or provider interface needs
+to change to do that.
+
+Item 2 (post-close `publish_time` drift at 16:01/16:10 ET) and item 4 (Nasdaq cross-check) remain
+blocked on the `Equity.US` entitlement and are deferred to whenever that upgrade lands; the probe's
+step 4 explicitly skips the cross-check for crypto feeds and says so, so there is no silent gap.
+
+One packaging note for `DECISIONS.md` §8: `@pythnetwork/pyth-solana-receiver`'s published ESM build
+has a directory-import bug (`@coral-xyz/anchor/dist/cjs/utils/bytes` imported without `/index.js`)
+that Node's strict ESM resolver rejects; `PythReceiverProvider.ts` and `probe/pyth.ts` load the
+package via `createRequire` (its CJS build) to route around it, and `jito-ts` (an unused transitive
+dependency of the SDK, pulled in only for an irrelevant Jito-bundle helper) pins an old
+`@solana/web3.js` that collided with this repo's `rpc-websockets` resolution until a root-level
+`pnpm.overrides` pinned `jito-ts`'s own `@solana/web3.js` to match. Both fixes are isolated to the
+provider/probe modules and the root `pnpm.overrides` block; no other service code touches either
+package.
+
 ## R6. Settlement asset: Circle devnet USDC
 
 **Decision**: Default collateral mint is Circle's devnet USDC

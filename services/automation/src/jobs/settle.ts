@@ -32,6 +32,7 @@ import { tradingDayOf } from "../calendar.js";
 import { log } from "../log.js";
 import { alert as defaultAlert, type AlertInput } from "../alert.js";
 import type { PriceProvider } from "../providers/PriceProvider.js";
+import { ENTITLEMENT_REMINDER, HermesError } from "../sources/hermes.js";
 
 const RETRY_INTERVAL_MS = 30_000;
 const ALERT_WINDOW_MS = 15 * 60_000;
@@ -225,6 +226,28 @@ async function settleTickerGroup(
         entry.lastError = lastError;
       }
       log({ job: "settle", ticker, step: "publish", ok: false, error: lastError });
+
+      // Fix #4: Hermes 401/403/429 (auth/entitlement/rate-limit) are terminal for this
+      // automatic attempt -- retrying every 30s for 15 minutes hammers a key that will
+      // never become entitled by retrying. Alert once immediately (status + the
+      // entitlement/pricing reminder) and stop retrying this ticker, instead of falling
+      // into the normal retry window below. Other errors (RPC hiccups, etc.) keep it.
+      if (err instanceof HermesError && (err.status === 401 || err.status === 403 || err.status === 429)) {
+        const alertFn = deps.alertFn ?? defaultAlert;
+        const anyRemaining = Array.from(pending.values())[0];
+        const entry = settlementStatus.get(anyRemaining.publicKey.toBase58())!;
+        await alertFn(
+          {
+            ticker,
+            error: `Hermes returned HTTP ${err.status} (terminal, not retried): ${ENTITLEMENT_REMINDER}`,
+            overrideAvailableAtEt: entry.overrideAvailableAt,
+            market: entry.market,
+          },
+          deps.alertWebhookUrl,
+        );
+        for (const key of pending.keys()) settlementStatus.get(key)!.nextRetryAt = undefined;
+        return;
+      }
     }
 
     if (pending.size === 0) return;
