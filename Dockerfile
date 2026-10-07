@@ -89,6 +89,26 @@ RUN corepack enable \
 RUN mkdir -p /usr/local/cargo/registry /work/target /run/keys /home/dev/.pnpm-store \
     && chown -R "${UID}:${GID}" /usr/local/cargo/registry /work /run/keys /opt/corepack /home/dev/.pnpm-store
 
+# ---- Playwright (headless shell only) for the Wave 7 web E2E smoke suite --
+# Installed as root, into /opt/pw-browsers rather than the default
+# ~/.cache/ms-playwright (which would land under /home/dev and need its own
+# chown dance every time the named volumes shuffle ownership). `--with-deps`
+# pulls in the handful of system libraries Chromium needs that aren't already
+# covered by this image's base-tools layer. Pinned to the same version as
+# `@playwright/test` in `web/package.json` -- the browser binaries and the
+# test runner that drives them must always match exactly.
+#
+# Fix #22: this suite never launches a headed browser, so only
+# `chromium-headless-shell` is installed -- not full headed Chromium too,
+# which `install --with-deps chromium` would otherwise pull down alongside
+# it. apt's package lists and npx/npm's download cache are removed in this
+# same layer so neither survives in the final image.
+ENV PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers
+ARG PLAYWRIGHT_VERSION=1.63.0
+RUN npx -y playwright@${PLAYWRIGHT_VERSION} install --with-deps chromium-headless-shell \
+    && chown -R "${UID}:${GID}" /opt/pw-browsers \
+    && rm -rf /var/lib/apt/lists/* /root/.npm /root/.cache/ms-playwright
+
 USER dev
 WORKDIR /work
 

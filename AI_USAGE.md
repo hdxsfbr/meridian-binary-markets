@@ -329,3 +329,64 @@ point and module declarations were pre-wired by the coordinator; Codex reviews w
 to hand straight to a fix agent; the integrated suite at the end of Wave 3 is 144 Rust and 127
 TypeScript tests, all green, and the core promise (mint a pair for a dollar, settle on a guarded
 price, redeem a pair for a dollar) is proven on the in-memory runtime.
+
+### 2026-10-07 — Implementation Waves 4–6
+
+Process: same loop as Waves 0–3 — Sonnet agents implement a wave's file-disjoint tasks, the
+coordinator runs the integrated build and tests, Codex (gpt-6.1, high reasoning, read-only) reviews
+only the wave's new code, the coordinator filters and reports what was dropped and why, one Sonnet
+fix pass, one commit per wave.
+
+Where it went wrong, candidly:
+- Agents repeatedly stalled sitting on a monitor (waiting on a long-running build or test) without
+  surfacing that they were stuck, needing a manual nudge to report status or continue. Not fatal,
+  but it cost wall-clock time across all three waves that a better "announce you're waiting, not
+  just that you started" instruction in the briefs would have saved.
+- The on-chain program's keypair regenerates on a clean build (it is gitignored by design, per §7),
+  and one test file had the old program ID hard-coded as a literal rather than reading it from the
+  generated IDL/keypair. It passed locally and failed the moment the keypair rotated; fixed by
+  reading the ID from the build artifact instead of a string.
+- The first `scripts/lifecycle.ts` runs needed six separate iterations before a full day actually
+  closed out: a hand-computed P&L assertion had an arithmetic error; the publisher key had no SOL
+  the first time funding was checked; a chain-clock vs. wall-clock mismatch made "close in N
+  seconds" markets settle before the script expected; re-running the script against an existing day
+  collided with markets already created in an earlier attempt; and one quantity was passed in base
+  units where the instruction expected contract-scale units (and vice versa elsewhere). Each was a
+  real bug, not flakiness — all six are now preflight checks or fixed math in the script itself
+  (Codex caught two of the six as review items before they were found by running the script;
+  running the script surfaced the other four).
+- Documentation overclaimed the Pyth proof — an early draft of `docs/risks-and-limitations.md`
+  described a "genuine posted Pyth update" and an "end-to-end receiver proof" when what had actually
+  happened was a real Hermes fetch plus a synthetic, never-broadcast fixture exercising the guard
+  chain in a LiteSVM test. The Wave 6 Codex review caught the gap between what was tested and what
+  was claimed (item 19); the doc was corrected to say exactly what was and was not proven. That
+  correction briefly also lived as a mirrored §15 in `DECISIONS.md`, but a Wave 7/8 review flagged
+  that section as a probe finding rather than an architectural decision, so it was removed from
+  `DECISIONS.md` and `docs/risks-and-limitations.md` §1–2 is now the single place this statement
+  lives.
+- The devnet faucet's rate limit blocked the one thing all of the above was building toward: an
+  actual posted-and-confirmed Pyth update on devnet. The publisher key had 0 SOL when the posting
+  probe ran, and the faucet returned `HTTP 429` on the single airdrop attempt the probe makes by
+  design (no retry loop). The fallback — a synthetic fixture built from a real Hermes-observed
+  BTC/USD price — is accurate to what it proves (layout, parsing, guards) and honest about what it
+  does not (a broadcast transaction, a verified Wormhole signature).
+
+Where it went right:
+- Codex caught two correctness bugs by reading, not running: the self-match gap across
+  `place_order`, `sell_no_market`, and `buy_no_market` (a taker's own resting order filling against
+  itself would have left the wallet holding an unwanted paired Yes-and-No position instead of just
+  the side it meant to end up with — the mint already funds the pair, so nothing unpaid gets
+  fabricated, the harm is the unintended paired position) and the `book_closed`-flag ambiguity in
+  `close_market` (a flag alone can't distinguish "closed after trading" from "never finished being
+  created," and either reading it wrong strands a live Book and its escrows). Both are now
+  `DECISIONS.md` §9–10.
+- Across the three waves, Codex raised 95 review items (38 in Wave 4, 25 in Wave 5, 32 in Wave 6).
+  94 were applied in the immediate fix pass for the wave that raised them; the one exception (the
+  cross-day market-maker quoting panel, flagged in Wave 5) was rescheduled to Wave 6 and completed
+  there, so every item raised was eventually applied.
+- The full lifecycle — create markets across all seven tickers, mint, trade both sides, settle,
+  redeem, reclaim rent — is now proven end to end on the local validator with hand-verified P&L,
+  not just unit-tested in isolation.
+
+Current numbers: 261 Rust tests, 108 SDK tests, 107 web tests, 114 automation tests (plus 1
+skipped), and 62 scripts tests.

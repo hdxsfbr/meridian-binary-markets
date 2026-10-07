@@ -195,7 +195,7 @@ export default function PortfolioPage() {
 
       <section className="flex flex-col gap-2">
         <span className="text-sm text-black/60">USDC balance</span>
-        <span className="text-xl font-semibold">
+        <span className="text-xl font-semibold" data-testid="usdc-balance">
           {usdcBalanceMicro === null ? "—" : formatUsd(usdcBalanceMicro)}
         </span>
       </section>

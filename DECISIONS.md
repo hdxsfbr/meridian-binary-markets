@@ -307,3 +307,136 @@ Rust/Anchor/Agave/Node/pnpm version pins themselves.
 
 **Trade-off:** Anchor 1.2.1 is a day old. Accepted because the fallback is one version back and the
 container makes the switch a one-line change.
+
+**Update, 2026-10-07 (Wave 6, Node/receiver compatibility and a transitive override):**
+
+| Dependency | Pin | Why |
+|---|---|---|
+| `@pythnetwork/pyth-solana-receiver` | 0.13.0 (service), not the 0.16 above | 0.16's `package.json` declares `engines.node: ^24.0.0`; the pinned toolchain runs Node 22.23.3. 0.13.0 is the newest release that still supports Node 22 and exposes the same transaction-builder API the posting path needs. The SDK/web package stays on whatever `@solana/web3.js`-era client it already used; only the automation service's receiver client moved |
+| `jito-ts>@solana/web3.js` | `^1.99.0` (root `pnpm.overrides`) | A transitive dependency pulled in by the receiver SDK's dependency tree resolves `jito-ts`, which declares an older `@solana/web3.js` range; left alone it installs a second, incompatible web3.js copy that breaks `instanceof PublicKey` checks across packages. Overridden at the workspace root rather than patched per-package |
+
+## 9. `close_market`: two independent safeguards against stranding the Book and escrows
+
+**Date:** 2026-10-06 (Wave 5, Codex-caught blocker)
+**Context:** `close_book`/`close_market` reclaim rent by closing the Book and both escrow accounts
+once a market is done trading. Two separate problems, each needing its own answer:
+(a) A default/zeroed `Market.book` address is ambiguous — it describes a market whose Book was
+*never finished being created* (see §7's `create_book` split) just as much as one whose Book
+finished and was later closed. The address alone cannot tell the two cases apart.
+(b) Even once that's resolved, `close_market` shouldn't take its own prior bookkeeping on faith for
+the one fact it's about to act on — whether the Book and escrows are actually gone.
+**Decision:** Two independent safeguards, not one:
+(a) An explicit `book_closed` flag on `Market` records that closure specifically happened
+(distinct from "never created"), resolving the address ambiguity.
+(b) Independently of that flag, `close_market` re-verifies on chain that the derived Book PDA and
+both escrow PDAs hold zero lamports before it proceeds, rather than trusting the flag by itself.
+The test suite covers the unfinished-creation case explicitly alongside the normal closed case.
+**Trade-off:** One extra zero-lamports check per close, worth it because the alternative — trusting
+the flag alone — is a silent rent/fund leak that would not surface until a reviewer hit the exact
+unfinished-creation edge case.
+
+## 10. Self-match refusal on every path that matches orders
+
+**Date:** 2026-10-06 (Wave 5, Codex-caught blocker)
+**Context:** Three instructions can match a taker order against the resting book: `place_order` (a
+plain limit/IOC order), `sell_no_market` (sells the No leg as an IOC taker order), and
+`buy_no_market` (the only composite that matches orders — it mints a Yes/No pair and immediately
+sells the Yes leg as an IOC taker order). In any of them, if the taker's own resting order is the
+best price on the opposite side, the match fills against the taker's own order. In
+`buy_no_market`'s case specifically, that means the Yes leg just minted transfers straight back to
+the wallet it was minted to instead of out to a counterparty, leaving the wallet holding a newly
+minted Yes *and* No — an unwanted paired position, not a shortfall: the mint already funded the
+pair, so self-matching doesn't fabricate anything unpaid, it just leaves both legs sitting with the
+one wallet instead of trading away the side the instruction promised to dispose of.
+**Decision:** `reject_self_match` runs in all three instructions — `place_order`,
+`sell_no_market`, and `buy_no_market` — before any funds move (mint, transfer, or escrow release),
+rejecting the transaction rather than letting a same-wallet fill clear. Covered by a regression
+test.
+**Trade-off:** A market participant who also has a resting order on the other side of the same
+market must let that resting order get out of the way first (cancel it, or let someone else fill
+it) before their own taker order can match — a minor UX constraint, accepted because the
+alternative silently leaves the wallet in an unintended paired position instead of completing the
+trade it asked for.
+
+## 11. `redeem_winning` requires only the winning side's token account, not both
+
+**Date:** 2026-10-06 (Wave 4)
+**Context:** A wallet that only ever bought Yes holds a Yes associated token account and no No
+ATA. An early version of redemption required both outcome ATAs to exist, which fails for the
+common case of a directional (non-maker) trader.
+**Decision:** `redeem_winning` takes a single winning-side token account, requires no pause gate
+(settlement finality should not be blocked by an operational pause), and checks only that the
+vault holds at least the winning side's outstanding supply before paying out.
+**Trade-off:** None of substance — this removes an unnecessary account requirement rather than
+trading away a guarantee; the vault-sufficiency check still fails closed if the vault is short.
+
+## 12. Settlement job cadence: start at 16:00:30 ET, one closing observation per ticker per day
+
+**Date:** 2026-10-06 (Wave 4), Hermes terminal-error handling added 2026-10-07 (Wave 6)
+**Context:** The brief requires settlement within 10 minutes of the 4:00 PM ET close, using a
+single, consistent closing price per ticker rather than whatever the latest quote happens to be
+on each retry (a real Codex-caught blocker in Wave 4: re-fetching "now" on every retry let later
+trades or republishing change which price a strike settles against).
+**Decision:** The settle job starts at 16:00:30 ET (a 30-second buffer past the close), fetches and
+freezes one closing observation per ticker for that trading day, and settles every strike on that
+ticker against that same frozen observation, retrying on a fixed 30-second cadence inside a 15-minute
+window and reconciling on-chain state (in case another caller already settled) before alerting.
+Hermes 401/403/429 responses are classified as terminal for the automatic attempt rather than
+retried for the full window, since they signal an auth/entitlement/rate-limit wall that retrying
+cannot clear, and the operator is alerted immediately instead of after 15 minutes of futile retries.
+**Trade-off:** A ticker whose single frozen observation turns out to be bad (rather than stale) has
+no automatic self-correction within the window — this is what `admin_settle_override` exists for.
+
+## 13. Event-derived P&L: average cost per leg, with a losing-leg write-off at settlement
+
+**Date:** 2026-10-06 (Wave 4, refined by Codex review before the wave closed)
+**Context:** The SDK has no ledger account to read P&L from — it is derived entirely from replaying
+on-chain events (Minted, Fill, PairRedeemed, Settled) per wallet. A fixed-cost model for pair
+redemption produces wrong numbers under partial trading (e.g., mint a pair, sell Yes at $0.65, buy
+it back at $0.40, redeem the pair: fixed-cost math reports $0.15 realized and a negative $0.10
+remaining basis, which is not a coherent position). Separately, a model that never recognizes a
+losing leg's write-off reports a winning redemption as pure profit even though the paired losing
+leg cost money too.
+**Decision:** Track **average cost per leg** (Yes and No tracked separately per wallet per
+market), remove each leg's proportional current average cost on redemption rather than a fixed
+amount, and **write off the losing leg's remaining basis once, at settlement**, while leaving its
+token quantity in place (it is a worthless, not absent, balance). Self-fills (a wallet matching its
+own maker and taker order) are handled explicitly so they do not fabricate inventory or cost.
+**Trade-off:** This is a product-facing accounting decision, not just an implementation detail — a
+reviewer reconstructing P&L from the raw event log by a different method (e.g., realized-only cash
+flow) will get a different number mid-position, though the two methods agree once every position in
+a market is fully closed out. Average-cost is the standard brokerage convention, which is why it was
+chosen over FIFO/LIFO or a fixed-cost-per-redemption shortcut.
+
+## 14. Program size (~615 KB) sets the devnet deploy budget, not the "two airdrops" the plan assumed
+
+**Date:** 2026-10-07 (Wave 6, Codex-caught, `docs/deployment.md`); rent figures recomputed against
+devnet RPC 2026-10-07 (Wave 7/8, Codex-caught)
+**Context:** The compiled program binary is ~615,229 bytes. Deploying it funds two separate
+accounts, measured directly against devnet RPC rather than estimated:
+- **Final program-data account**, sized to the binary's exact length: `solana rent 615229
+-u https://api.devnet.solana.com` → **3.12601356 SOL**. This is the permanent cost, retained for as
+  long as the program stays deployed.
+- **Temporary buffer account**, which briefly holds the uploaded bytes before the program-data
+  account takes ownership of them. It is sized the same as the binary during upload, so it costs
+  the same ~3.126 SOL — but that rent is reclaimed to the deployer once the buffer closes after
+  the deploy finishes; it is not an additional permanent cost.
+`solana rent 1230458` (2x 615,229 — the rough "buffer + program-data" headroom `scripts/deploy.ts`'s
+own comment estimates) returns **6.25137688 SOL**, the right order of magnitude for "final and
+temporary funded at once" but not the number actually observed: a clean-clone run of the plain
+`anchor deploy` path (not `scripts/deploy.ts`'s more efficient path, which deployed the same binary
+on just 2 SOL in the same run) failed with `insufficient lamports 1999990000, need 4282829040` —
+i.e. a raw `anchor deploy` needed **~4.28 SOL** funded simultaneously, a figure between the
+single exact-size allocation (3.13 SOL) and the full double-size allocation (6.25 SOL), consistent
+with the buffer and program-data accounts needing to be funded concurrently for part of the deploy
+before the buffer's rent is reclaimed.
+**Decision:** Document and budget the deploy step as **~3.13 SOL final** (permanent program-data
+rent) **+ ~3.13 SOL temporary buffer** (reclaimed once the buffer closes) **→ fund ~6.5 SOL for the
+deploy itself**, cross-checked against the clean-clone finding that a raw `anchor deploy` demands
+~4.28 SOL mid-deploy. On top of that, budget the lifecycle's own ~1.25 SOL/day at demo scale
+(§6/`research.md` R7) — **~7–9 SOL on the deployer wallet overall** (three to five separate ~2 SOL
+airdrop requests, or a manual larger grant), and record the exact-size cap (program binary must
+not exceed ~615 KB without re-deriving this budget) in `docs/deployment.md`.
+**Trade-off:** None — this replaces an estimate with RPC-measured numbers and a clean-clone
+cross-check; the risk it forecloses is a reviewer's deploy attempt stalling partway through (as the
+clean-clone run reproduced) for a reason the docs didn't quantify precisely enough.

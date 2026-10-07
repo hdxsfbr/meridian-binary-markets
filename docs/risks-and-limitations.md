@@ -50,6 +50,12 @@ or a manually funded publisher allows the post, tracked for Wave 7. Switching th
 from mock to Pyth is `init-config -- --update --provider pyth` once equities are entitled — a
 config change, not a program change (`docs/deployment.md` §3).
 
+**2026-10-07 note:** this section's findings — active Pyth key, equities still `403 Not entitled`,
+the pull-oracle path proven only on the BTC/USD crypto feed via a synthetic fixture, nothing posted
+to devnet — were also recorded as `DECISIONS.md` §15. That section mirrored a probe finding rather
+than an architectural decision, so it has been removed from `DECISIONS.md`; this document (§1–2) is
+now the single, authoritative place that statement lives.
+
 ## 3. No free source carries the official closing-auction print
 
 The number this system settles on — from either the mock or Pyth — is a consolidated/aggregated
