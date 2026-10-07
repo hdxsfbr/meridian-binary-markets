@@ -44,7 +44,7 @@ provider is `MockPyth`; `oracle_program` must equal the program ID when provider
 | vault | Pubkey | USDC token account owned by market PDA |
 | book | Pubkey | `Pubkey::default()` until `create_book` finishes |
 | book_capacity | u16 | per-side capacity `create_book` builds `book` at; set from `create_market`'s/`add_strike`'s `capacity` arg so `create_book` (which takes no `capacity` argument of its own) always builds against the value the market was created with |
-| pairs_outstanding | u64 | tokens; while `Open`: `vault.amount == pairs_outstanding × 1_000_000` (FR-007). After settlement the field is frozen and informational; the live invariant becomes `vault.amount == winning_supply × 1_000_000`, and `close_market` requires the vault empty |
+| pairs_outstanding | u64 | tokens; while `Open`: `vault.amount >= pairs_outstanding × 1_000_000` (FR-007) -- the vault holds at least the backing for `pairs_outstanding`; surplus from unsolicited transfers directly into the vault is never paid out and is ignored by the invariant. After settlement the field is frozen and informational; the live invariant becomes `vault.amount >= winning_mint.supply` (both already in base units, no `× 1_000_000` scaling needed), and `close_market` requires the vault empty |
 | bump, vault_bump | u8 | |
 
 State transitions: `Open → Settled` via `settle_market` or `admin_settle_override`; no other
@@ -149,7 +149,8 @@ From the wallet's `Minted`, `Fill`, `PairRedeemed`, `WinningRedeemed`, `Settled`
   3600)`; sets `settled_by_override = true`.
 - `redeem_winning(side, qty)`: state `Settled`; `side == outcome`; burns `qty`; pays
   `qty × 1_000_000`; `pairs_outstanding` is frozen; the post-settlement invariant is
-  `vault.amount == winning_supply × 1_000_000`.
+  `vault.amount >= winning_mint.supply` (both in base units already; surplus from
+  unsolicited transfers into the vault is ignored, never paid out).
 - `place_order`: not paused, not settled; price in range; `qty > 0`; escrow transferred before
   matching; at most 8 fills; remainder rests (limit) or refunds (IOC).
 - `cancel_order(id)`: owner signer; refunds escrow; allowed when paused or settled.

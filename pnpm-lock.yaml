@@ -116,6 +116,9 @@ importers:
 
   web:
     dependencies:
+      '@anchor-lang/core':
+        specifier: 1.2.1
+        version: 1.2.1(bufferutil@4.1.0)(typescript@5.9.3)(utf-8-validate@6.0.6)
       '@meridian/sdk':
         specifier: workspace:*
         version: link:../packages/sdk

@@ -127,10 +127,27 @@ impl Config {
     }
 
     /// Looks up an *enabled* ticker by symbol. Disabled tickers are treated as absent.
+    /// Used by `create_market`/`add_strike`, which must refuse to start new markets on a
+    /// disabled ticker.
     pub fn ticker(&self, symbol: &[u8; 8]) -> Option<&TickerInfo> {
         self.tickers
             .iter()
             .find(|t| t.enabled && &t.symbol == symbol)
+    }
+
+    /// Looks up a ticker by symbol regardless of `enabled`. Used by `settle_market`:
+    /// disabling a ticker (e.g. to stop new markets being created on it) must not block
+    /// settlement of markets that already exist on it.
+    pub fn ticker_any(&self, symbol: &[u8; 8]) -> Option<&TickerInfo> {
+        self.tickers.iter().find(|t| &t.symbol == symbol)
+    }
+
+    /// Looks up a ticker by feed id regardless of `enabled`. Used by `mock_write_price`:
+    /// disabling a ticker must not prevent the automation service from continuing to
+    /// publish (and `settle_market` continuing to read) its feed for markets already
+    /// open on it.
+    pub fn feed_any(&self, feed_id: &[u8; 32]) -> Option<&TickerInfo> {
+        self.tickers.iter().find(|t| &t.feed_id == feed_id)
     }
 
     /// The override delay actually enforced: at least `MIN_OVERRIDE_DELAY_SECS` regardless

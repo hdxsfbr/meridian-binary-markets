@@ -56,6 +56,10 @@ special-case "already done." The test harness's `create_market` helper calls bot
 
 ## Invariant checks executed in code
 
-After every `mint_pair`, `redeem_pair`, `redeem_winning`: assert the vault equation from
-`data-model.md` and fail with `InvariantViolated` if it does not hold. This is the on-chain form of
-Principle I and PRD §5.2, in addition to tests.
+After every `mint_pair`, `redeem_pair`, `redeem_winning`: assert the vault inequality from
+`data-model.md` (`vault.amount >= pairs_outstanding × 1_000_000` while `Open`, or
+`vault.amount >= winning_mint.supply` once `Settled`) and fail with `InvariantViolated` if it does
+not hold. The vault holds at least the backing it must; surplus from unsolicited transfers (e.g. a
+stray direct deposit into the vault token account) is ignored by the check and is never paid out --
+redemptions always pay exactly the documented amount regardless of any surplus. This is the on-chain
+form of Principle I and PRD §5.2, in addition to tests.

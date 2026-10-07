@@ -22,3 +22,4 @@ export function loadIdl(): Record<string, unknown> {
 
 export * from "./types";
 export * from "./pda";
+export * from "./strikes";
