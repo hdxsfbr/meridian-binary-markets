@@ -299,3 +299,33 @@ assumes it's about Anchor.
 source/Cargo.toml (cargo-platform's MSRV table, litesvm's git tags for the API-breaking commit,
 LiteSVM's `accounts_db.rs` for where `InvalidAccountData` is raised) rather than guessing at version
 numbers and retrying.
+
+### 2026-10-06 — Implementation Waves 0–3 (Claude Code, Fable 5.1 coordinating Sonnet agents, Codex reviewing)
+
+Process: the 101 tasks were grouped into nine waves of file-disjoint agents. Each wave: Sonnet
+agents implement, the coordinator runs the integrated build and tests, Codex (gpt-6.1, high
+reasoning, read-only) reviews only the wave's new code, the coordinator filters the review and
+tells Andre what was dropped and why, one Sonnet fix pass, one commit. One review cycle per wave.
+Andre approves agent briefs before launch and gets a liveness line every ten minutes.
+
+Where it went wrong, candidly:
+- Wave 0's brief told the agent to compile the Anchor CLI from source although the research pass
+  had already found prebuilt release binaries. Twenty minutes of build and a 1.7 GB larger image,
+  corrected in the fix pass. Lesson: check the expensive steps in a brief against what was verified.
+- The same brief had eight deliverables and two proof runs, then two mid-flight corrections (a
+  package cache written into the repo; a program signer about to be committed). 81 minutes for one
+  wave. Later waves use two or three tasks per agent and no mid-flight corrections.
+- The chosen TypeScript test runtime (anchor-litesvm + litesvm JS) corrupted its heap after any
+  failed transaction. The Wave 2 agent found it and worked around it by keeping one negative test,
+  which was not acceptable. Program tests moved to Rust on litesvm 0.12.0 in the same wave; 60
+  consecutive failures in one process now pass as a stress test.
+- Agents inherit the coordinator's "announce before acting" rule and twice stopped to ask for
+  permission. Briefs now state the approval explicitly.
+- Codex caught a real blocker in Wave 3: a one-micro-USDC donation to a vault would have frozen
+  minting through an equality assertion. Changed to "vault holds at least the backing".
+
+Where it went right: five parallel agents in Wave 3 with zero file conflicts because the entry
+point and module declarations were pre-wired by the coordinator; Codex reviews were specific enough
+to hand straight to a fix agent; the integrated suite at the end of Wave 3 is 144 Rust and 127
+TypeScript tests, all green, and the core promise (mint a pair for a dollar, settle on a guarded
+price, redeem a pair for a dollar) is proven on the in-memory runtime.
