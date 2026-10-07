@@ -6,8 +6,10 @@
 //! `zero_copy` structs require compile-time sizes (R7). Integrity is checked by a leading
 //! 8-byte discriminator, read with `read_header`/checked by `write_header`.
 //!
-//! Slice helpers for bids/asks and the sort invariants (price-time priority) are out of
-//! scope here; they land in Wave 5 (T051).
+//! Slice helpers for bids/asks (`bids_mut`/`asks_mut`/`insert_sorted`/`remove_at`/
+//! `find_order`) and the escrow-sum helpers (`sum_bid_escrow`/`sum_ask_escrow`) that
+//! maintain the sort invariants (price-time priority) are added in Wave 4B (T051); see
+//! their doc comments below.
 
 use std::mem::size_of;
 
@@ -105,6 +107,147 @@ pub fn write_header(data: &mut [u8], header: &BookHeader) {
     assert!(data.len() >= 8 + header_len, "book buffer too small for header");
     data[..8].copy_from_slice(&BOOK_DISCRIMINATOR);
     data[8..8 + header_len].copy_from_slice(bytemuck::bytes_of(header));
+}
+
+// ---- Slice helpers (Wave 4B, T051) ----
+//
+// Body layout after the header: `capacity` bids, then `capacity` asks, each a 64-byte
+// `Order`. Bids are kept sorted `(price desc, seq asc)`, asks `(price asc, seq asc)`. A
+// zero `id` marks an empty slot; live orders are always packed contiguously at the front
+// of each side's array (indices `0..count`), with the tail zeroed -- `insert_sorted` and
+// `remove_at` both maintain this.
+
+/// Byte offset of the bids array, right after the discriminator and header.
+fn bids_offset() -> usize {
+    8 + size_of::<BookHeader>()
+}
+
+/// Byte offset of the asks array: right after the bids array.
+fn asks_offset(capacity: u16) -> usize {
+    bids_offset() + capacity as usize * size_of::<Order>()
+}
+
+/// Casts the byte range `[start, start + capacity * 64)` to a mutable `Order` slice.
+/// Returns `InvariantViolated` if the range is out of bounds or misaligned (the latter
+/// should not happen for a real account's data, whose base address Solana's runtime
+/// aligns to 8 bytes, but a test harness's `Vec<u8>` is not contractually guaranteed to
+/// be).
+fn cast_orders_mut(data: &mut [u8], start: usize, capacity: u16) -> Result<&mut [Order]> {
+    let len_bytes = capacity as usize * size_of::<Order>();
+    let end = start
+        .checked_add(len_bytes)
+        .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+    let slice = data
+        .get_mut(start..end)
+        .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+    bytemuck::try_cast_slice_mut(slice).map_err(|_| {
+        msg!("book: Order slice is misaligned or mis-sized");
+        error!(MeridianError::InvariantViolated)
+    })
+}
+
+/// The bids side of a Book account's data: `capacity` 64-byte `Order` records,
+/// contiguous, sorted `(price desc, seq asc)` over `[0..bid_count]`.
+pub fn bids_mut(data: &mut [u8], capacity: u16) -> Result<&mut [Order]> {
+    cast_orders_mut(data, bids_offset(), capacity)
+}
+
+/// The asks side of a Book account's data: `capacity` 64-byte `Order` records,
+/// contiguous, sorted `(price asc, seq asc)` over `[0..ask_count]`.
+pub fn asks_mut(data: &mut [u8], capacity: u16) -> Result<&mut [Order]> {
+    cast_orders_mut(data, asks_offset(capacity), capacity)
+}
+
+/// Inserts `order` into `slice` (a bids or asks side array) at the position its sort key
+/// demands, shifting later live entries right by one. `desc` selects the bids
+/// comparator (`price desc`) vs. the asks comparator (`price asc`); `seq asc` tie-break
+/// falls out for free because a newly built `order` always carries the largest `seq`
+/// handed out so far, so it is never inserted before an existing equal-price entry.
+///
+/// Returns the new live count, or `BookFull` if `count` already equals `slice.len()`
+/// (the side's capacity).
+pub fn insert_sorted(slice: &mut [Order], count: u16, order: Order, desc: bool) -> Result<u16> {
+    let capacity = slice.len();
+    let count_usize = count as usize;
+    require!(count_usize < capacity, MeridianError::BookFull);
+
+    let mut idx = 0usize;
+    while idx < count_usize {
+        let worse_than_new = if desc {
+            slice[idx].price < order.price
+        } else {
+            slice[idx].price > order.price
+        };
+        if worse_than_new {
+            break;
+        }
+        idx += 1;
+    }
+
+    // Shift [idx, count) right by one to open a gap at idx.
+    let mut i = count_usize;
+    while i > idx {
+        slice[i] = slice[i - 1];
+        i -= 1;
+    }
+    slice[idx] = order;
+
+    Ok(count + 1)
+}
+
+/// Removes the live order at `idx` from `slice` (a bids or asks side array of `count`
+/// live entries), shifting everything after it left by one and zeroing the now-unused
+/// tail slot. Returns the new live count.
+///
+/// # Panics
+/// Panics (via indexing) if `idx >= count as usize` or `count as usize > slice.len()`.
+pub fn remove_at(slice: &mut [Order], count: u16, idx: usize) -> u16 {
+    let count_usize = count as usize;
+    let mut i = idx;
+    while i + 1 < count_usize {
+        slice[i] = slice[i + 1];
+        i += 1;
+    }
+    slice[count_usize - 1] = Order::zeroed();
+    count - 1
+}
+
+/// Finds the index of the live order with `id == order_id` in `slice[0..count]`, or
+/// `None` if not present. `id == 0` never matches (it marks an empty slot).
+pub fn find_order(slice: &[Order], count: u16, order_id: u64) -> Option<usize> {
+    if order_id == 0 {
+        return None;
+    }
+    slice[..count as usize].iter().position(|o| o.id == order_id)
+}
+
+/// Checked `Σ price * remaining` over the first `count` live bids, in micro-USDC.
+pub fn sum_bid_escrow(slice: &[Order], count: u16) -> Result<u64> {
+    let mut total: u128 = 0;
+    for order in &slice[..count as usize] {
+        let leg = (order.price as u128)
+            .checked_mul(order.remaining as u128)
+            .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+        total = total
+            .checked_add(leg)
+            .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+    }
+    u64::try_from(total).map_err(|_| error!(MeridianError::InvariantViolated))
+}
+
+/// Checked `Σ remaining * 1_000_000` over the first `count` live asks, in Yes base
+/// units.
+pub fn sum_ask_escrow(slice: &[Order], count: u16) -> Result<u64> {
+    let mut total: u128 = 0;
+    for order in &slice[..count as usize] {
+        let leg = (order.remaining as u128)
+            .checked_mul(1_000_000u128)
+            .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+        total = total
+            .checked_add(leg)
+            .ok_or_else(|| error!(MeridianError::InvariantViolated))?;
+    }
+    u64::try_from(total).map_err(|_| error!(MeridianError::InvariantViolated))
 }
 
 /// Reads and validates the discriminator, then decodes the header from a Book account's
@@ -261,5 +404,123 @@ mod tests {
         write_header(&mut buf, &header);
 
         assert!(read_header(&buf).is_err());
+    }
+
+    fn make_order(id: u64, price: u64, remaining: u64, seq: u64) -> Order {
+        Order {
+            id,
+            owner: Pubkey::new_unique().to_bytes(),
+            price,
+            remaining,
+            seq,
+        }
+    }
+
+    #[test]
+    fn insert_sorted_bids_keeps_price_desc_seq_asc() {
+        let mut buf = vec![Order::zeroed(); 4];
+        let mut count = 0u16;
+        count = insert_sorted(&mut buf, count, make_order(1, 100, 1, 1), true).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(2, 300, 1, 2), true).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(3, 200, 1, 3), true).unwrap();
+        // Equal price to id 2 (300): arrives later, must land after it (seq asc).
+        count = insert_sorted(&mut buf, count, make_order(4, 300, 1, 4), true).unwrap();
+
+        assert_eq!(count, 4);
+        let prices: Vec<u64> = buf[..4].iter().map(|o| o.price).collect();
+        let ids: Vec<u64> = buf[..4].iter().map(|o| o.id).collect();
+        assert_eq!(prices, vec![300, 300, 200, 100]);
+        assert_eq!(ids, vec![2, 4, 3, 1]);
+    }
+
+    #[test]
+    fn insert_sorted_asks_keeps_price_asc_seq_asc() {
+        let mut buf = vec![Order::zeroed(); 4];
+        let mut count = 0u16;
+        count = insert_sorted(&mut buf, count, make_order(1, 300, 1, 1), false).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(2, 100, 1, 2), false).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(3, 200, 1, 3), false).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(4, 100, 1, 4), false).unwrap();
+
+        assert_eq!(count, 4);
+        let prices: Vec<u64> = buf[..4].iter().map(|o| o.price).collect();
+        let ids: Vec<u64> = buf[..4].iter().map(|o| o.id).collect();
+        assert_eq!(prices, vec![100, 100, 200, 300]);
+        assert_eq!(ids, vec![2, 4, 3, 1]);
+    }
+
+    #[test]
+    fn insert_sorted_rejects_full_side() {
+        let mut buf = vec![Order::zeroed(); 2];
+        let mut count = 0u16;
+        count = insert_sorted(&mut buf, count, make_order(1, 100, 1, 1), true).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(2, 200, 1, 2), true).unwrap();
+        assert_eq!(count, 2);
+        assert!(insert_sorted(&mut buf, count, make_order(3, 150, 1, 3), true).is_err());
+    }
+
+    #[test]
+    fn remove_at_shifts_left_and_zeroes_tail() {
+        let mut buf = vec![Order::zeroed(); 4];
+        let mut count = 0u16;
+        count = insert_sorted(&mut buf, count, make_order(1, 300, 1, 1), true).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(2, 200, 1, 2), true).unwrap();
+        count = insert_sorted(&mut buf, count, make_order(3, 100, 1, 3), true).unwrap();
+
+        count = remove_at(&mut buf, count, 1); // remove id 2 (middle)
+
+        assert_eq!(count, 2);
+        let ids: Vec<u64> = buf[..2].iter().map(|o| o.id).collect();
+        assert_eq!(ids, vec![1, 3]);
+        assert_eq!(buf[2].id, 0, "tail slot should be zeroed");
+        assert_eq!(buf[3].id, 0);
+    }
+
+    #[test]
+    fn find_order_locates_live_order_and_ignores_zero_id() {
+        let mut buf = vec![Order::zeroed(); 4];
+        let count = insert_sorted(&mut buf, 0, make_order(7, 100, 1, 1), true).unwrap();
+        assert_eq!(find_order(&buf, count, 7), Some(0));
+        assert_eq!(find_order(&buf, count, 0), None);
+        assert_eq!(find_order(&buf, count, 99), None);
+    }
+
+    #[test]
+    fn sum_bid_escrow_and_sum_ask_escrow_match_worked_examples() {
+        let mut bids = vec![Order::zeroed(); 4];
+        let mut count = insert_sorted(&mut bids, 0, make_order(1, 650_000, 6, 1), true).unwrap();
+        count = insert_sorted(&mut bids, count, make_order(2, 500_000, 4, 2), true).unwrap();
+        assert_eq!(sum_bid_escrow(&bids, count).unwrap(), 650_000 * 6 + 500_000 * 4);
+
+        let mut asks = vec![Order::zeroed(); 4];
+        let count = insert_sorted(&mut asks, 0, make_order(3, 700_000, 5, 3), false).unwrap();
+        assert_eq!(sum_ask_escrow(&asks, count).unwrap(), 5 * 1_000_000);
+    }
+
+    #[test]
+    fn bids_mut_and_asks_mut_address_disjoint_regions() {
+        let capacity = 4u16;
+        let market = Pubkey::new_unique();
+        let usdc_escrow = Pubkey::new_unique();
+        let yes_escrow = Pubkey::new_unique();
+        let header = BookHeader::init(&market, &usdc_escrow, &yes_escrow, capacity);
+        let mut buf = vec![0u8; book_space(capacity)];
+        write_header(&mut buf, &header);
+
+        {
+            let bids = bids_mut(&mut buf, capacity).unwrap();
+            assert_eq!(bids.len(), capacity as usize);
+            bids[0] = make_order(42, 1, 1, 1);
+        }
+        {
+            let asks = asks_mut(&mut buf, capacity).unwrap();
+            assert_eq!(asks.len(), capacity as usize);
+            // Writing into bids must not have touched the asks region.
+            assert_eq!(asks[0].id, 0);
+        }
+        {
+            let bids = bids_mut(&mut buf, capacity).unwrap();
+            assert_eq!(bids[0].id, 42);
+        }
     }
 }

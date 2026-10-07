@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID_BASE58 } from "./program-id";
+import { PROGRAM_ID_BASE58 } from "#program-id";
 
 /**
  * The Meridian program id. Sourced from `./program-id.ts`, a file generated
@@ -10,17 +8,32 @@ import { PROGRAM_ID_BASE58 } from "./program-id";
  */
 export const PROGRAM_ID = new PublicKey(PROGRAM_ID_BASE58);
 
-/**
- * Reads the Anchor-generated IDL produced by `anchor build` at
- * `target/idl/meridian.json`. Throws if the program has not been built yet.
- */
-export function loadIdl(): Record<string, unknown> {
-  const idlPath = join(__dirname, "..", "..", "..", "target", "idl", "meridian.json");
-  const raw = readFileSync(idlPath, "utf8");
-  return JSON.parse(raw) as Record<string, unknown>;
-}
+// NOTE: this barrel must stay browser-safe (no `node:*` imports) so it can be
+// pulled into the Next.js client bundle. `loadIdl` lives in `./node.ts`
+// (`@meridian/sdk/node`) because it reads from the filesystem.
 
-export * from "./types";
-export * from "./pda";
-export * from "./strikes";
-export { IDL } from "./idl";
+export * from "#types";
+export * from "#pda";
+export * from "#strikes";
+export { IDL } from "#idl";
+export * from "#book";
+export {
+  toInstructionPlan,
+  describeTransientState,
+  PlaceOrderSide,
+  TimeInForce,
+  type Action,
+  type Kind,
+  type Intent,
+  type Position as IntentPosition,
+  type GuidanceError,
+  type GuidanceErrorCode,
+  type Estimate,
+  type InstructionPlan,
+  type PlaceOrderPlan,
+  type BuyNoMarketPlan,
+  type BuyNoLimitPlan,
+  type SellNoMarketPlan,
+} from "#intent";
+export * from "#events";
+export * from "#pnl";

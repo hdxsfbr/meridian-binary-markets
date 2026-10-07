@@ -46,17 +46,21 @@ const wsUrl = z.string().url().refine(
 
 // Same trim-empty-to-undefined behavior as optionalNonEmpty, plus a scheme check applied
 // only when the value is present.
-const optionalHttpUrl = z
-  .string()
-  .optional()
-  .transform((v) => {
-    if (v === undefined) return undefined;
-    const trimmed = v.trim();
-    return trimmed === "" ? undefined : trimmed;
-  })
-  .refine((v) => v === undefined || v.startsWith("http://") || v.startsWith("https://"), {
-    message: "ALERT_WEBHOOK_URL must use the http: or https: scheme",
-  });
+function optionalHttpUrlFor(label: string) {
+  return z
+    .string()
+    .optional()
+    .transform((v) => {
+      if (v === undefined) return undefined;
+      const trimmed = v.trim();
+      return trimmed === "" ? undefined : trimmed;
+    })
+    .refine((v) => v === undefined || v.startsWith("http://") || v.startsWith("https://"), {
+      message: `${label} must use the http: or https: scheme`,
+    });
+}
+
+const optionalHttpUrl = optionalHttpUrlFor("ALERT_WEBHOOK_URL");
 
 function solanaPubkey(label: string) {
   return z.string().min(1).refine(
@@ -87,6 +91,10 @@ const rawConfigSchema = z.object({
   ALERT_WEBHOOK_URL: optionalHttpUrl,
   AUTOMATION_STATUS_PORT: portNumber.default("8787"),
   DEMO_SCALE: booleanFromFlag,
+  // Fix #22: CORS origin for the status endpoint. Optional URL, defaulting to the local web
+  // dev server (`.env.example` needs a `WEB_ORIGIN=` line documenting this; not added here --
+  // out of scope for this file).
+  WEB_ORIGIN: optionalHttpUrlFor("WEB_ORIGIN"),
 });
 
 export type AppConfig = {
@@ -104,6 +112,8 @@ export type AppConfig = {
   alertWebhookUrl?: string;
   automationStatusPort: number;
   demoScale: boolean;
+  /** CORS origin for the status endpoint (fix #22). Defaults to the local web dev server. */
+  webOrigin: string;
 };
 
 class ConfigError extends Error {}
@@ -170,5 +180,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     alertWebhookUrl: raw.ALERT_WEBHOOK_URL,
     automationStatusPort: raw.AUTOMATION_STATUS_PORT,
     demoScale: raw.DEMO_SCALE,
+    webOrigin: raw.WEB_ORIGIN ?? "http://localhost:3000",
   };
 }

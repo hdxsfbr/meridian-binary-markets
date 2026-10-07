@@ -91,8 +91,13 @@ pub mod meridian {
         instructions::handle_unpause(ctx)
     }
 
-    pub fn place_order(
-        ctx: Context<PlaceOrder>,
+    // Named lifetime (unlike every other entry point above): `place_order` is the only
+    // instruction that reads `ctx.remaining_accounts` alongside its typed `ctx.accounts`
+    // fields in the same CPI, which needs the compiler to know both carry the *same*
+    // `'info` rather than two independently-elided ones. See
+    // `instructions/place_order.rs`'s `handle_place_order` doc comment.
+    pub fn place_order<'info>(
+        ctx: Context<'info, PlaceOrder<'info>>,
         side: u8,
         price: u64,
         qty: u64,

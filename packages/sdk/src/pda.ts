@@ -4,7 +4,7 @@
  */
 
 import { PublicKey } from "@solana/web3.js";
-import { tickerSymbolBytes, type Ticker } from "./types";
+import { tickerSymbolBytes, type Ticker } from "#types";
 
 function u32LE(value: number): Buffer {
   if (!Number.isInteger(value) || value < 0 || value > 0xffffffff) {

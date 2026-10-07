@@ -16,7 +16,7 @@
  * some inputs; this file always divides first, then rounds.
  */
 
-import type { MicroUsd } from "./types";
+import type { MicroUsd } from "#types";
 
 /** $10 in micro-USD: the ladder's rounding unit. */
 const TEN_DOLLARS_MICRO = 10_000_000n;
