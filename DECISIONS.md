@@ -222,6 +222,28 @@ layer. `solanafoundation/anchor` tops out at v1.0.2 against Anchor 1.2.0, so we 
 rather than pull theirs — which is the point of the exercise anyway. Accepted because reproducibility is
 graded directly and version-triple breakage is a recurring, already-observed cost.
 
+**Update, 2026-10-06 (Wave 0 review fix):** Anchor CLI is now installed from the prebuilt
+`anchor-1.2.1-x86_64-unknown-linux-gnu` release binary rather than built from source, which avoids
+the rustc/cargo-platform build-time mismatch entirely and keeps Anchor at the plan's first-choice
+1.2.1, matching the `anchor-lang`/`anchor-spl` crates.
+
+**Update, 2026-10-06 (Wave 0 build, base image):** `anchor-litesvm` 0.2.1's native `litesvm`
+dependency (resolved to 0.3.3) is a prebuilt `.node` addon requiring the glibc symbol
+`__isoc23_strtol`, only present from glibc 2.38. Debian bookworm (first choice) ships 2.36 and
+aborts the process on load. The Dockerfile base moved from `rust:1.89-bookworm` to `rust:1.89-trixie`
+(glibc 2.41); Rust, Agave and Anchor pins are unaffected.
+
+**Update, 2026-10-06 (Wave 0 build, program/test compatibility):** Separately, `anchor build`'s
+default `--arch v3` output (newest SBPF ISA) fails to load in LiteSVM with "invalid account data for
+instruction": `anchor-litesvm` 0.2.1 is hard-pinned to litesvm's pre-1.0 JS API (`PublicKey.toBytes()`
+call shape), and the last npm `litesvm` release keeping that API is `0.8.0`, whose bundled verifier
+predates SBPF v3 support. Fix: `pnpm.overrides` pins `litesvm`/its platform packages to `0.8.0`
+(overriding anchor-litesvm's own `^0.3.3` range), and `scripts/anchor-build.sh` builds with
+`anchor build --arch v1` so every program ships SBPF v1 bytecode LiteSVM can load. Separately,
+`solana-test-validator` asserts `io_uring_supported()` and aborts under Docker's default seccomp
+profile on some hosts; `compose.yml` sets `security_opt: [seccomp:unconfined]` on the `dev` service.
+None of this changes the Rust/Anchor/Agave/Node/pnpm version pins themselves.
+
 ## 8. Dependency pins for the build
 
 **Date:** 2026-10-06 (planning)
@@ -237,7 +259,7 @@ graded directly and version-triple breakage is a recurring, already-observed cos
 | `@anchor-lang/core` | 1.2.1 | Anchor's TypeScript client at 1.x; `@coral-xyz/anchor` stopped at 0.32 |
 | `@solana/web3.js` | 1.99 | what wallet adapter and the Anchor client peer on; `@solana/kit` not yet supported by wallet adapter |
 | `@solana/wallet-adapter-react` | 0.15.40 | standard wallet UX on Solana; Phantom and Solflare |
-| `anchor-litesvm` + `litesvm` | 0.2.1 / 1.5 | program tests need a warpable clock for settle-after-close and the override delay |
+| `anchor-litesvm` + `litesvm` | 0.2.1 / 0.8.0 (pnpm override, see §7 2026-10-06) | program tests need a warpable clock for settle-after-close and the override delay |
 | Next.js | 16.4 | partner-recommended frontend stack |
 | Luxon, node-cron | current | ET schedule with DST; no heavier scheduler needed |
 | `@pythnetwork/pyth-solana-receiver` | 0.16 | posts Hermes updates to the receiver; service-side only because it pins an old Anchor client |

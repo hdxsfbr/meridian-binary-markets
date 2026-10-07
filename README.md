@@ -109,5 +109,33 @@ Technical contact: Myles Lewis (mlewis@peak6.com).
 
 The toolchain is a pinned Docker image rather than a host install — Anchor's
 anchor/solana-cli/rustc version triple breaks obscurely when mismatched, and the devnet lifecycle has
-to be reproducible by a reviewer with no manual steps. See `DECISIONS.md` §7. Container and setup
-instructions land with the implementation plan.
+to be reproducible by a reviewer with no manual steps. See `DECISIONS.md` §7.
+
+```
+make dev
+```
+
+is the one command: it builds the image, installs the pnpm workspace, builds the Anchor program,
+runs the program test suite on LiteSVM, starts `solana-test-validator`, deploys the program to it,
+and serves the web placeholder on `http://localhost:3000`. Nothing else needs to be installed on the
+host except Docker. On Apple Silicon the image runs under x86_64 emulation (Agave publishes no
+linux/arm64 installer), so builds and the validator are slower than on an x86_64 host.
+
+## Toolchain
+
+Verified by running `make dev` from a clean checkout (image rebuilt from scratch, no cached
+volumes) on 2026-10-06:
+
+| Tool | Version | Notes |
+|---|---|---|
+| Rust | `rustc 1.89.0 (29483883e 2025-08-04)` | pinned, unchanged from plan |
+| Anchor CLI | `anchor-cli 1.2.1` | installed from the prebuilt release binary, matching the plan's first choice and the `anchor-lang`/`anchor-spl` crates the program depends on — see `DECISIONS.md` §7 |
+| Agave (Solana) CLI | `solana-cli 3.1.14 (src:3134055b; feat:534737035, client:Agave)` | pinned, unchanged from plan |
+| Node.js | `v22.23.3` | Node 22 LTS, installed as an exact version pin |
+| pnpm | `10.0.0` | via Corepack, baked into the image so no network call is needed at container start |
+
+The base image moved from `rust:1.89-bookworm` to `rust:1.89-trixie` (newer glibc), the program
+builds with `anchor build --arch v1` instead of the default `v3`, and `compose.yml` runs the `dev`
+service with `security_opt: [seccomp:unconfined]` so `solana-test-validator` can start. None of these
+change the Rust/Anchor/Agave/Node/pnpm pins above — see `DECISIONS.md` §7, 2026-10-06, for why each
+was needed.

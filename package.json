@@ -1,0 +1,26 @@
+{
+  "name": "meridian-binary-markets",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Binary stock outcome markets on Solana",
+  "packageManager": "pnpm@10.0.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "lifecycle": "tsx scripts/lifecycle.ts"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "tsx": "^4.19.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "litesvm": "0.8.0",
+      "litesvm-linux-x64-gnu": "0.8.0",
+      "litesvm-linux-x64-musl": "0.8.0",
+      "litesvm-darwin-x64": "0.8.0",
+      "litesvm-darwin-arm64": "0.8.0"
+    }
+  }
+}

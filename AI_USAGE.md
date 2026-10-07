@@ -259,3 +259,43 @@ keep the interface open so RedStone or another source can plug in if Pyth falls 
 `DECISIONS.md` §4 (RedStone position kept as history), constitution 1.4.0, README and onboarding
 rewritten once. The mock doubles as the tested fallback Principle IV already required, so no work is
 wasted if the token never arrives.
+
+### 2026-10-06 — Wave 0: the container gate, and four problems the plan's pins didn't anticipate
+
+Implemented tasks T001–T012 (Dockerfile, compose, Makefile, Anchor and pnpm workspaces, hello-world
+`ping` program, LiteSVM test) and proved `make dev` green on a clean checkout, then again after
+`make clean`. Four build-time problems surfaced that the plan's research hadn't hit yet, each root
+caused rather than patched around:
+
+1. `cargo install anchor-cli --locked` failed under rustc 1.89 on **both** the 1.2.1 and the
+   fallback 1.2.0 tag, with the same `cargo-platform@0.3.3 requires rustc 1.91` error — the plan's
+   "try 1.2.0" fallback instruction assumed the problem was Anchor's version; it was a transitive
+   dev-dependency's own MSRV, unrelated to which Anchor tag. Fixed by precise-pinning
+   `cargo-platform` to 0.3.2 in a clone of the tag before installing, which kept Rust and Anchor's
+   crate deps at their planned pins. Anchor 1.2.1 then failed *again*, separately, on a
+   `solana-sbpf`/`Layout::dangling_ptr` requiring an even newer rustc — that one really is
+   version-specific, so Anchor is pinned to CLI 1.2.0 while `anchor-lang`/`anchor-spl` (the crates
+   the program depends on) stay at 1.2.1 as planned.
+2. `anchor-litesvm`'s native `litesvm` dependency aborted the Node process outright (not a catchable
+   JS error) with an undefined glibc symbol — bookworm's glibc 2.36 vs. a symbol from 2.38.  Base
+   image moved to `rust:1.89-trixie`.
+3. With that fixed, LiteSVM could load but refused the compiled program with "invalid account data
+   for instruction". Root cause: `anchor build` defaults to the newest SBPF ISA (`--arch v3`);
+   `anchor-litesvm` 0.2.1 is hard-pinned to litesvm's pre-1.0 JS API, and the newest npm litesvm
+   release keeping that API (0.8.0) predates SBPF v3 support. Building with `--arch v1` and
+   pnpm-overriding `litesvm` to 0.8.0 (outside anchor-litesvm's own declared range, but its public
+   API hadn't changed) closed the gap without moving the Anchor/Agave pins.
+4. `solana-test-validator` aborted with `assertion failed: io_uring_supported()` under Docker's
+   default seccomp profile on this host. `security_opt: [seccomp:unconfined]` on the `dev` service
+   fixed it; recorded rather than worked around silently since it weakens the container's sandbox
+   and a reviewer deserves to know why.
+
+All four are in `DECISIONS.md` §7 with dates. None of them changed the Rust/Agave/Node/pnpm version
+pins from `plan.md`; Anchor CLI is the one pin that moved (1.2.1 → 1.2.0), and the reason is recorded
+precisely so it isn't re-discovered by the next person who hits the same `cargo-platform` error and
+assumes it's about Anchor.
+
+*Method note:* every one of these was found by reading the actual error and the failing crate's own
+source/Cargo.toml (cargo-platform's MSRV table, litesvm's git tags for the API-breaking commit,
+LiteSVM's `accounts_db.rs` for where `InvalidAccountData` is raised) rather than guessing at version
+numbers and retrying.

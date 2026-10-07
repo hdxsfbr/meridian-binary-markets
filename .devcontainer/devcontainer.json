@@ -1,0 +1,16 @@
+{
+  "name": "Meridian",
+  "dockerComposeFile": ["../compose.yml"],
+  "service": "dev",
+  "workspaceFolder": "/work",
+  "shutdownAction": "stopCompose",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "rust-lang.rust-analyzer",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  },
+  "remoteUser": "dev"
+}
