@@ -21,8 +21,8 @@ deps:
 	$(RUN) bash -c 'pnpm install --frozen-lockfile'
 
 ## dev: the Wave 0 gate. Build the image, install deps, build the program,
-## run program tests on LiteSVM, start a local validator, deploy to it, and
-## serve the web placeholder on :3000.
+## run program tests on litesvm (Rust), start a local validator, deploy to
+## it, and serve the web placeholder on :3000.
 dev:
 	mkdir -p keys
 	$(COMPOSE) build dev
@@ -30,7 +30,7 @@ dev:
 		set -euo pipefail; \
 		pnpm install --frozen-lockfile; \
 		bash scripts/anchor-build.sh; \
-		pnpm --filter tests run program; \
+		cargo test -p meridian --tests -- --test-threads=1; \
 		(solana-test-validator --quiet --reset --ledger /tmp/test-ledger > /tmp/validator.log 2>&1 &) ; \
 		validator_ready=0; \
 		for i in $$(seq 1 30); do solana cluster-version -u http://127.0.0.1:8899 >/dev/null 2>&1 && { validator_ready=1; break; }; sleep 1; done; \
@@ -58,9 +58,10 @@ build:
 	mkdir -p keys
 	$(RUN) bash -c 'set -euo pipefail; pnpm install --frozen-lockfile; bash scripts/anchor-build.sh'
 
-## test-program: build then run the LiteSVM program test suite.
-test-program: build
-	$(RUN) bash -c 'pnpm --filter tests run program'
+## test-program: build then run the Rust/litesvm program test suite
+## (programs/meridian/tests/*.rs). Reuses the `target` named volume.
+test-program:
+	$(RUN) bash -c 'set -euo pipefail; bash scripts/anchor-build.sh && cargo test -p meridian --tests -- --test-threads=1'
 
 ## lifecycle: run the create -> mint -> trade -> settle -> redeem script.
 ## Wave 0: placeholder only (scripts/lifecycle.ts prints a notice).

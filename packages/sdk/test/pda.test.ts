@@ -5,9 +5,11 @@ import {
   configPda,
   marketPda,
   mockPricePda,
+  noMintPda,
   usdcEscrowPda,
   vaultPda,
   yesEscrowPda,
+  yesMintPda,
 } from "../src/pda";
 import { feedIdBytes } from "../src/types";
 
@@ -68,6 +70,30 @@ describe("bookPda / vaultPda / usdcEscrowPda / yesEscrowPda", () => {
     const [bookA] = bookPda(programId, market);
     const [bookB] = bookPda(programId, otherMarket);
     expect(bookA.toBase58()).not.toBe(bookB.toBase58());
+  });
+});
+
+describe("yesMintPda / noMintPda", () => {
+  const [market] = marketPda(programId, "AAPL", 20260106, 150_000_000n);
+  const [otherMarket] = marketPda(programId, "MSFT", 20260106, 150_000_000n);
+
+  it("are deterministic and distinct from each other and the other market PDAs", () => {
+    const [yesMint] = yesMintPda(programId, market);
+    const [noMint] = noMintPda(programId, market);
+    const [yesMint2] = yesMintPda(programId, market);
+    expect(yesMint.toBase58()).toBe(yesMint2.toBase58());
+    expect(yesMint.toBase58()).not.toBe(noMint.toBase58());
+
+    const [book] = bookPda(programId, market);
+    const [vault] = vaultPda(programId, market);
+    const addresses = [yesMint, noMint, book, vault].map((pk) => pk.toBase58());
+    expect(new Set(addresses).size).toBe(4);
+  });
+
+  it("differ across markets", () => {
+    const [yesMintA] = yesMintPda(programId, market);
+    const [yesMintB] = yesMintPda(programId, otherMarket);
+    expect(yesMintA.toBase58()).not.toBe(yesMintB.toBase58());
   });
 });
 

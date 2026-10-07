@@ -15,6 +15,19 @@ services:
     # "assertion failed: io_uring_supported()". See DECISIONS.md §7, 2026-10-06.
     security_opt:
       - seccomp:unconfined
+    # LiteSVM's BPF VM mlocks pages per transaction; Docker's default RLIMIT_MEMLOCK
+    # (8 MiB) is exhausted after only a handful of `sendTransaction` calls, crashing the
+    # test process with `std::bad_alloc` (not a real OOM -- `free -h` shows plenty of
+    # headroom). Raise both the soft and hard memlock limits to unlimited. See
+    # DECISIONS.md §7, 2026-10-06.
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    # Raising the ulimit alone isn't enough: actually locking pages past the default
+    # 8 MiB needs CAP_IPC_LOCK, which non-privileged containers don't have by default.
+    cap_add:
+      - IPC_LOCK
     volumes:
       - .:/work
       - cargo-registry:/usr/local/cargo/registry

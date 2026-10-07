@@ -29,10 +29,10 @@ cat > packages/sdk/src/program-id.ts <<EOF
 export const PROGRAM_ID_BASE58 = "${PROGRAM_ID}";
 EOF
 
-# --arch v1: anchor build defaults to v3 (newest SBPF ISA). anchor-litesvm
-# 0.2.1 is hard-pinned to litesvm's pre-1.0 (bytes-based) JS API, whose last
-# compatible npm release (0.8.0) bundles a verifier that only understands
-# SBPF v0/v1/v2, not v3. v1 is the oldest arch cargo-build-sbf exposes that
-# every LiteSVM test in this repo needs to load. See DECISIONS.md §7,
-# 2026-10-06.
+# --arch v1: anchor build defaults to v3 (newest SBPF ISA). Program tests moved to
+# Rust on the `litesvm` crate 0.12.0 (DECISIONS.md §7, 2026-10-06), which is a newer
+# litesvm generation than the retired TS harness's -- but its bundled verifier/loader
+# still rejects a v3-arch .so with "InvalidAccountData" when loaded via
+# `LiteSVM::add_program_from_file` (confirmed directly, not assumed). v1 is the oldest
+# arch cargo-build-sbf exposes that litesvm 0.12.0 loads.
 anchor build --arch v1

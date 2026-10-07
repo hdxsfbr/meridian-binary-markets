@@ -33,6 +33,27 @@ account roles are listed; exact account lists are generated from the IDL during 
 `OracleBadPrice`, `OracleVerificationLevel`, `BookFull`, `PriceOutOfRange`, `ZeroQuantity`,
 `WrongSide`, `InsufficientFill` (IOC min price not met), `NotEmpty`, `InvariantViolated`.
 
+## Split note: `create_book` (Wave 2, 2026-10-06)
+
+`create_market`/`add_strike` create the Market PDA, the Yes/No mints, the vault, and the
+USDC/Yes escrows, but **not** the Book: Solana limits how much any one account's data
+length may grow within a single transaction to `MAX_PERMITTED_DATA_INCREASE` (10,240
+bytes), enforced identically for a CPI `system_program::create_account` and a direct
+`AccountInfo::resize`. `book_space(capacity)` (`128 + 128 * capacity`) exceeds that for
+capacity above ~79, and 128 (the non-demo default book capacity) needs 16,512 bytes, so
+creating it inside `create_market`'s own transaction would fail outright for any
+capacity most markets would actually use. `create_book()` is a separate, idempotent instruction instead: call it repeatedly (each
+call is its own transaction, so each gets a fresh 10,240-byte budget) until `Market.book`
+is no longer `Pubkey::default()`. It takes **no `capacity` argument**: `create_market`/
+`add_strike` record the requested capacity on `Market.book_capacity` (data-model.md
+"Market"), and `create_book` reads that field instead, so a call with a mismatched
+capacity can't start a second, differently sized book for the same market. Calling
+`create_book` again after `Market.book` is already set re-validates the existing Book
+account (address, owner, data length, header) and returns `Ok(())` as a no-op rather than
+erroring, so a client retrying a call whose confirmation it missed doesn't need to
+special-case "already done." The test harness's `create_market` helper calls both
+`create_market`/`add_strike` and then `create_book` in a loop automatically.
+
 ## Invariant checks executed in code
 
 After every `mint_pair`, `redeem_pair`, `redeem_winning`: assert the vault equation from

@@ -233,16 +233,57 @@ dependency (resolved to 0.3.3) is a prebuilt `.node` addon requiring the glibc s
 aborts the process on load. The Dockerfile base moved from `rust:1.89-bookworm` to `rust:1.89-trixie`
 (glibc 2.41); Rust, Agave and Anchor pins are unaffected.
 
-**Update, 2026-10-06 (Wave 0 build, program/test compatibility):** Separately, `anchor build`'s
-default `--arch v3` output (newest SBPF ISA) fails to load in LiteSVM with "invalid account data for
-instruction": `anchor-litesvm` 0.2.1 is hard-pinned to litesvm's pre-1.0 JS API (`PublicKey.toBytes()`
-call shape), and the last npm `litesvm` release keeping that API is `0.8.0`, whose bundled verifier
-predates SBPF v3 support. Fix: `pnpm.overrides` pins `litesvm`/its platform packages to `0.8.0`
-(overriding anchor-litesvm's own `^0.3.3` range), and `scripts/anchor-build.sh` builds with
-`anchor build --arch v1` so every program ships SBPF v1 bytecode LiteSVM can load. Separately,
-`solana-test-validator` asserts `io_uring_supported()` and aborts under Docker's default seccomp
-profile on some hosts; `compose.yml` sets `security_opt: [seccomp:unconfined]` on the `dev` service.
-None of this changes the Rust/Anchor/Agave/Node/pnpm version pins themselves.
+**Update, 2026-10-06 (Wave 0 build, program/test compatibility):** `anchor build`'s default
+`--arch v3` output (newest SBPF ISA) fails to load in every `litesvm` generation this project has
+used so far -- see the Wave 2 update below for the current reason and fix (`scripts/anchor-build.sh`
+builds with `--arch v1`). Separately, `solana-test-validator` asserts `io_uring_supported()` and
+aborts under Docker's default seccomp profile on some hosts; `compose.yml` sets
+`security_opt: [seccomp:unconfined]` on the `dev` service. None of this changes the
+Rust/Anchor/Agave/Node/pnpm version pins themselves.
+
+**Update, 2026-10-06 (Wave 2, program tests):** Four more toolchain findings, all scoped to
+`programs/meridian` and `tests/program`, none changing the version pins themselves.
+
+- **`CpiContext::new_with_signer` takes a `Pubkey`, not an `AccountInfo`.** Unlike the Anchor
+  versions most examples online are written against, `anchor-lang` 1.2.1's `CpiContext::new`/
+  `new_with_signer` take `program_id: Pubkey` as their first argument (`src/context.rs`). Passing
+  `ctx.accounts.system_program.to_account_info()` is a compile error (`expected Pubkey, found
+  AccountInfo`); use `ctx.accounts.system_program.key()`.
+- **A CPI-created or `resize`d account cannot grow by more than `MAX_PERMITTED_DATA_INCREASE`
+  (10,240 bytes) within one transaction**, enforced identically for `system_program::create_account`
+  and `AccountInfo::resize` (the renamed `realloc`). `book_space(capacity)` (`128 + 128 * capacity`)
+  exceeds that above capacity ~79, and capacity 128 (the non-demo default) needs 16,512 bytes --
+  so `create_market` cannot create the Book itself in one shot for any capacity worth using.
+  **Fix:** split Book creation into its own idempotent, incremental instruction, `create_book`
+  (`programs/meridian/src/instructions/create_book.rs`): call it repeatedly, each call its own
+  transaction (so each gets a fresh 10,240-byte budget), until `Market.book` is set. See that
+  file's doc comment and `contracts/program-instructions.md`'s "Split note". `create_market`/
+  `add_strike` still create the Market, both mints, the vault, and both escrows in one transaction
+  (no split needed there -- `anchor build --arch v1` succeeds with every account `Box`ed).
+- **Update, 2026-10-06 (program tests moved to Rust):** the pinned `anchor-litesvm` 0.2.1 /
+  `litesvm` JS 0.8.0 combo used by the original TypeScript harness (`tests/program/**`) corrupted
+  its native heap (`std::bad_alloc`, killing the whole test process) a small, non-deterministic
+  number of operations after *any* transaction failed inside a handler touching a seeds+bump-
+  validated account -- confirmed independent of `init` vs. plain `mut`, of an in-handler mutation
+  before the error, and of payload distinctness. That made Waves 3-5's negative-test matrix --
+  mostly rejection cases -- essentially impossible to write in that harness: at most one on-chain
+  failure assertion could be spent for the entire suite. **Decision:** program tests are now Rust
+  integration tests under `programs/meridian/tests/*.rs`, against the `litesvm` crate 0.12.0 --
+  built on the same Solana v3 crate family as `anchor-lang` 1.2.1 and Agave 3.1.14, with no such
+  heap limit (`harness_stress.rs` runs 60 deliberately failing transactions in one instance
+  followed by a successful `create_market` to prove it). `anchor-litesvm` and `litesvm` (JS) are
+  removed from the project entirely: `tests/program/` is deleted, and `tests/package.json`'s
+  `program` script now points at `make test-program`. `scripts/anchor-build.sh` still builds with
+  `--arch v1`, now because litesvm 0.12.0's loader itself rejects a default `--arch v3` `.so` with
+  `InvalidAccountData` (confirmed directly), not for the old anchor-litesvm/litesvm-JS 0.8.0 reason.
+  `docker compose`'s `dev` service also gained `ulimits.memlock: unlimited` and `cap_add: [IPC_LOCK]`
+  (`compose.yml`) during the TS harness's lifetime after first suspecting `RLIMIT_MEMLOCK`
+  exhaustion; that turned out not to be the heap-corruption's root cause, but repeated `LiteSVM`
+  instance creation alone did hit the 8 MiB default without it, so the fix stayed.
+- **Deployment-risk note:** `initialize_config` has no check restricting who may call it first --
+  anyone can race the deploy and become `admin`. Accepted as a documented risk rather than a code
+  change: the deploy script initializes `Config` in the same run as the program deploy, and a
+  stronger upgrade-authority check is deferred.
 
 ## 8. Dependency pins for the build
 
@@ -259,7 +300,7 @@ None of this changes the Rust/Anchor/Agave/Node/pnpm version pins themselves.
 | `@anchor-lang/core` | 1.2.1 | Anchor's TypeScript client at 1.x; `@coral-xyz/anchor` stopped at 0.32 |
 | `@solana/web3.js` | 1.99 | what wallet adapter and the Anchor client peer on; `@solana/kit` not yet supported by wallet adapter |
 | `@solana/wallet-adapter-react` | 0.15.40 | standard wallet UX on Solana; Phantom and Solflare |
-| `anchor-litesvm` + `litesvm` | 0.2.1 / 0.8.0 (pnpm override, see §7 2026-10-06) | program tests need a warpable clock for settle-after-close and the override delay |
+| `litesvm` (Rust crate) | 0.12.0 | program tests (`programs/meridian/tests/*.rs`) need a warpable clock for settle-after-close and the override delay; Rust, not the retired `anchor-litesvm`/litesvm-JS combo (see §7 2026-10-06) |
 | Next.js | 16.4 | partner-recommended frontend stack |
 | Luxon, node-cron | current | ET schedule with DST; no heavier scheduler needed |
 | `@pythnetwork/pyth-solana-receiver` | 0.16 | posts Hermes updates to the receiver; service-side only because it pins an old Anchor client |

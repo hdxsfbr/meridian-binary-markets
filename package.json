@@ -13,14 +13,5 @@
   "devDependencies": {
     "typescript": "^5.6.0",
     "tsx": "^4.19.0"
-  },
-  "pnpm": {
-    "overrides": {
-      "litesvm": "0.8.0",
-      "litesvm-linux-x64-gnu": "0.8.0",
-      "litesvm-linux-x64-musl": "0.8.0",
-      "litesvm-darwin-x64": "0.8.0",
-      "litesvm-darwin-arm64": "0.8.0"
-    }
   }
 }

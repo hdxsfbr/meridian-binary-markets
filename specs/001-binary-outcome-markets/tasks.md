@@ -348,7 +348,9 @@ its own file and a stub body returning `NotImplemented`; after that nobody edits
 `Cargo.toml` or `mod.rs`. Wave 3E owns the web layout and navigation shell. `tests/program/helpers.ts`
 is Wave 2 only; later test agents add `tests/program/support/<area>.ts`. All dependencies are
 installed in Waves 0–2; adding one later means stopping. `.env.example` and `Makefile` are Wave 0 only.
-`services/automation/src/index.ts` is Wave 4C only.
+`services/automation/src/index.ts` is Wave 4C only. Program tests are Rust integration tests under
+`programs/meridian/tests/` (litesvm 0.12.0); task texts that say `tests/program/*.test.ts` mean the
+Rust equivalent.
 
 | Wave | Agent | Tasks | Blocks on |
 |---|---|---|---|

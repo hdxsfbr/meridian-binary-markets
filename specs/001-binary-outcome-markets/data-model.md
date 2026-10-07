@@ -42,7 +42,8 @@ provider is `MockPyth`; `oracle_program` must equal the program ID when provider
 | settled_by_override | bool | FR-033 |
 | yes_mint, no_mint | Pubkey | SPL mints, 6 decimals, authority = market PDA |
 | vault | Pubkey | USDC token account owned by market PDA |
-| book | Pubkey | |
+| book | Pubkey | `Pubkey::default()` until `create_book` finishes |
+| book_capacity | u16 | per-side capacity `create_book` builds `book` at; set from `create_market`'s/`add_strike`'s `capacity` arg so `create_book` (which takes no `capacity` argument of its own) always builds against the value the market was created with |
 | pairs_outstanding | u64 | tokens; while `Open`: `vault.amount == pairs_outstanding × 1_000_000` (FR-007). After settlement the field is frozen and informational; the live invariant becomes `vault.amount == winning_supply × 1_000_000`, and `close_market` requires the vault empty |
 | bump, vault_bump | u8 | |
 

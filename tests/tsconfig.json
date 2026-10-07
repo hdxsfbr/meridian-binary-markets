@@ -6,5 +6,11 @@
     "noEmit": true,
     "esModuleInterop": true
   },
-  "include": ["program/**/*.ts", "program/**/*.cts"]
+  // Program tests moved to Rust (programs/meridian/tests/*.rs, litesvm 0.12.0; see
+  // DECISIONS.md §7, 2026-10-06); nothing TypeScript lives under this package yet. Kept
+  // for later integration/Playwright tests -- add an `include` entry once there is a
+  // source file for it to match (a non-empty `include` that matches nothing is a tsc
+  // error, TS18003).
+  "files": [],
+  "include": []
 }

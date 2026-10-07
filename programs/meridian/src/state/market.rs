@@ -56,6 +56,11 @@ pub struct Market {
     pub vault: Pubkey,
     /// This market's Book account.
     pub book: Pubkey,
+    /// Per-side capacity `create_book` builds `book` at. Set from `create_market`'s/
+    /// `add_strike`'s `capacity` arg; `create_book` reads this instead of taking its own
+    /// `capacity` argument, so a stray mismatched call can't start a second, differently
+    /// sized book for the same market (Wave 2 review fix, 2026-10-06).
+    pub book_capacity: u16,
     /// Tokens minted via `mint_pair` net of `redeem_pair`. While `Open`,
     /// `vault.amount == pairs_outstanding * 1_000_000`. Frozen and informational
     /// after settlement.
@@ -117,6 +122,7 @@ mod tests {
             no_mint: Pubkey::default(),
             vault: Pubkey::default(),
             book: Pubkey::default(),
+            book_capacity: 16,
             pairs_outstanding: 0,
             bump: 0,
             vault_bump: 0,

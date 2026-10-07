@@ -78,3 +78,19 @@ export function yesEscrowPda(programId: PublicKey, market: PublicKey): [PublicKe
     programId,
   );
 }
+
+/**
+ * Yes mint — PDA `["yes_mint", market]`; the SPL mint for a market's Yes token
+ * (added in Wave 2/T020 alongside `create_market`, mint authority = market PDA).
+ */
+export function yesMintPda(programId: PublicKey, market: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("yes_mint"), market.toBuffer()], programId);
+}
+
+/**
+ * No mint — PDA `["no_mint", market]`; the SPL mint for a market's No token
+ * (added in Wave 2/T020 alongside `create_market`, mint authority = market PDA).
+ */
+export function noMintPda(programId: PublicKey, market: PublicKey): [PublicKey, number] {
+  return PublicKey.findProgramAddressSync([Buffer.from("no_mint"), market.toBuffer()], programId);
+}
