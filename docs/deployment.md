@@ -187,9 +187,9 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 | Item | Value |
 | --- | --- |
 | Program ID | `3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn` ([explorer](https://explorer.solana.com/address/3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn?cluster=devnet)) |
-| Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`; first deploy slot 508626847; upgraded slot 508711568 (close-time and crossing guards), 623,328 bytes, 3.167 SOL rent |
+| Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`; first deploy slot 508626847; upgraded 2026-10-08 twice (close-time and crossing guards; one-to-seven listed tickers), 623,328 bytes, 3.167 SOL rent |
 | Upgrade authority (admin) | `3i2UN14eCEzLG7HvhgyWUFcN19zdbURj8s78QF6RBZPH` |
-| Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `mockPyth`, capacity 16, override delay 3600 s) |
+| Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `pythReceiver` since 2026-10-08, tickers TSLA/QQQ/VOO, capacity 16, override delay 3600 s) |
 | Publisher | `HDBdqW1XzfCNZXdexLKiVw95B5HUDd3sYp8tX9ijnKRa` |
 | USDC mint used | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet USDC) |
 | First full lifecycle | trading day 20261011 (synthetic), AAPL ladder of 7 markets, settled at $335.00, maker +1.00 / taker −1.00 USDC, vault 0 |
