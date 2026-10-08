@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Book } from "@meridian/sdk";
-import { formatStrike, formatUsd, marketOptionLabel } from "@/lib/format";
+import { formatStrike, formatUsd, marketOptionLabel, formatTradingDay, defaultMarketKey } from "@/lib/format";
 import type { MyOrderRow, RestingTotals } from "@/lib/maker-view";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
 import { MakerQuoteForm, type QuoteSide } from "./MakerQuoteForm";
@@ -57,7 +57,7 @@ export function MakerPanel({
   myOrdersError,
   booksByMarket,
 }: MakerPanelProps) {
-  const [marketKey, setMarketKey] = useState<string>(openMarkets[0]?.pubkey.toBase58() ?? "");
+  const [marketKey, setMarketKey] = useState<string>(defaultMarketKey(openMarkets));
   const [qty, setQty] = useState<string>("1");
 
   const selected = openMarkets.find((m) => m.pubkey.toBase58() === marketKey);
@@ -69,13 +69,14 @@ export function MakerPanel({
   const summaryRows = useMemo(() => {
     const byMarket = new Map<
       string,
-      { marketKey: string; ticker: string; strike: bigint; exposure: bigint; pairsHeld: bigint; settled: boolean }
+      { marketKey: string; ticker: string; strike: bigint; tradingDay?: number; exposure: bigint; pairsHeld: bigint; settled: boolean }
     >();
     for (const row of rows) {
       byMarket.set(row.marketKey, {
         marketKey: row.marketKey,
         ticker: row.ticker,
         strike: row.strike,
+        tradingDay: row.tradingDay,
         exposure: row.exposure,
         pairsHeld: row.pairsHeld,
         settled: row.state === "settled",
@@ -87,6 +88,7 @@ export function MakerPanel({
           marketKey: order.marketKey,
           ticker: order.ticker,
           strike: order.strike,
+          tradingDay: order.tradingDay,
           exposure: 0n,
           pairsHeld: 0n,
           settled: false,
@@ -105,7 +107,7 @@ export function MakerPanel({
       return;
     }
     if (marketKey === "" || !openMarkets.some((m) => m.pubkey.toBase58() === marketKey)) {
-      setMarketKey(openMarkets[0].pubkey.toBase58());
+      setMarketKey(defaultMarketKey(openMarkets));
     }
   }, [openMarkets, marketKey]);
 
@@ -172,7 +174,8 @@ export function MakerPanel({
                 <div key={row.marketKey} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span>
                     {row.ticker} {formatStrike(row.strike)}
-                    {row.settled ? <span className="ml-2 text-xs text-black/60"> · Settled</span> : null}
+                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-black/60">{formatTradingDay(row.tradingDay)}</span> : null}
+                    {row.settled ? <span className="ml-2 text-xs text-black/60">· Settled</span> : null}
                   </span>
                   <span>Exposure (Yes − No): {row.exposure.toString()}</span>
                   <span>Pairs held: {row.pairsHeld.toString()}</span>

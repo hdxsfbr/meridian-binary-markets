@@ -49,6 +49,8 @@ export type PositionRowData = {
   marketKey: string;
   ticker: string;
   strike: bigint;
+  /** `YYYYMMDD`, when the market carried it. */
+  tradingDay?: number;
   closeTs: bigint;
   state: "open" | "settled";
   outcome: "unset" | "yes" | "no";
@@ -163,6 +165,7 @@ export function buildPositionRows(
       marketKey: key,
       ticker: market.ticker,
       strike: market.strike,
+      tradingDay: market.tradingDay,
       closeTs: market.closeTs,
       state: market.state,
       outcome: market.outcome,

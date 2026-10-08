@@ -6,6 +6,7 @@
 
 import type { PublicKey } from "@solana/web3.js";
 import { ONE_USDC, Side, type MeridianEvent } from "@meridian/sdk";
+import { formatStrike, formatTradingDay } from "./format";
 
 export type HistoryKind = "mint" | "fill" | "order" | "cancel" | "settlement" | "redemption";
 
@@ -15,6 +16,8 @@ export type HistoryEntry = {
   ts?: number;
   kind: HistoryKind;
   label: string;
+  /** "AAPL $330 · 2026-10-08", when the market is known from a `MarketCreated` event in the stream. */
+  market?: string;
   /** Micro-USD/USDC, when the event carries a dollar amount. */
   amountMicro?: bigint;
   /**
@@ -51,6 +54,8 @@ function formatPriceDollars(priceMicro: bigint): string {
 type TxForWallet = {
   signature: string;
   ts?: number;
+  /** Markets this transaction touched for the wallet (base58). */
+  markets: Set<string>;
   mintedQty: bigint;
   redeemedPairQty: bigint;
   /** Fills where the wallet took liquidity, by the wallet's side. */
@@ -69,6 +74,7 @@ function emptyTx(signature: string, ts?: number): TxForWallet {
   return {
     signature,
     ts,
+    markets: new Set<string>(),
     mintedQty: 0n,
     redeemedPairQty: 0n,
     takerBoughtYes: { qty: 0n, usdc: 0n, noUsdc: 0n },
@@ -93,11 +99,16 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
   // for the same order id always finds its side here) -- item 18.
   const orderSides = new Map<string, Side>();
   const txs = new Map<string, TxForWallet>();
+  const marketLabels = new Map<string, string>();
   const txFor = (event: MeridianEvent): TxForWallet => {
     let tx = txs.get(event.signature);
     if (tx === undefined) {
       tx = emptyTx(event.signature, event.ts);
       txs.set(event.signature, tx);
+    }
+    const data = event.data as { market?: PublicKey };
+    if (data.market !== undefined) {
+      tx.markets.add(data.market.toBase58());
     }
     return tx;
   };
@@ -165,7 +176,11 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
         txFor(event).settledPrice = event.data.price;
         break;
       }
-      case "MarketCreated":
+      case "MarketCreated": {
+        const d = event.data;
+        marketLabels.set(d.market.toBase58(), `${d.ticker} ${formatStrike(d.strike)} · ${formatTradingDay(d.tradingDay)}`);
+        break;
+      }
       case "Paused":
       case "Unpaused":
         break;
@@ -174,11 +189,13 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
 
   const entries: HistoryEntry[] = [];
   function record(tx: TxForWallet, kind: HistoryKind, label: string, amount?: { amountMicro?: bigint; yesQty?: bigint }): void {
+    const marketKey = tx.markets.size === 1 ? [...tx.markets][0] : undefined;
     entries.push({
       signature: tx.signature,
       ts: tx.ts,
       kind,
       label,
+      market: marketKey !== undefined ? marketLabels.get(marketKey) : undefined,
       amountMicro: amount?.amountMicro,
       yesQty: amount?.yesQty,
       explorerUrl: explorerUrl(tx.signature),
@@ -200,8 +217,10 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
     } else if (minted && tx.placed !== undefined && tx.placed.side === Side.Ask && !soldYes) {
       // buy_no_limit: mint + rest an ask, i.e. a No bid at $1 − price.
       const noPrice = ONE_USDC - tx.placed.price;
+      // The whole pair price leaves the wallet at mint time; the Yes side
+      // comes back when the ask fills. Show what actually moved.
       record(tx, "order", `Placed order: Buy No at ${formatPriceDollars(noPrice)}`, {
-        amountMicro: noPrice * tx.placed.qty,
+        amountMicro: tx.mintedQty * ONE_USDC,
       });
     } else {
       if (minted) record(tx, "mint", "Minted pair", { amountMicro: tx.mintedQty * ONE_USDC });

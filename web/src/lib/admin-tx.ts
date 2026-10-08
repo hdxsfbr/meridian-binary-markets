@@ -32,6 +32,7 @@ import {
   type Ticker,
 } from "@meridian/sdk";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./ata";
+import { isWalletRejection } from "./tx";
 import { PROGRAM_ID } from "./rpc";
 
 export type TxResult = { ok: true; signature: TransactionSignature } | { ok: false; error: string };
@@ -122,6 +123,9 @@ function extractErrorName(error: unknown): string | undefined {
 
 /** Maps a failed send/simulate error to plain-language copy; never a raw program error code. */
 export function describeError(error: unknown): string {
+  if (isWalletRejection(error)) {
+    return "Signing was cancelled in your wallet.";
+  }
   const name = extractErrorName(error);
   if (name && KNOWN_ERRORS[name]) {
     return KNOWN_ERRORS[name];

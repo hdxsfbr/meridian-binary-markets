@@ -404,7 +404,7 @@ export async function sendTx(
 }
 
 /** Known on-chain error names this file maps to user-facing copy (see `trade-copy.ts`). */
-const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "MarketClosed", "WrongSide", "SelfMatch"] as const;
+const KNOWN_ERROR_NAMES = ["Paused", "BookFull", "InsufficientFill", "MarketSettled", "MarketClosed", "WouldCross", "WrongSide", "SelfMatch"] as const;
 
 function extractErrorName(error: unknown): string | undefined {
   if (error !== null && typeof error === "object") {
@@ -429,7 +429,22 @@ function extractErrorName(error: unknown): string | undefined {
  * Maps a failed send/simulate error to user-facing copy (never a raw
  * program error code). Unknown errors fall back to a generic message.
  */
+/** True when the wallet reported that the user declined to sign (adapter error name or the common message). */
+export function isWalletRejection(error: unknown): boolean {
+  if (error === null || typeof error !== "object") return false;
+  const name = (error as { name?: unknown }).name;
+  const message = (error as { message?: unknown }).message;
+  return (
+    (typeof name === "string" && /WalletSignTransactionError|WalletSendTransactionError|WalletSignMessageError/.test(name) &&
+      typeof message === "string" && /reject|declin|cancel/i.test(message)) ||
+    (typeof message === "string" && /user rejected|rejected the request|user declined|cancelled by user|canceled by user/i.test(message))
+  );
+}
+
 export function mapSendError(error: unknown): string {
+  if (isWalletRejection(error)) {
+    return programErrorCopy("WalletRejected");
+  }
   const name = extractErrorName(error);
   const message = error instanceof Error ? error.message : undefined;
   const detail = message?.match(/Error Message: ([^.]+)\./)?.[1];

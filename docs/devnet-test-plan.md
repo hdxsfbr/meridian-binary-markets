@@ -31,13 +31,13 @@ $0.40 from a demo maker.
 | T1 | Browse | Markets page | AAPL shows 7 open contracts and a countdown; other tickers 0. |
 | T2 | Pick a strike | Trade → AAPL → click $330 | Yes $0.60 / No $0.40, implied probability 60%; payoff line "You pay $0.60. You win $1.00 if AAPL closes at or above $330." |
 | T3 | Buy Yes at market | Market, quantity 1, Buy Yes, approve in wallet | Holdings "1 Yes · 0 No". USDC down $0.60 on Portfolio. Book ask qty drops to 4. |
-| T4 | Opposite side is gated | With Yes held, click Buy No | Panel says close your Yes position first and offers a one-tap Sell Yes. |
+| T4 | Opposite side is gated | With Yes held, look at Buy No | Buy No is greyed with "Close your Yes position first"; Sell Yes sits directly below it. Holding a minted pair gates nothing: either leg can be sold. |
 | T5 | Sell Yes at market | Sell Yes, quantity 1 | Fills against the $0.40 bid. Holdings back to 0 · 0; USDC up $0.40. |
 | T6 | Buy No at market | Market, quantity 1, Buy No | Holdings "0 Yes · 1 No". Cost shown as $0.60 (No price = $1 − $0.40 bid). |
 | T7 | Sell No at market | Sell No, quantity 1 | Fills against the $0.60 ask. Holdings 0 · 0. |
 | T8 | Limit order rests | Limit, Buy Yes, price 0.50, quantity 1 | "Your open orders" lists it, Side "Buy Yes", $0.50 locked. Book shows a new bid. |
 | T9 | Cancel | Cancel the resting order | Row disappears; USDC refunded in full. |
-| T10 | Self-match refused | Place a limit Buy Yes at 0.70 while your own ask rests, or vice versa | Refused with a message about matching your own order, before the wallet opens. |
+| T10 | Self-match refused | With your own Yes bid resting at 0.50, place a market or limit Buy No at 0.55 (or a limit Buy Yes at 0.70 while your own ask rests) | Refused with a message about matching your own order, before the wallet opens. A No limit that would trade immediately runs as a market order, so the book is never left crossed. |
 | T11 | Mint a pair | Portfolio → Market maker → pick AAPL $330 → Pairs to mint 2 → Mint pair | USDC down $2.00; position row shows "Minted pair: 2"; both Yes and No 2. |
 | T12 | Quote both sides | Market maker → Quote resting orders: AAPL $330, Offer to sell Yes at 0.65, qty 1 → Add to queue → Submit | Appears under Resting orders with 1 Yes locked. |
 | T13 | Cancel all | "Cancel all on this market" | Resting orders empty; Yes back in holdings. |

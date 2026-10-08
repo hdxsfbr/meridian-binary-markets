@@ -63,7 +63,7 @@ describe("buildHistoryEntries", () => {
     );
     expect(entries).toHaveLength(1);
     expect(entries[0].label).toBe("Placed order: Buy No at $0.30");
-    expect(entries[0].amountMicro).toBe(300_000n * 5n);
+    expect(entries[0].amountMicro).toBe(5n * ONE_USDC);
   });
 
   it("keeps a plain mint, a maker-side fill, and a cancel as separate rows", () => {

@@ -14,7 +14,7 @@ const WalletMultiButton = dynamic(
 
 const LINKS: Array<{ href: string; label: string; match: (path: string) => boolean }> = [
   { href: "/markets", label: "Markets", match: (p) => p === "/markets" },
-  { href: "/markets", label: "Trade", match: (p) => p.startsWith("/trade") },
+  { href: "/trade", label: "Trade", match: (p) => p.startsWith("/trade") },
   { href: "/portfolio", label: "Portfolio", match: (p) => p === "/portfolio" },
   { href: "/history", label: "History", match: (p) => p === "/history" },
 ];

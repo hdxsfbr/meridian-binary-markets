@@ -43,8 +43,6 @@ import {
   settledOutcomeCopy,
   NO_YES_TO_SELL,
   NO_NO_TO_SELL,
-  YES_ONLY_IN_PAIR,
-  NO_ONLY_IN_PAIR,
   HOLDINGS_LABEL,
   lockedUntilFilledLabel,
 } from "@/lib/trade-copy";
@@ -254,16 +252,14 @@ export function TradePanel({ market, config }: TradePanelProps) {
           {ACTIONS.map((action) => {
             const plan = plans[action];
 
-            const noHoldings =
-              (action === "sellYes" && position.netYes <= 0n) || (action === "sellNo" && position.netNo <= 0n);
+            // Either leg of a held pair may be sold on its own (selling Yes
+            // out of a pair simply leaves the No), so gate on what the wallet
+            // actually holds, not on the net of the two legs.
+            const noHoldings = (action === "sellYes" && position.yes <= 0n) || (action === "sellNo" && position.no <= 0n);
             const guidance = noHoldings
               ? action === "sellYes"
-                ? position.yes > 0n
-                  ? YES_ONLY_IN_PAIR
-                  : NO_YES_TO_SELL
-                : position.no > 0n
-                  ? NO_ONLY_IN_PAIR
-                  : NO_NO_TO_SELL
+                ? NO_YES_TO_SELL
+                : NO_NO_TO_SELL
               : plan !== undefined && "code" in plan
                 ? guidanceCopy(plan.code)
                 : null;

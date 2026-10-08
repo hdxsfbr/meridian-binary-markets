@@ -15,7 +15,7 @@ export const TRADING_PAUSED = "Trading is paused";
 export const SETTLEMENT_PENDING = "Settlement pending";
 export const CHECKING_POSITION = "Checking your position…";
 export const MINTED_PAIR = "Minted pair";
-export const NO_HELD_YES_RESTING = "You hold No. Your Yes order is waiting to fill.";
+export const NO_HELD_YES_RESTING = "You hold No and have a resting order waiting to fill.";
 export const REDEEM_IN_PORTFOLIO = "Redeem in Portfolio";
 export const CLOSE_NO_FIRST = "Close your No position first";
 export const CLOSE_YES_FIRST = "Close your Yes position first";
@@ -25,12 +25,12 @@ export const ORDER_COULD_NOT_BE_PLACED = "Order could not be placed";
 export const SELF_MATCH = "This would trade against your own resting order. Cancel it first.";
 export const NO_YES_TO_SELL = "You don't hold any Yes to sell";
 export const NO_NO_TO_SELL = "You don't hold any No to sell";
-export const YES_ONLY_IN_PAIR = "Your Yes is paired with No. Sell No, or redeem the pair from Portfolio.";
-export const NO_ONLY_IN_PAIR = "Your No is paired with Yes. Sell Yes, or redeem the pair from Portfolio.";
 export const HOLDINGS_LABEL = "You hold";
 export const BOOK_FULL = "The order book is full right now";
 export const MARKET_SETTLED = "This contract has settled";
 export const MARKET_CLOSED = "This contract has closed and is waiting for settlement";
+export const WOULD_CROSS = "That price would trade immediately. Use a market order instead.";
+export const SIGNING_CANCELLED = "Signing was cancelled in your wallet.";
 export const SENDING = "Sending…";
 export const CANCEL = "Cancel";
 export const CANCELLING = "Cancelling…";
@@ -79,6 +79,10 @@ export function programErrorCopy(name: string | undefined, detail?: string): str
       return MARKET_SETTLED;
     case "MarketClosed":
       return MARKET_CLOSED;
+    case "WouldCross":
+      return WOULD_CROSS;
+    case "WalletRejected":
+      return SIGNING_CANCELLED;
     case "SelfMatch":
       return SELF_MATCH;
     default:

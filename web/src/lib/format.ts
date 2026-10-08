@@ -106,3 +106,15 @@ export function marketOptionLabel(
   const days = new Set(markets.map((m) => m.tradingDay).filter((d): d is number => d !== undefined));
   return days.size > 1 && market.tradingDay !== undefined ? `${base} · ${formatTradingDay(market.tradingDay)}` : base;
 }
+
+/**
+ * Default market for the maker pickers: the middle strike of the most
+ * recent trading day in `markets` (the ladder the user is actually trading),
+ * not simply the first entry of a ticker-sorted list.
+ */
+export function defaultMarketKey(markets: ReadonlyArray<{ pubkey: { toBase58(): string }; tradingDay?: number; strike: bigint }>): string {
+  if (markets.length === 0) return "";
+  const latestDay = Math.max(...markets.map((m) => m.tradingDay ?? 0));
+  const ladder = markets.filter((m) => (m.tradingDay ?? 0) === latestDay).sort((a, b) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0));
+  return ladder[Math.floor(ladder.length / 2)].pubkey.toBase58();
+}

@@ -501,3 +501,31 @@ synthetic day. `--tickers` is the budget lever when SOL or RPC headroom is short
 **Trade-off:** A full seven-ticker devnet run now takes several minutes longer and still depends on
 a public RPC's mood; a private devnet endpoint removes that, at the cost of one more credential.
 Abandoned partial runs cost about 0.02 SOL per market until reclaimed.
+
+## 18. `buy_no_limit` never crosses the book; marketable No limits run as market orders
+
+**Date:** 2026-10-07 (devnet UI testing with Phantom; found by Andre)
+**Context:** `buy_no_limit` mints a pair and rests a Yes ask at `1 − No price`; unlike
+`place_order` it never matches. A No limit at $0.55 against a resting $0.50 Yes bid therefore
+posted a $0.45 ask *below* the best bid and sat there: a crossed book, pricing the strike ladder
+and payoff line off an ask nobody could lift, and in this case against the user's own bid, which
+the self-match rule (§10) never saw because no match was attempted.
+**Decision:** The program refuses a `buy_no_limit` whose Yes ask price is at or below the best
+resting bid (`WouldCross`), before anything mints. The SDK's intent planner routes a No limit that
+is marketable (Yes ask ≤ best bid) through `buy_no_market` capped at the user's price, so the
+user gets the fill they asked for and the self-match rule applies as on every other taking path.
+Covered by a litesvm test (cross, touch, and non-crossing cases) and an SDK planner test.
+**Trade-off:** `buy_no_limit` stays a pure rest-only instruction rather than growing a matching
+loop; the cost is one extra client-side decision, which the SDK owns so every client gets it.
+
+## 19. Either leg of a held pair can be sold from the trade panel
+
+**Date:** 2026-10-07 (devnet UI testing; found by Andre)
+**Context:** The trade panel gated Sell Yes / Sell No on the wallet's *net* holdings (Yes minus
+pairs, No minus pairs). A wallet holding a minted pair therefore had both sell buttons disabled,
+each pointing at the other: a dead end, while the program happily accepts an ask backed by Yes
+tokens regardless of what else the wallet holds.
+**Decision:** Sell gating uses the actual balance of the leg being sold. The pair exemption in the
+Buy-side gating (FR-015, a pair holder is never told to "close" anything) is unchanged.
+**Trade-off:** None beyond copy: the "paired" explanatory text is gone because the situation no
+longer arises.

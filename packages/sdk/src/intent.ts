@@ -254,6 +254,27 @@ export function toInstructionPlan(
       if (!isPriceInRange(yesPrice)) {
         return { code: "invalid" };
       }
+      // A No limit at or above the best available No price (its Yes ask at
+      // or below the best bid) is marketable. `buy_no_limit` only rests and
+      // would leave the book crossed (the program refuses it with
+      // `WouldCross`), so execute it as a `buy_no_market` capped at the
+      // user's price instead.
+      const bid = bestBid(book);
+      if (bid !== undefined && bid.price >= yesPrice) {
+        const { fills } = plannedFills(book, "ask", yesPrice, qty, MAX_FILLS);
+        if (fills.length === 0) {
+          return { code: "noLiquidity" };
+        }
+        const minYesPrice = fills[fills.length - 1].price;
+        const cost = fills.reduce((sum, f) => sum + f.qty * (ONE_USDC - f.price), 0n);
+        return {
+          ix: "buy_no_market",
+          qty,
+          minYesPrice,
+          makers: fills.map((f) => f.maker),
+          estimate: { cost, fills: fills.length },
+        };
+      }
       return {
         ix: "buy_no_limit",
         qty,

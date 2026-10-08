@@ -104,6 +104,15 @@ describe("toInstructionPlan: buyNo", () => {
     });
   });
 
+  it("limit at or above the best available No price executes as buy_no_market capped at that price", () => {
+    const maker = PublicKey.unique();
+    // Resting Yes bid at $0.50 = No offered at $0.50. A No limit at $0.55 (Yes ask $0.45) crosses it.
+    const book = bookWith([order(1n, maker, 500_000n, 10n, 1n)], []);
+    const plan = toInstructionPlan({ action: "buyNo", kind: "limit", qty: 2n, price: 550_000n }, emptyPosition, book);
+    expect(plan).toMatchObject({ ix: "buy_no_market", qty: 2n, minYesPrice: 500_000n, makers: [maker] });
+    expect((plan as { estimate: { cost: bigint } }).estimate.cost).toBe(2n * 500_000n);
+  });
+
   it("limit: buy_no_limit posts the complementary Yes ask price", () => {
     const book = bookWith([], []);
     // No price 400_000 -> Yes ask price 600_000.

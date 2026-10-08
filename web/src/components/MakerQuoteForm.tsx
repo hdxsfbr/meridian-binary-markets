@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import type { Book } from "@meridian/sdk";
-import { formatStrike, formatUsd, marketOptionLabel } from "@/lib/format";
+import { formatStrike, formatUsd, marketOptionLabel, defaultMarketKey } from "@/lib/format";
 import type { MarketLike } from "@/lib/positions-view";
 
 export type QuoteSide = "bid" | "ask";
@@ -122,7 +122,7 @@ export function MakerQuoteForm({
   onSubmitQuote,
   disabled,
 }: MakerQuoteFormProps) {
-  const [marketKey, setMarketKey] = useState<string>(openMarkets[0]?.pubkey.toBase58() ?? "");
+  const [marketKey, setMarketKey] = useState<string>(defaultMarketKey(openMarkets));
   const [side, setSide] = useState<QuoteSide>("bid");
   const [priceInput, setPriceInput] = useState("");
   const [qtyInput, setQtyInput] = useState("");
