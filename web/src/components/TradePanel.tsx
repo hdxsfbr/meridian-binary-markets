@@ -26,6 +26,7 @@ import type { MarketAccount } from "@/hooks/useMarkets";
 import { useBook } from "@/hooks/useBook";
 import { usePosition } from "@/hooks/usePosition";
 import { useProgram } from "@/hooks/useProgram";
+import { EmptyState } from "@/components/ui/EmptyState";
 import { fetchUsdcMint, mapSendError, planToInstruction, sendTx, type BuildCtx } from "@/lib/tx";
 import {
   ACTION_LABEL,
@@ -166,7 +167,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
 
   if (isSettled) {
     return (
-      <div className="rounded border border-black/10 p-4">
+      <div className="rounded border border-border p-4">
         <p>{settledOutcomeCopy(market.outcome === "yes" ? "yes" : "no", market.settlementPrice)}</p>
         <Link href="/portfolio" className="mt-2 inline-block underline">
           {REDEEM_IN_PORTFOLIO}
@@ -177,7 +178,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
 
   if (isPastCloseAwaitingSettlement) {
     return (
-      <div className="rounded border border-black/10 p-4">
+      <div className="rounded border border-border p-4">
         <p>{SETTLEMENT_PENDING}</p>
       </div>
     );
@@ -197,23 +198,23 @@ export function TradePanel({ market, config }: TradePanelProps) {
         : null;
 
   return (
-    <div className="rounded border border-black/10 p-4">
+    <div className="rounded border border-border p-4">
       {position.pairsHeld > 0n ? (
-        <p className="text-sm text-black/70">
+        <p className="text-sm text-text-muted">
           {MINTED_PAIR}: {position.pairsHeld.toString()}
         </p>
       ) : null}
-      {transientState === "noHeldYesResting" ? <p className="text-sm text-black/70">{NO_HELD_YES_RESTING}</p> : null}
+      {transientState === "noHeldYesResting" ? <p className="text-sm text-text-muted">{NO_HELD_YES_RESTING}</p> : null}
 
-      <p className="text-sm text-black/70">
+      <p className="text-sm text-text-muted">
         {HOLDINGS_LABEL}: {position.yes.toString()} Yes · {position.no.toString()} No
       </p>
 
       <div className="mt-2 flex gap-2">
-        <button type="button" aria-pressed={kind === "market"} className={`rounded border px-3 py-1 text-sm ${kind === "market" ? "border-black bg-black text-white" : "border-black/20 text-black/70 hover:border-black/50"}`} onClick={() => setKind("market")}>
+        <button type="button" aria-pressed={kind === "market"} className={`rounded border px-3 py-1 text-sm ${kind === "market" ? "border-indigo bg-indigo text-on-brand" : "border-border text-text-muted hover:border-indigo/50"}`} onClick={() => setKind("market")}>
           {KIND_LABEL.market}
         </button>
-        <button type="button" aria-pressed={kind === "limit"} className={`rounded border px-3 py-1 text-sm ${kind === "limit" ? "border-black bg-black text-white" : "border-black/20 text-black/70 hover:border-black/50"}`} onClick={() => setKind("limit")}>
+        <button type="button" aria-pressed={kind === "limit"} className={`rounded border px-3 py-1 text-sm ${kind === "limit" ? "border-indigo bg-indigo text-on-brand" : "border-border text-text-muted hover:border-indigo/50"}`} onClick={() => setKind("limit")}>
           {KIND_LABEL.limit}
         </button>
       </div>
@@ -222,7 +223,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
         <label className="flex flex-col text-sm">
           Quantity
           <input
-            className="mt-1 w-32 rounded border border-black/20 px-2 py-1 text-sm disabled:bg-black/5"
+            className="mt-1 w-32 rounded border border-border px-2 py-1 text-sm disabled:bg-surface-raised"
             type="text"
             inputMode="numeric"
             value={qtyInput}
@@ -234,7 +235,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
           <label className="flex flex-col text-sm">
             Price ($)
             <input
-              className="mt-1 w-32 rounded border border-black/20 px-2 py-1 text-sm disabled:bg-black/5"
+              className="mt-1 w-32 rounded border border-border px-2 py-1 text-sm disabled:bg-surface-raised"
               type="text"
               inputMode="decimal"
               value={priceInput}
@@ -245,8 +246,12 @@ export function TradePanel({ market, config }: TradePanelProps) {
         ) : null}
       </div>
 
-      {disabledReason !== null ? (
-        <p className="mt-2 text-sm text-black/70">{disabledReason}</p>
+      {noWallet ? (
+        <div className="mt-2">
+          <EmptyState>{CONNECT_WALLET}</EmptyState>
+        </div>
+      ) : disabledReason !== null ? (
+        <p className="mt-2 text-sm text-text-muted">{disabledReason}</p>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-2">
           {ACTIONS.map((action) => {
@@ -276,18 +281,18 @@ export function TradePanel({ market, config }: TradePanelProps) {
 
             return (
               <div key={action} className="flex flex-col">
-                <button type="button" className="rounded border border-black/20 bg-black px-3 py-2 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:bg-black/30" disabled={noHoldings || busy !== null || plan === undefined} onClick={() => submit(action)}>
+                <button type="button" className="rounded border border-border bg-indigo px-3 py-2 text-sm font-medium text-on-brand hover:bg-indigo/80 disabled:cursor-not-allowed disabled:bg-indigo/30" disabled={noHoldings || busy !== null || plan === undefined} onClick={() => submit(action)}>
                   {busy === action ? SENDING : ACTION_LABEL[action]}
                 </button>
-                {estimate !== null ? <span className="text-xs text-black/70">{estimate}</span> : null}
-                {guidance !== null ? <span className="text-xs text-black/70">{guidance}</span> : null}
+                {estimate !== null ? <span className="text-xs text-text-muted">{estimate}</span> : null}
+                {guidance !== null ? <span className="text-xs text-text-muted">{guidance}</span> : null}
               </div>
             );
           })}
         </div>
       )}
 
-      {lastError !== null ? <p className="mt-2 text-sm text-red-700">{lastError}</p> : null}
+      {lastError !== null ? <p className="mt-2 text-sm text-no">{lastError}</p> : null}
     </div>
   );
 }

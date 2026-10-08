@@ -1,1 +1,210 @@
 @import "tailwindcss";
+
+/*
+ * Meridian Flow design tokens (design/meridian-flow/tokens/design-tokens.css),
+ * ported to CSS variables with Tailwind v4's `@theme inline`. Dark is the
+ * default (set via `data-theme="dark"` on `<html>`); `[data-theme="light"]`
+ * overrides the same variable names, so no component ever needs to branch
+ * on theme -- see REVAMP_PLAN.md Wave R1, decision 1.
+ */
+
+:root,
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --color-indigo: #6366f1;
+  --color-violet: #a855f7;
+  --color-cyan: #22d3ee;
+  --color-midnight: #0b1026;
+
+  --color-bg: #0b1026;
+  --color-surface: #111b35;
+  --color-surface-raised: #182440;
+  --color-border: #293654;
+  --color-text: #f8fafc;
+  --color-text-muted: #a9b5c9;
+
+  --color-yes: #2dd4bf;
+  --color-no: #fb7185;
+  --color-warning: #fbbf24;
+  --color-success: #2dd4bf;
+  --color-focus: #22d3ee;
+  --color-on-brand: #ffffff;
+
+  --brand-gradient: linear-gradient(110deg, #a855f7 0%, #6366f1 48%, #22d3ee 100%);
+
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: var(--font-ibm-plex-mono), ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --color-bg: #f8fafc;
+  --color-surface: #ffffff;
+  --color-surface-raised: #f1f5f9;
+  --color-border: #cbd5e1;
+  --color-text: #0b1026;
+  --color-text-muted: #475569;
+
+  --color-yes: #0f766e;
+  --color-no: #be123c;
+  --color-warning: #b45309;
+  --color-success: #0f766e;
+  --color-focus: #4f46e5;
+}
+
+@theme inline {
+  --color-bg: var(--color-bg);
+  --color-surface: var(--color-surface);
+  --color-surface-raised: var(--color-surface-raised);
+  --color-border: var(--color-border);
+  --color-text: var(--color-text);
+  --color-text-muted: var(--color-text-muted);
+  --color-indigo: var(--color-indigo);
+  --color-violet: var(--color-violet);
+  --color-cyan: var(--color-cyan);
+  --color-midnight: var(--color-midnight);
+  --color-yes: var(--color-yes);
+  --color-no: var(--color-no);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+  --color-focus: var(--color-focus);
+  --color-on-brand: var(--color-on-brand);
+
+  --radius-sm: var(--radius-sm);
+  --radius-md: var(--radius-md);
+  --radius-lg: var(--radius-lg);
+
+  --font-sans: var(--font-sans);
+  --font-mono: var(--font-mono);
+}
+
+html,
+body {
+  background: var(--color-bg);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+}
+
+.num {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.brand-gradient-text {
+  background: var(--brand-gradient);
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+}
+
+.brand-gradient-rule {
+  background: var(--brand-gradient);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/*
+ * @solana/wallet-adapter-react-ui ships its own stylesheet (imported once in
+ * `lib/wallet.tsx`) with these class names; this restyles its trigger/modal
+ * to the token palette (indigo primary, midnight surfaces) without touching
+ * the library itself.
+ */
+.wallet-adapter-button-trigger {
+  background-color: var(--color-indigo) !important;
+  border-radius: var(--radius-sm) !important;
+  font-family: var(--font-sans) !important;
+}
+
+.wallet-adapter-button-trigger:not([disabled]):hover {
+  background-color: var(--color-indigo) !important;
+  opacity: 0.85;
+}
+
+.wallet-adapter-modal-wrapper {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+}
+
+.wallet-adapter-modal-title {
+  color: var(--color-text) !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  background-color: var(--color-surface-raised) !important;
+  color: var(--color-text) !important;
+}
+
+.wallet-adapter-modal-button-close {
+  background-color: var(--color-surface-raised) !important;
+}
+
+.wallet-adapter-dropdown-list {
+  background-color: var(--color-surface) !important;
+  border: 1px solid var(--color-border) !important;
+}
+
+.wallet-adapter-dropdown-list-item {
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+}
+
+.wallet-adapter-dropdown-list-item:not([disabled]):hover {
+  background-color: var(--color-surface-raised) !important;
+}
+
+.wallet-adapter-modal-list .wallet-adapter-button {
+  border: 1px solid var(--color-border) !important;
+}
+
+.wallet-adapter-modal-list-more {
+  color: var(--color-indigo) !important;
+}
+
+.wallet-adapter-button:focus-visible,
+.wallet-adapter-dropdown-list-item:focus-visible {
+  outline: 2px solid var(--color-focus) !important;
+  outline-offset: 2px !important;
+}
+
+@media (max-width: 480px) {
+  .wallet-adapter-button-trigger {
+    padding: 0 12px !important;
+    font-size: 13px !important;
+    height: 36px !important;
+    line-height: 36px !important;
+  }
+}
+
+/*
+ * Nav.tsx renders both a dark-surface and a light-surface wordmark/mark so
+ * the logo stays legible on the nav's own background in either theme;
+ * only one pair is shown at a time, picked by `data-theme` here rather
+ * than JS theme state.
+ */
+[data-theme="dark"] .logo-theme-light {
+  display: none !important;
+}
+
+[data-theme="light"] .logo-theme-dark {
+  display: none !important;
+}

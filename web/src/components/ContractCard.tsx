@@ -28,7 +28,7 @@ export function ContractCard({
   onRedeem,
 }: ContractCardProps) {
   return (
-    <div className="rounded border border-black/10 p-4">
+    <div className="rounded border border-border p-4">
       <div className="flex items-baseline justify-between">
         <span className="font-semibold">{ticker}</span>
         <span>{formatStrike(strike)}</span>

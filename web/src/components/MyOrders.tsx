@@ -52,9 +52,9 @@ export function MyOrders({ rows, onCancel, onCancelAllOnMarket, cancelling, erro
   if (rows.length === 0) {
     return (
       <div className="flex flex-col gap-2">
-        <h3 className="text-sm font-semibold text-black/60">Resting orders</h3>
-        <p className="text-sm text-black/70">No resting orders.</p>
-        {error ? <p className="text-sm text-red-700">Could not load some orders.</p> : null}
+        <h3 className="text-sm font-semibold text-text-muted">Resting orders</h3>
+        <p className="text-sm text-text-muted">No resting orders.</p>
+        {error ? <p className="text-sm text-no">Could not load some orders.</p> : null}
       </div>
     );
   }
@@ -63,17 +63,17 @@ export function MyOrders({ rows, onCancel, onCancelAllOnMarket, cancelling, erro
 
   return (
     <div className="flex flex-col gap-4">
-      <h3 className="text-sm font-semibold text-black/60">Resting orders</h3>
-      {error ? <p className="text-sm text-red-700">Could not load some orders.</p> : null}
+      <h3 className="text-sm font-semibold text-text-muted">Resting orders</h3>
+      {error ? <p className="text-sm text-no">Could not load some orders.</p> : null}
       {groups.map((group) => (
         <div key={`${group.tradingDay}:${group.ticker}`} className="flex flex-col gap-2">
           <span className="text-sm font-medium">
             {group.ticker} — {formatTradingDay(group.tradingDay)}
           </span>
           {marketSections(group.rows).map((section) => (
-            <div key={section.marketKey} className="flex flex-col gap-1 border border-black/10 p-2">
+            <div key={section.marketKey} className="flex flex-col gap-1 border border-border p-2">
               <div className="flex items-center justify-between">
-                <span className="text-sm text-black/70">Strike {formatStrike(section.strike)}</span>
+                <span className="text-sm text-text-muted">Strike {formatStrike(section.strike)}</span>
                 <button
                   type="button"
                   disabled={cancelling !== null && cancelling !== undefined}

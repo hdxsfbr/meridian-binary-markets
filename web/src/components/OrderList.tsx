@@ -22,7 +22,7 @@ export function OrderList({ orders, onCancel, cancelling, askIds }: OrderListPro
   const [pendingId, setPendingId] = useState<bigint | null>(null);
 
   if (orders.length === 0) {
-    return <p className="text-black/70">No open orders.</p>;
+    return <p className="text-text-muted">No open orders.</p>;
   }
 
   return (
@@ -39,10 +39,10 @@ export function OrderList({ orders, onCancel, cancelling, askIds }: OrderListPro
       <tbody>
         {orders.map((order) => (
           <tr key={order.id.toString()}>
-            <td>#{order.id.toString()}</td>
+            <td className="num">#{order.id.toString()}</td>
             <td>{askIds?.has(order.id.toString()) ? "Sell Yes" : "Buy Yes"}</td>
-            <td>{formatPrice(order.price)}</td>
-            <td>{order.remaining.toString()}</td>
+            <td className="num">{formatPrice(order.price)}</td>
+            <td className="num">{order.remaining.toString()}</td>
             <td>
               <button
                 type="button"

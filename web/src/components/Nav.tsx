@@ -23,22 +23,48 @@ export function Nav() {
   const pathname = usePathname() ?? "/";
 
   return (
-    <nav className="flex items-center justify-between border-b border-black/10 px-6 py-4">
-      <div className="flex items-center gap-6">
-        <Link href="/" className="text-lg font-semibold">
-          Meridian
+    <nav className="flex items-center justify-between gap-2 border-b border-border bg-midnight px-3 py-3 sm:gap-4 sm:px-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-6">
+        <Link href="/" className="flex shrink-0 items-center">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/logo-dark.svg"
+            alt="Meridian"
+            width={128}
+            height={28}
+            className="logo-theme-dark hidden sm:block"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/logo.svg"
+            alt="Meridian"
+            width={128}
+            height={28}
+            className="logo-theme-light hidden sm:block"
+          />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/brand/logo-mark.svg" alt="Meridian" width={28} height={28} className="block sm:hidden" />
         </Link>
-        {LINKS.map((link) => (
-          <Link
-            key={link.label}
-            href={link.href}
-            className={link.match(pathname) ? "font-semibold underline" : "text-black/70"}
-          >
-            {link.label}
-          </Link>
-        ))}
+        <div className="-mx-1 flex min-w-0 items-center gap-2 overflow-x-auto px-1 py-1 sm:gap-6">
+          {LINKS.map((link) => {
+            const active = link.match(pathname);
+            return (
+              <Link
+                key={link.label}
+                href={link.href}
+                className={`shrink-0 whitespace-nowrap border-b-2 py-1 text-xs font-medium sm:text-sm ${
+                  active ? "border-cyan text-text" : "border-transparent text-text-muted hover:text-text"
+                }`}
+              >
+                {link.label}
+              </Link>
+            );
+          })}
+        </div>
       </div>
-      <WalletMultiButton />
+      <div className="shrink-0">
+        <WalletMultiButton />
+      </div>
     </nav>
   );
 }

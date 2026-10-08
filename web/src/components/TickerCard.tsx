@@ -21,13 +21,13 @@ export function TickerCard({ ticker, priceMicro, openCount, closeTs }: TickerCar
   return (
     <Link
       href={`/trade/${ticker}`}
-      className="block rounded border border-black/10 p-4 hover:border-black/30"
+      className="block rounded border border-border p-4 hover:border-indigo/50"
     >
       <div className="flex items-baseline justify-between">
         <span className="text-lg font-semibold">{ticker}</span>
-        <span>{priceMicro !== undefined ? formatUsd(priceMicro) : "—"}</span>
+        <span className="num">{priceMicro !== undefined ? formatUsd(priceMicro) : "—"}</span>
       </div>
-      <div className="mt-2 flex items-baseline justify-between text-sm text-black/70">
+      <div className="mt-2 flex items-baseline justify-between text-sm text-text-muted">
         <span>
           {openCount} open contract{openCount === 1 ? "" : "s"} today
         </span>

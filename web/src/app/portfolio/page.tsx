@@ -29,6 +29,9 @@ import { usePositions } from "@/hooks/usePositions";
 import { useProgram } from "@/hooks/useProgram";
 import { PositionRow } from "@/components/PositionRow";
 import { MakerPanel } from "@/components/MakerPanel";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { InlineError } from "@/components/ui/InlineError";
 
 export default function PortfolioPage() {
   const { publicKey } = useWallet();
@@ -182,9 +185,11 @@ export default function PortfolioPage() {
 
   if (!publicKey) {
     return (
-      <div className="px-6 py-4">
+      <div className="mx-auto max-w-[1440px] px-6 py-4">
         <h1 className="text-2xl font-semibold">Portfolio</h1>
-        <p className="mt-4">Connect a wallet to see your portfolio.</p>
+        <div className="mt-4">
+          <EmptyState>Connect a wallet to see your portfolio.</EmptyState>
+        </div>
       </div>
     );
   }
@@ -206,35 +211,40 @@ export default function PortfolioPage() {
   const availableUsdcMicro = usdcBalanceMicro ?? 0n;
 
   return (
-    <div className="flex flex-col gap-8 px-6 py-4">
+    <div className="mx-auto flex max-w-[1440px] flex-col gap-8 px-6 py-4">
       <h1 className="text-2xl font-semibold">Portfolio</h1>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-black/60">USDC balance</span>
-        <span className="text-xl font-semibold" data-testid="usdc-balance">
+        <span className="text-sm text-text-muted">USDC balance</span>
+        <span className="num text-xl font-semibold" data-testid="usdc-balance">
           {usdcBalanceMicro === null ? "—" : formatUsd(usdcBalanceMicro)}
         </span>
       </section>
 
       <section className="flex flex-col gap-2">
-        <span className="text-sm text-black/60">Realized P&amp;L</span>
-        <span className="text-xl font-semibold">{formatUsd(summary.realizedPnlMicro)}</span>
+        <span className="text-sm text-text-muted">Realized P&amp;L</span>
+        <span className="num text-xl font-semibold">{formatUsd(summary.realizedPnlMicro)}</span>
         {historyError ? (
-          <span className="text-sm text-black/60">Could not sync trade history. Retrying…</span>
+          <span className="text-sm text-text-muted">Could not sync trade history. Retrying…</span>
         ) : !historyLoaded ? (
-          <span className="text-sm text-black/60">Syncing history…</span>
+          <span className="text-sm text-text-muted">Syncing history…</span>
         ) : !historyComplete ? (
-          <span className="text-sm text-black/60">Partial history</span>
+          <span className="text-sm text-text-muted">Partial history</span>
         ) : null}
       </section>
 
-      {actionError ? <p className="text-red-700">{actionError}</p> : null}
+      {actionError ? <InlineError>{actionError}</InlineError> : null}
 
       <section className="flex flex-col gap-4">
         <h2 className="text-lg font-semibold">Positions</h2>
-        {loading ? <p>Loading…</p> : null}
-        {!loading && error ? <p>Could not load your positions. Retrying…</p> : null}
-        {!loading && !error && rows.length === 0 ? <p>No positions yet.</p> : null}
+        {loading ? (
+          <div className="flex flex-col gap-2">
+            <Skeleton className="h-20 w-full" />
+            <Skeleton className="h-20 w-full" />
+          </div>
+        ) : null}
+        {!loading && error ? <InlineError>Could not load your positions. Retrying…</InlineError> : null}
+        {!loading && !error && rows.length === 0 ? <EmptyState>No positions yet.</EmptyState> : null}
         {rows.map((row) => (
           <PositionRow
             key={row.marketKey}
@@ -273,7 +283,7 @@ export default function PortfolioPage() {
         myOrdersError={myOrders.error}
         booksByMarket={myOrders.books}
       />
-      {myOrders.lastError !== null ? <p className="text-red-700">{myOrders.lastError}</p> : null}
+      {myOrders.lastError !== null ? <InlineError>{myOrders.lastError}</InlineError> : null}
     </div>
   );
 }

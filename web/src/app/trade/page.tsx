@@ -8,6 +8,7 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useMarkets } from "@/hooks/useMarkets";
+import { Skeleton } from "@/components/ui/Skeleton";
 
 export default function TradeIndexPage() {
   const router = useRouter();
@@ -21,7 +22,7 @@ export default function TradeIndexPage() {
 
   return (
     <div className="px-6 py-8">
-      <p className="text-black/70">Loading contracts…</p>
+      <Skeleton className="h-6 w-48" />
     </div>
   );
 }

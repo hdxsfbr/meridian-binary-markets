@@ -26,13 +26,13 @@ export function AdminMarketRow({ row, overrideDelaySecs, now, statusUnavailable,
   const availability = overrideAvailability(row.closeTs, overrideDelaySecs, now);
 
   return (
-    <tr className="border-b border-black/10">
+    <tr className="border-b border-border">
       <td className="py-2 pr-4">{row.ticker}</td>
       <td className="py-2 pr-4">{formatStrike(row.strike)}</td>
       <td className="py-2 pr-4">{formatDuration(row.closedForSecs)}</td>
       <td className="py-2 pr-4">
         {statusUnavailable || row.status === undefined ? (
-          <span className="text-black/60">Status unavailable</span>
+          <span className="text-text-muted">Status unavailable</span>
         ) : (
           <span>
             {row.status.attempts} attempt{row.status.attempts === 1 ? "" : "s"}
@@ -56,18 +56,18 @@ export function AdminMarketRow({ row, overrideDelaySecs, now, statusUnavailable,
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="Settlement price ($)"
-            className="w-36 rounded border border-black/20 px-2 py-1"
+            className="w-36 rounded border border-border px-2 py-1"
             disabled={!availability.available || submitting}
           />
           <button
             type="submit"
             disabled={!availability.available || price.trim() === "" || submitting}
-            className="rounded border border-black/20 px-3 py-1 disabled:opacity-50"
+            className="rounded border border-border px-3 py-1 disabled:opacity-50"
           >
             Override
           </button>
           {!availability.available ? (
-            <span className="text-black/60 text-sm">Available at {formatEt(availability.availableAt)}</span>
+            <span className="text-text-muted text-sm">Available at {formatEt(availability.availableAt)}</span>
           ) : null}
         </form>
       </td>

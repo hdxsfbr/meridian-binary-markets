@@ -151,7 +151,7 @@ export default function AdminPage() {
     return (
       <div className="px-6 py-8">
         <h1 className="text-2xl font-semibold">Admin</h1>
-        <p className="mt-4 text-black/70">Admin access requires the operator wallet.</p>
+        <p className="mt-4 text-text-muted">Admin access requires the operator wallet.</p>
       </div>
     );
   }
@@ -239,34 +239,34 @@ export default function AdminPage() {
     <div className="px-6 py-8">
       <h1 className="text-2xl font-semibold">Admin</h1>
 
-      {actionError ? <p className="mt-4 text-red-700">{actionError}</p> : null}
-      {actionNotice ? <p className="mt-4 text-emerald-800">{actionNotice}</p> : null}
+      {actionError ? <p className="mt-4 text-no">{actionError}</p> : null}
+      {actionNotice ? <p className="mt-4 text-success">{actionNotice}</p> : null}
 
-      <section className="mt-6 rounded border border-black/10 p-4">
+      <section className="mt-6 rounded border border-border p-4">
         <h2 className="text-lg font-semibold">Config</h2>
         <dl className="mt-2 grid grid-cols-2 gap-2 text-sm sm:grid-cols-3">
           <div>
-            <dt className="text-black/60">Paused</dt>
+            <dt className="text-text-muted">Paused</dt>
             <dd>{config?.paused ? "Yes" : "No"}</dd>
           </div>
           <div>
-            <dt className="text-black/60">Oracle provider</dt>
+            <dt className="text-text-muted">Oracle provider</dt>
             <dd>{oracleProviderName(adminConfig?.oracleProvider)}</dd>
           </div>
           <div>
-            <dt className="text-black/60">Override delay</dt>
+            <dt className="text-text-muted">Override delay</dt>
             <dd>{config ? `${config.overrideDelaySecs}s` : "—"}</dd>
           </div>
           <div>
-            <dt className="text-black/60">Max staleness</dt>
+            <dt className="text-text-muted">Max staleness</dt>
             <dd>{adminConfig ? `${adminConfig.maxStalenessSecs}s` : "—"}</dd>
           </div>
           <div>
-            <dt className="text-black/60">Max confidence (bps)</dt>
+            <dt className="text-text-muted">Max confidence (bps)</dt>
             <dd>{adminConfig ? String(adminConfig.maxConfBps) : "—"}</dd>
           </div>
           <div>
-            <dt className="text-black/60">Min publish offset</dt>
+            <dt className="text-text-muted">Min publish offset</dt>
             <dd>{adminConfig ? `${adminConfig.minPublishOffsetSecs}s` : "—"}</dd>
           </div>
         </dl>
@@ -275,7 +275,7 @@ export default function AdminPage() {
             type="button"
             onClick={handlePause}
             disabled={busy !== null || config?.paused === true}
-            className="rounded border border-black/20 px-3 py-1 disabled:opacity-50"
+            className="rounded border border-border px-3 py-1 disabled:opacity-50"
           >
             Pause
           </button>
@@ -283,14 +283,14 @@ export default function AdminPage() {
             type="button"
             onClick={handleUnpause}
             disabled={busy !== null || config?.paused === false}
-            className="rounded border border-black/20 px-3 py-1 disabled:opacity-50"
+            className="rounded border border-border px-3 py-1 disabled:opacity-50"
           >
             Unpause
           </button>
         </div>
       </section>
 
-      <section className="mt-6 rounded border border-black/10 p-4">
+      <section className="mt-6 rounded border border-border p-4">
         <h2 className="text-lg font-semibold">Add strike</h2>
         <form
           className="mt-2 flex flex-wrap items-end gap-3"
@@ -304,7 +304,7 @@ export default function AdminPage() {
             <select
               value={selectedTicker}
               onChange={(e) => setSelectedTicker(e.target.value as Ticker)}
-              className="rounded border border-black/20 px-2 py-1"
+              className="rounded border border-border px-2 py-1"
             >
               {(config?.tickers ?? TICKERS).map((t) => (
                 <option key={t} value={t}>
@@ -321,7 +321,7 @@ export default function AdminPage() {
               min="0"
               value={strikeInput}
               onChange={(e) => setStrikeInput(e.target.value)}
-              className="w-32 rounded border border-black/20 px-2 py-1"
+              className="w-32 rounded border border-border px-2 py-1"
             />
           </label>
           <label className="flex flex-col text-sm">
@@ -332,58 +332,60 @@ export default function AdminPage() {
               min="1"
               value={capacityInput}
               onChange={(e) => setCapacityInput(e.target.value)}
-              className="w-24 rounded border border-black/20 px-2 py-1"
+              className="w-24 rounded border border-border px-2 py-1"
             />
           </label>
-          <span className="text-sm text-black/60">
+          <span className="text-sm text-text-muted">
             Close: {formatEt(tickerMarketsToday[0] !== undefined ? Number(tickerMarketsToday[0].closeTs) : closeTsForDay(day))}
           </span>
-          <button type="submit" disabled={busy !== null} className="rounded border border-black/20 px-3 py-1 disabled:opacity-50">
+          <button type="submit" disabled={busy !== null} className="rounded border border-border px-3 py-1 disabled:opacity-50">
             Add strike
           </button>
         </form>
       </section>
 
-      <section className="mt-6 rounded border border-black/10 p-4">
+      <section className="mt-6 rounded border border-border p-4">
         <h2 className="text-lg font-semibold">Unsettled markets</h2>
         {mergedRows.length === 0 ? (
-          <p className="mt-2 text-black/70">Nothing unsettled past close right now.</p>
+          <p className="mt-2 text-text-muted">Nothing unsettled past close right now.</p>
         ) : (
-          <table className="mt-2 w-full text-left text-sm">
-            <thead>
-              <tr className="border-b border-black/10">
-                <th className="py-2 pr-4">Ticker</th>
-                <th className="py-2 pr-4">Strike</th>
-                <th className="py-2 pr-4">Closed since</th>
-                <th className="py-2 pr-4">Status</th>
-                <th className="py-2 pr-4">Override</th>
-              </tr>
-            </thead>
-            <tbody>
-              {mergedRows.map((row) => (
-                <AdminMarketRow
-                  key={row.pubkey}
-                  row={row}
-                  overrideDelaySecs={config?.overrideDelaySecs ?? 3600}
-                  now={now}
-                  statusUnavailable={statusUnavailable}
-                  submitting={busy === `override:${row.pubkey}`}
-                  onOverride={(priceDollars) => handleOverride(row.pubkey, priceDollars)}
-                />
-              ))}
-            </tbody>
-          </table>
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr className="border-b border-border">
+                  <th className="py-2 pr-4">Ticker</th>
+                  <th className="py-2 pr-4">Strike</th>
+                  <th className="py-2 pr-4">Closed since</th>
+                  <th className="py-2 pr-4">Status</th>
+                  <th className="py-2 pr-4">Override</th>
+                </tr>
+              </thead>
+              <tbody>
+                {mergedRows.map((row) => (
+                  <AdminMarketRow
+                    key={row.pubkey}
+                    row={row}
+                    overrideDelaySecs={config?.overrideDelaySecs ?? 3600}
+                    now={now}
+                    statusUnavailable={statusUnavailable}
+                    submitting={busy === `override:${row.pubkey}`}
+                    onOverride={(priceDollars) => handleOverride(row.pubkey, priceDollars)}
+                  />
+                ))}
+              </tbody>
+            </table>
+          </div>
         )}
       </section>
 
-      <section className="mt-6 rounded border border-black/10 p-4">
+      <section className="mt-6 rounded border border-border p-4">
         <h2 className="text-lg font-semibold">Settled by override</h2>
         {settledOverrideRows.length === 0 ? (
-          <p className="mt-2 text-black/70">None today.</p>
+          <p className="mt-2 text-text-muted">None today.</p>
         ) : (
           <ul className="mt-2 flex flex-wrap gap-2">
             {settledOverrideRows.map((row) => (
-              <li key={row.pubkey} className="rounded-full border border-black/20 px-3 py-1 text-sm">
+              <li key={row.pubkey} className="rounded-full border border-border px-3 py-1 text-sm">
                 {row.ticker} {formatStrike(row.strike)}
               </li>
             ))}

@@ -28,6 +28,8 @@ import { StrikeList } from "@/components/StrikeList";
 import { TradePanel } from "@/components/TradePanel";
 import type { BookLevel, Perspective } from "@/lib/book-perspective";
 import type { Order } from "@meridian/sdk";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { InlineError } from "@/components/ui/InlineError";
 
 /** `Order[]` (book.ts, carries `owner`/`id`/`seq`) to `BookLevel[]` (`price`/`qty`) for `BookView`. */
 function toBookLevels(orders: Order[]): BookLevel[] {
@@ -94,19 +96,24 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
   }
 
   return (
-    <div className="px-6 py-4">
+    <div className="mx-auto max-w-[1440px] px-6 py-4">
       <div className="flex items-baseline justify-between">
         <h1 className="text-2xl font-semibold">
           {ticker}
-          {lastPrice !== undefined ? <span className="ml-3 text-lg font-normal text-black/70">{formatUsd(lastPrice)}</span> : null}
+          {lastPrice !== undefined ? <span className="num ml-3 text-lg font-normal text-text-muted">{formatUsd(lastPrice)}</span> : null}
         </h1>
         {closeTs !== undefined ? <Countdown closeTs={closeTs} /> : null}
       </div>
 
       {error ? (
-        <p className="mt-6 text-black/70">Could not load contracts. Retrying…</p>
+        <div className="mt-6">
+          <InlineError>Could not load contracts. Retrying…</InlineError>
+        </div>
       ) : loading ? (
-        <p className="mt-6 text-black/70">Loading contracts…</p>
+        <div className="mt-6 flex flex-col gap-3">
+          <Skeleton className="h-6 w-40" />
+          <Skeleton className="h-40 w-full" />
+        </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-2">
           <div>
@@ -146,7 +153,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
                 <h2 className="font-semibold">Your open orders</h2>
                 <div className="mt-2">
                   <OrderList orders={position.restingOrders} askIds={new Set(book.asks.map((o) => o.id.toString()))} onCancel={handleCancel} cancelling={cancelling} />
-                  {cancelError !== null ? <p className="mt-2 text-sm text-red-700">{cancelError}</p> : null}
+                  {cancelError !== null ? <p className="mt-2 text-sm text-no">{cancelError}</p> : null}
                 </div>
               </div>
             </div>

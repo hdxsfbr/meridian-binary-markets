@@ -205,8 +205,8 @@ export function MakerQuoteForm({
   const hasPending = queue.some((q) => q.status === "queued" || q.status === "error");
 
   return (
-    <div className="flex flex-col gap-3 rounded border border-black/10 p-4">
-      <h3 className="text-sm font-semibold text-black/60">Quote resting orders</h3>
+    <div className="flex flex-col gap-3 rounded border border-border p-4">
+      <h3 className="text-sm font-semibold text-text-muted">Quote resting orders</h3>
 
       <form onSubmit={addToQueue} className="flex flex-wrap items-end gap-3">
         <label className="flex flex-col text-sm">
@@ -259,9 +259,9 @@ export function MakerQuoteForm({
       </form>
 
       {priceMicro !== undefined && qty !== undefined ? (
-        <p className="text-sm text-black/70">{escrowCopy(side, priceMicro, qty)}</p>
+        <p className="text-sm text-text-muted">{escrowCopy(side, priceMicro, qty)}</p>
       ) : null}
-      {formError !== null ? <p className="text-sm text-red-700">{formError}</p> : null}
+      {formError !== null ? <p className="text-sm text-no">{formError}</p> : null}
 
       {queue.length > 0 ? (
         <div className="flex flex-col gap-2">

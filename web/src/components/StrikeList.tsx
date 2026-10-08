@@ -71,7 +71,7 @@ export function StrikeList({ markets, selected, onSelect }: StrikeListProps) {
   }, [program, markets.map((m) => m.pubkey.toBase58()).join(",")]);
 
   if (markets.length === 0) {
-    return <p className="text-black/70">No contracts yet today.</p>;
+    return <p className="text-text-muted">No contracts yet today.</p>;
   }
 
   return (
@@ -93,12 +93,12 @@ export function StrikeList({ markets, selected, onSelect }: StrikeListProps) {
               key={market.pubkey.toBase58()}
               onClick={() => onSelect(market)}
               aria-selected={isSelected}
-              className={isSelected ? "cursor-pointer bg-black/5" : "cursor-pointer"}
+              className={isSelected ? "cursor-pointer bg-surface-raised" : "cursor-pointer"}
             >
-              <td>{formatStrike(market.strike)}</td>
-              <td>{yesPrice !== undefined ? formatPrice(yesPrice) : "—"}</td>
-              <td>{yesPrice !== undefined ? formatPrice(oppositePrice(yesPrice)) : "—"}</td>
-              <td>{yesPrice !== undefined ? impliedProbability(yesPrice) : "—"}</td>
+              <td className="num">{formatStrike(market.strike)}</td>
+              <td className="num">{yesPrice !== undefined ? formatPrice(yesPrice) : "—"}</td>
+              <td className="num">{yesPrice !== undefined ? formatPrice(oppositePrice(yesPrice)) : "—"}</td>
+              <td className="num">{yesPrice !== undefined ? impliedProbability(yesPrice) : "—"}</td>
             </tr>
           );
         })}

@@ -34,15 +34,15 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
         : 0n;
 
   return (
-    <div className="flex flex-col gap-2 rounded border border-black/10 p-4">
+    <div className="flex flex-col gap-2 rounded border border-border p-4">
       <div className="flex items-baseline justify-between">
         <span className="font-semibold">
           {row.ticker} {formatStrike(row.strike)}
-          {row.tradingDay !== undefined ? <span className="ml-2 font-normal text-black/60">· {formatTradingDay(row.tradingDay)}</span> : null}
+          {row.tradingDay !== undefined ? <span className="ml-2 font-normal text-text-muted">· {formatTradingDay(row.tradingDay)}</span> : null}
         </span>
         <span className="flex items-center gap-3 text-sm">
           <span
-            className={`rounded-full px-2 py-0.5 text-xs ${row.state === "settled" ? "bg-black/10 text-black/70" : "bg-emerald-100 text-emerald-800"}`}
+            className={`rounded-full px-2 py-0.5 text-xs ${row.state === "settled" ? "bg-surface-raised text-text-muted" : "bg-success/15 text-success"}`}
           >
             {row.state === "settled" ? "Settled" : "Open"}
           </span>
@@ -83,7 +83,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
       ) : null}
 
       {row.restingYes > 0n ? (
-        <div className="flex items-center justify-between text-sm text-black/60">
+        <div className="flex items-center justify-between text-sm text-text-muted">
           <span>Yes resting (order book) — qty {row.restingYes.toString()}</span>
         </div>
       ) : null}
@@ -99,7 +99,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
         </div>
       ) : null}
 
-      <div className="text-sm text-black/60">
+      <div className="text-sm text-text-muted">
         {costBasisPending ? "Cost basis and P&L: syncing history…" : `Cost basis ${formatUsd(row.costBasisMicro)} · Realized P&L ${formatUsd(row.realizedPnlMicro)}`}
       </div>
     </div>

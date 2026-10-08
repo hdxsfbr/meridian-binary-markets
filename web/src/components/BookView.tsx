@@ -37,9 +37,15 @@ export function BookView({ bids, asks, perspective, onToggle }: BookViewProps) {
       </div>
 
       <div className="mt-2 flex gap-4 text-sm">
-        <span>Best bid {bid ? formatPrice(bid.price) : "—"}</span>
-        <span>Best ask {ask ? formatPrice(ask.price) : "—"}</span>
-        <span>Spread {spreadMicro !== undefined ? formatPrice(spreadMicro) : "—"}</span>
+        <span>
+          Best bid <span className="num">{bid ? formatPrice(bid.price) : "—"}</span>
+        </span>
+        <span>
+          Best ask <span className="num">{ask ? formatPrice(ask.price) : "—"}</span>
+        </span>
+        <span>
+          Spread <span className="num">{spreadMicro !== undefined ? formatPrice(spreadMicro) : "—"}</span>
+        </span>
       </div>
 
       {empty ? (
@@ -57,10 +63,10 @@ export function BookView({ bids, asks, perspective, onToggle }: BookViewProps) {
           <tbody>
             {Array.from({ length: Math.max(view.bids.length, view.asks.length) }).map((_, i) => (
               <tr key={i}>
-                <td>{view.bids[i] ? view.bids[i].qty.toString() : ""}</td>
-                <td>{view.bids[i] ? formatPrice(view.bids[i].price) : ""}</td>
-                <td>{view.asks[i] ? formatPrice(view.asks[i].price) : ""}</td>
-                <td>{view.asks[i] ? view.asks[i].qty.toString() : ""}</td>
+                <td className="num">{view.bids[i] ? view.bids[i].qty.toString() : ""}</td>
+                <td className="num">{view.bids[i] ? formatPrice(view.bids[i].price) : ""}</td>
+                <td className="num">{view.asks[i] ? formatPrice(view.asks[i].price) : ""}</td>
+                <td className="num">{view.asks[i] ? view.asks[i].qty.toString() : ""}</td>
               </tr>
             ))}
           </tbody>

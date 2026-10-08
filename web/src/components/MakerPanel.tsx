@@ -124,7 +124,7 @@ export function MakerPanel({
   }
 
   return (
-    <div className="flex flex-col gap-4 rounded border border-black/10 p-4">
+    <div className="flex flex-col gap-4 rounded border border-border p-4">
       <h2 className="text-lg font-semibold">Market maker</h2>
 
       <form onSubmit={handleSubmit} className="flex items-end gap-3">
@@ -158,15 +158,15 @@ export function MakerPanel({
         </button>
       </form>
 
-      <span className="text-sm text-black/60">
+      <span className="text-sm text-text-muted">
         Realized P&amp;L across every market: <span className="font-semibold">{formatUsd(realizedPnlMicro)}</span>
       </span>
 
       <div>
-        <h3 className="text-sm font-semibold text-black/60">Exposure, fills and resting totals</h3>
+        <h3 className="text-sm font-semibold text-text-muted">Exposure, fills and resting totals</h3>
         <div className="mt-2 flex flex-col gap-1">
           {summaryRows.length === 0 ? (
-            <span className="text-sm text-black/60">No resting exposure yet.</span>
+            <span className="text-sm text-text-muted">No resting exposure yet.</span>
           ) : (
             summaryRows.map((row) => {
               const totals = restingTotalsByMarket.get(row.marketKey);
@@ -174,8 +174,8 @@ export function MakerPanel({
                 <div key={row.marketKey} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span>
                     {row.ticker} {formatStrike(row.strike)}
-                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-black/60">· {formatTradingDay(row.tradingDay)}</span> : null}
-                    {row.settled ? <span className="ml-2 text-xs text-black/60">· Settled</span> : null}
+                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-text-muted">· {formatTradingDay(row.tradingDay)}</span> : null}
+                    {row.settled ? <span className="ml-2 text-xs text-text-muted">· Settled</span> : null}
                   </span>
                   <span>Exposure (Yes − No): {row.exposure.toString()}</span>
                   <span>Pairs held: {row.pairsHeld.toString()}</span>

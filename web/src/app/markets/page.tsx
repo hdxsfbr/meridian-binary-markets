@@ -6,6 +6,9 @@ import { usePrices } from "@/hooks/usePrices";
 import { countOpen, earliestCloseTs, groupByTicker, todayTradingDay } from "@/lib/markets";
 import { TICKERS } from "@meridian/sdk";
 import { TickerCard } from "@/components/TickerCard";
+import { Skeleton } from "@/components/ui/Skeleton";
+import { EmptyState } from "@/components/ui/EmptyState";
+import { InlineError } from "@/components/ui/InlineError";
 
 export default function MarketsPage() {
   const day = todayTradingDay();
@@ -19,13 +22,19 @@ export default function MarketsPage() {
   const hasAnyMarkets = markets.length > 0;
 
   return (
-    <div className="px-6 py-8">
+    <div className="mx-auto max-w-[1440px] px-6 py-8">
       <h1 className="text-2xl font-semibold">Markets</h1>
 
       {error ? (
-        <p className="mt-6 text-black/70">Could not load markets. Retrying…</p>
+        <div className="mt-6">
+          <InlineError>Could not load markets. Retrying…</InlineError>
+        </div>
       ) : loading ? (
-        <p className="mt-6 text-black/70">Loading markets…</p>
+        <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          {Array.from({ length: 6 }).map((_, i) => (
+            <Skeleton key={i} className="h-24 w-full" />
+          ))}
+        </div>
       ) : hasAnyMarkets ? (
         <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {enabledTickers.map((ticker) => {
@@ -48,7 +57,9 @@ export default function MarketsPage() {
           })}
         </div>
       ) : (
-        <p className="mt-6 text-black/70">No contracts yet today. Markets open each trading morning.</p>
+        <div className="mt-6">
+          <EmptyState>No contracts yet today. Markets open each trading morning.</EmptyState>
+        </div>
       )}
     </div>
   );
