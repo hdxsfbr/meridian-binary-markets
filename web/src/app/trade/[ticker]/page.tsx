@@ -16,6 +16,8 @@ import { useConfig } from "@/hooks/useConfig";
 import { useMarkets, type MarketAccount } from "@/hooks/useMarkets";
 import { useBook } from "@/hooks/useBook";
 import { usePosition } from "@/hooks/usePosition";
+import { usePrices } from "@/hooks/usePrices";
+import { formatUsd } from "@/lib/format";
 import { useProgram } from "@/hooks/useProgram";
 import { cancelOrder, fetchUsdcMint, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
 import { BookView } from "@/components/BookView";
@@ -44,6 +46,8 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
   const config = useConfig();
   const day = todayTradingDay();
   const { markets, loading, error } = useMarkets(day);
+  const prices = usePrices();
+  const lastPrice = prices[ticker]?.priceMicro;
 
   const tickerMarkets = useMemo(
     () => markets.filter((m) => m.ticker === ticker).sort((a, b) => Number(a.strike - b.strike)),
@@ -92,7 +96,10 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
   return (
     <div className="px-6 py-4">
       <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">{ticker}</h1>
+        <h1 className="text-2xl font-semibold">
+          {ticker}
+          {lastPrice !== undefined ? <span className="ml-3 text-lg font-normal text-black/70">{formatUsd(lastPrice)}</span> : null}
+        </h1>
         {closeTs !== undefined ? <Countdown closeTs={closeTs} /> : null}
       </div>
 
