@@ -49,11 +49,29 @@ table; History rows with market, amount and explorer link, grouped by day.
 focus ring (cyan); contrast check (WCAG AA) on every text/background pair actually used; reduced
 motion; Playwright flows updated for new labels only where copy changed.
 
-## Decisions to make before R1
-1. Dark-only or dark + light toggle? (Recommendation: dark-only for the demo; tokens keep light ready.)
-2. Sparkline: in or out for the first pass? (Recommendation: in R3 only if R1-R2 land on schedule.)
-3. Probability display: show best ask as "60%" (today) or midpoint of bid/ask? (Recommendation: keep best ask; label it "to buy Yes".)
+## Decisions (Andre, 2026-10-08)
+1. Dark only for now. Build the token layer so light is a `data-theme` switch away: every colour via
+   CSS variables, no hard-coded hex in components, the light block from `design-tokens.css` kept.
+2. Sparkline in the first pass (R3).
+3. Probability = best ask, labelled "to buy Yes".
+4. Strip developer-facing copy from the UI while restyling (see the audit list below).
 
 ## Review loop
 Same as the build waves: Codex headless review per wave scoped to the wave's files, one Sonnet fix
 pass, commit, stop for Andre. Screenshots before/after per page in `design/meridian-flow/after/`.
+
+## Copy audit: developer language visible today (to fix in the matching wave)
+
+| Where | Today | Proposed |
+| --- | --- | --- |
+| Admin config card | "Mock Pyth (devnet simulation)", "Max confidence (bps)", "Max staleness", "Min publish offset", "Override delay" | "Price source: Pyth" / "Price source: test publisher"; move the four guard numbers into a collapsed "Settlement checks" block with plain labels ("Price no older than 5 min", "Confidence within 0.25%", "Published at or after close", "Override allowed 1 h after close") |
+| Portfolio | "Syncing history…", "Partial history", "Cost basis and P&L: syncing history…" | One quiet status line: "Updating your trade history…"; drop "Partial history" unless incomplete after sync, then "Older activity still loading" |
+| Maker panel | "Exposure, fills and resting totals", "Exposure (Yes − No)", "Pairs held", "Fills", "Resting: x bid / y ask", "Quote resting orders", "No resting exposure yet", "No resting orders" | "Your quotes" section: "Net Yes", "Pairs", "Trades", "Open: x buys / y sells"; "Place quotes"; "No quotes yet"; "No open quotes" |
+| Trade panel | "(1 fill)", "(2 fills)" on estimates | Drop the fill count; keep "You pay $0.60" (fills matter only to makers; the book shows depth) |
+| Trade panel | "You hold No and have a resting order waiting to fill." | "You hold No. Your Buy No order is still open." |
+| Trade panel | "This would trade against your own resting order. Cancel it first." | "This would match your own open order. Cancel it first." |
+| Open orders | "Remaining", "Locked" column headers | "Open qty", "Reserved" |
+| Trade header | "Implied probability" | "Chance", with "to buy Yes" sub-label on the price column |
+
+Rule (from `~/.claude/CLAUDE.md`): no implementation commentary in product copy. "Resting",
+"fill", "escrow", "mock", "devnet", "bps", "staleness" are all implementation words.
