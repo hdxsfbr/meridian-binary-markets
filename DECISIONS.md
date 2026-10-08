@@ -548,3 +548,9 @@ with crypto or metal feeds that have no 4 PM close.
 **Trade-off:** Fewer markets per day for the demo (about 21 instead of 45) and two of the three
 are index ETFs rather than single stocks. When Pyth grants the remaining equity feeds, listing
 them is one config call and no deploy.
+
+**Update, 2026-10-08 (later the same day):** a further key grant enabled all seven PRD feeds
+(AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA; confidence under 2 bps each). Andre chose the PRD seven
+as the listed set; `TICKERS` defaults to them again and the devnet config was switched by one
+`init-config -- --update --tickers ...` call, as §20 intended. QQQ and VOO stay in the catalogue
+and their day-20261008 ladders remain tradable by URL until they settle.

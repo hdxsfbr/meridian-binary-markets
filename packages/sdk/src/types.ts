@@ -52,12 +52,11 @@ export type Ticker = string;
 export type KnownTicker = (typeof Ticker)[keyof typeof Ticker];
 
 /**
- * Default listed set: the US equity feeds the project's Pyth key is entitled
- * to (TSLA plus the QQQ and VOO index ETFs, 2026-10-08). The PRD's other
- * names (AAPL, AMZN, GOOGL, META, MSFT, NVDA) stay in `FEED_IDS` and can be
- * enabled by config the day their feeds are granted.
+ * Default listed set: the PRD's seven stocks, all entitled on the project's
+ * Pyth key since 2026-10-08. `FEED_IDS` also carries QQQ, VOO and SPY for
+ * deployments that list ETFs instead (`init-config -- --tickers ...`).
  */
-export const TICKERS: readonly Ticker[] = ["TSLA", "QQQ", "VOO"] as const;
+export const TICKERS: readonly Ticker[] = ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA", "TSLA"] as const;
 
 /**
  * Pyth `Equity.US.<SYM>/USD` regular-session feed ids (research.md R4), as
