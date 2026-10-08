@@ -8,6 +8,7 @@
  * `sessionStorage`) -- this component itself makes no network call.
  */
 
+import { useRef, useState } from "react";
 import { formatUsd } from "@/lib/format";
 import type { PricePoint } from "@/lib/price-history";
 
@@ -20,7 +21,14 @@ export type SparklineProps = {
 
 const VIEWBOX_WIDTH = 600;
 
+function formatTime(ts: number): string {
+  return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+}
+
 export function Sparkline({ ticker, points, strikeMicro, height = 96 }: SparklineProps) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverIndex, setHoverIndex] = useState<number | null>(null);
+
   if (points.length < 2) {
     return (
       <div
@@ -68,15 +76,46 @@ export function Sparkline({ ticker, points, strikeMicro, height = 96 }: Sparklin
     strikeMicro !== undefined ? `, strike ${formatUsd(strikeMicro)}` : ""
   }, ${points.length} samples`;
 
+  // Hover readout: nearest sample to the pointer's x position.
+  function onPointerMove(event: React.PointerEvent<SVGSVGElement>) {
+    const svg = svgRef.current;
+    if (svg === null) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width === 0) return;
+    const x = ((event.clientX - rect.left) / rect.width) * VIEWBOX_WIDTH;
+    let best = 0;
+    let bestDistance = Infinity;
+    for (let i = 0; i < points.length; i += 1) {
+      const d = Math.abs(xFor(i) - x);
+      if (d < bestDistance) {
+        bestDistance = d;
+        best = i;
+      }
+    }
+    setHoverIndex(best);
+  }
+  const hovered = hoverIndex !== null ? points[hoverIndex] : null;
+  const shown = hovered ?? last;
+
   return (
     <div className="w-full">
+      <div className="num mb-1 flex items-baseline justify-between text-xs">
+        <span className="text-text">
+          {formatUsd(shown.priceMicro)}
+          <span className="ml-2 text-text-muted">{hovered !== null ? formatTime(hovered.ts) : "now"}</span>
+        </span>
+        {strikeMicro !== undefined ? <span className="text-text-muted">Strike {formatUsd(strikeMicro)}</span> : null}
+      </div>
       <svg
+        ref={svgRef}
         viewBox={`0 0 ${VIEWBOX_WIDTH} ${height}`}
         preserveAspectRatio="none"
-        className="w-full"
+        className="w-full cursor-crosshair"
         style={{ height }}
         role="img"
         aria-label={summary}
+        onPointerMove={onPointerMove}
+        onPointerLeave={() => setHoverIndex(null)}
       >
         {strikeY !== undefined ? (
           <line
@@ -90,6 +129,19 @@ export function Sparkline({ ticker, points, strikeMicro, height = 96 }: Sparklin
           />
         ) : null}
         <path d={path} fill="none" stroke="var(--color-cyan)" strokeWidth={2} />
+        {hoverIndex !== null ? (
+          <g>
+            <line
+              x1={xFor(hoverIndex)}
+              y1={0}
+              x2={xFor(hoverIndex)}
+              y2={height}
+              stroke="var(--color-text-muted)"
+              strokeWidth={1}
+            />
+            <circle cx={xFor(hoverIndex)} cy={yFor(points[hoverIndex].priceMicro)} r={4} fill="var(--color-cyan)" />
+          </g>
+        ) : null}
       </svg>
       <div className="num mt-1 flex justify-between text-xs text-text-muted">
         <span>{formatUsd(min)}</span>
