@@ -194,7 +194,11 @@ export default function PortfolioPage() {
   const nowSeconds = Math.floor(Date.now() / 1000);
   const openMarkets: MarketLike[] = markets
     .filter((m) => m.state === "open" && Number(m.closeTs) > nowSeconds)
-    .sort((a, b) => (a.ticker === b.ticker ? (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0) : a.ticker < b.ticker ? -1 : 1));
+    .sort((a, b) => {
+      if (a.ticker !== b.ticker) return a.ticker < b.ticker ? -1 : 1;
+      if ((a.tradingDay ?? 0) !== (b.tradingDay ?? 0)) return (a.tradingDay ?? 0) - (b.tradingDay ?? 0);
+      return a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0;
+    });
   const today = todayTradingDay();
   const todaysOpenMarkets = openMarkets.filter((m) => todayTradingDay(Number(m.closeTs) * 1000) === today);
   const paused = config?.paused ?? false;
