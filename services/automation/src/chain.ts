@@ -531,6 +531,7 @@ export class ChainClient {
         yesMint,
         noMint,
         tokenProgram: TOKEN_PROGRAM_ID,
+        systemProgram: SystemProgram.programId,
       })
       .signers([this.adminKeypair])
       .rpc();

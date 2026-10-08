@@ -300,6 +300,12 @@ the browser and `SOLANA_RPC_URL`/`SOLANA_WS_URL` for scripts and the service, th
 app. The browser key is visible to anyone using the site, so restrict it to your origin in the
 provider's dashboard and keep it devnet-only.
 
+**The automation service refuses to start with "ALERT_WEBHOOK_URL must use the http: or https:
+scheme" (or a similar complaint about a variable you left blank).** Docker Compose keeps an
+inline `# comment` as the value when the value before it is empty, so `KEY=   # note` arrives as
+`KEY="# note"`. `.env.example` now puts comments for blank-by-default keys on their own line; if
+you copied an older version, delete the trailing comment on any blank line in your `.env`.
+
 **Admin page shows "Status unavailable".** That column reads the automation service's status
 endpoint (`NEXT_PUBLIC_AUTOMATION_STATUS_URL`). `make dev` does not start the service; run
 `make jobs` in a second terminal, or ignore the column when only the web app is under test.
