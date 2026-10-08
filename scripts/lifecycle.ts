@@ -62,8 +62,16 @@ import { IDL, PROGRAM_ID, configPda, decodeBook, plannedFills, type Ticker } fro
 import { buildInitializeConfigArgs } from "./init-config.js";
 
 const ONE_USDC = 1_000_000n;
-/** Each demo user's initial USDC funding (step 5). Chosen comfortably above the trading scenario's needs. */
+/** Each demo user's initial USDC funding on localnet (step 5), where the script mints it freely. */
 const DEMO_USER_INITIAL_USDC = 1_000n * ONE_USDC;
+/**
+ * Minimum USDC per demo user on devnet, where USDC comes from Circle's faucet
+ * (roughly 10 USDC per request) and is funded by hand. In the scenario below
+ * A mints 20 pairs (20 USDC) and then rests a 5 @ $0.40 bid (2 USDC); B's
+ * trades peak well under 10 USDC.
+ */
+const DEVNET_USER_A_MIN_USDC = 25n * ONE_USDC;
+const DEVNET_USER_B_MIN_USDC = 10n * ONE_USDC;
 
 let stepNumber = 0;
 function logStep(line: string): void {
@@ -235,6 +243,10 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
   }
 
   const chain = new LifecycleChain(connection, admin, publisher, config.usdcMint);
+  if (env.cluster === "devnet") {
+    // Public devnet RPC throttles bursts ("Too many requests for a specific RPC call").
+    chain.paceMs = 750;
+  }
 
   const capacity = config.defaultBookCapacity;
 
@@ -276,7 +288,15 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
   );
 
   logStep("preflight: check/fund demo users A (maker) and B (taker)");
-  await fundDemoUsers(connection, env.cluster, chain, userA, userB, DEMO_USER_INITIAL_USDC);
+  await fundDemoUsers(
+    connection,
+    env.cluster,
+    chain,
+    userA,
+    userB,
+    env.cluster === "devnet" ? DEVNET_USER_A_MIN_USDC : DEMO_USER_INITIAL_USDC,
+    env.cluster === "devnet" ? DEVNET_USER_B_MIN_USDC : DEMO_USER_INITIAL_USDC,
+  );
   logDetail(`A: ${userA.keypair.publicKey.toBase58()}`);
   logDetail(`B: ${userB.keypair.publicKey.toBase58()}`);
 

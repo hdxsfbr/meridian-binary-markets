@@ -135,10 +135,10 @@ export async function createSyntheticDay(
   const firstCandidate = tradingDay;
   let foundFreshDay = false;
   for (let attempt = 0; attempt < MAX_DAY_SEARCH_ATTEMPTS; attempt += 1) {
-    const existing = await Promise.all(
-      plannedStrikes.map(({ ticker, strike }) => chain.fetchMarket(chain.marketAddress(ticker, tradingDay, strike))),
+    const existing = await chain.marketsExist(
+      plannedStrikes.map(({ ticker, strike }) => chain.marketAddress(ticker, tradingDay, strike)),
     );
-    if (existing.every((m) => m === null)) {
+    if (existing.every((exists) => !exists)) {
       foundFreshDay = true;
       break;
     }
@@ -158,6 +158,7 @@ export async function createSyntheticDay(
     for (const strike of ladder) {
       const market = await chain.createMarket(ticker, strike, tradingDay, closeTs, capacity);
       log(`create_market ${ticker} strike=${strike} -> ${market.toBase58()}`);
+      await chain.pace();
       await chain.createBookUntilDone(market);
       log(`create_book   ${ticker} strike=${strike} -> market ${market.toBase58()} book ready`);
       strikesToMarkets.set(strike.toString(), market);

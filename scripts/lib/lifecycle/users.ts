@@ -58,7 +58,8 @@ export async function fundDemoUsers(
   chain: LifecycleChain,
   userA: DemoUser,
   userB: DemoUser,
-  usdcEachMicro: bigint,
+  usdcAMicro: bigint,
+  usdcBMicro: bigint = usdcAMicro,
 ): Promise<{ userAUsdcAta: Awaited<ReturnType<LifecycleChain["usdcAta"]>>; userBUsdcAta: Awaited<ReturnType<LifecycleChain["usdcAta"]>> }> {
   if (cluster === "devnet") {
     const [balA, balB] = await Promise.all([
@@ -70,11 +71,13 @@ export async function fundDemoUsers(
     const usdcBalA = userAUsdcAta ? await chain.getTokenBalance(userAUsdcAta) : 0n;
     const usdcBalB = userBUsdcAta ? await chain.getTokenBalance(userBUsdcAta) : 0n;
     const minSol = LAMPORTS_PER_SOL / 10; // 0.1 SOL floor for fees
-    if (balA < minSol || balB < minSol || usdcBalA < usdcEachMicro || usdcBalB < usdcEachMicro) {
+    if (balA < minSol || balB < minSol || usdcBalA < usdcAMicro || usdcBalB < usdcBMicro) {
       console.log("lifecycle: devnet demo users are underfunded. Fund manually and re-run:");
       console.log(`  A: ${userA.keypair.publicKey.toBase58()} (SOL via faucet.solana.com; USDC via Circle devnet faucet)`);
       console.log(`  B: ${userB.keypair.publicKey.toBase58()} (SOL via faucet.solana.com; USDC via Circle devnet faucet)`);
-      console.log(`  need >= ${Number(usdcEachMicro) / 1_000_000} USDC and >= 0.1 SOL each`);
+      console.log(
+        `  need A >= ${Number(usdcAMicro) / 1_000_000} USDC, B >= ${Number(usdcBMicro) / 1_000_000} USDC, and >= 0.1 SOL each`,
+      );
       throw new Error("lifecycle: devnet demo users underfunded; see funding instructions above");
     }
     return { userAUsdcAta: userAUsdcAta!, userBUsdcAta: userBUsdcAta! };
@@ -89,8 +92,8 @@ export async function fundDemoUsers(
   const userBUsdcAta = await chain.usdcAta(userB.keypair.publicKey);
 
   const [balA, balB] = await Promise.all([chain.getTokenBalance(userAUsdcAta), chain.getTokenBalance(userBUsdcAta)]);
-  if (balA < usdcEachMicro) await chain.fundUsdc(userAUsdcAta, usdcEachMicro - balA);
-  if (balB < usdcEachMicro) await chain.fundUsdc(userBUsdcAta, usdcEachMicro - balB);
+  if (balA < usdcAMicro) await chain.fundUsdc(userAUsdcAta, usdcAMicro - balA);
+  if (balB < usdcBMicro) await chain.fundUsdc(userBUsdcAta, usdcBMicro - balB);
 
   return { userAUsdcAta, userBUsdcAta };
 }

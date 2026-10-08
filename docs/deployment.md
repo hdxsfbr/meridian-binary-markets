@@ -124,6 +124,20 @@ omitted.) A full run example:
 make lifecycle CLUSTER=devnet DEMO_SCALE=1 LIFECYCLE_ARGS="--close-in 120"
 ```
 
+On devnet the two demo wallets must already be funded: **A (`keys/user-a.json`) at least 25 USDC,
+B (`keys/user-b.json`) at least 10 USDC, and 0.1 SOL each**; the script prints their addresses
+and stops if they aren't. Get the USDC from `https://faucet.circle.com` (Solana devnet, 20 USDC per
+request, one request per address every two hours, no login) and the
+SOL by a small transfer from the admin wallet. On localnet the script mints 1,000 test USDC each.
+
+The public devnet RPC (`api.devnet.solana.com`) rate-limits bursts of the same call. The script
+probes a day's planned markets with one batched `getMultipleAccounts` call and, on devnet, pauses
+750 ms between on-chain steps. Even so, a full seven-ticker run is roughly 150 transactions; if
+the run dies with `429 Too Many Requests`, rerun with `--tickers` for a subset or point
+`SOLANA_RPC_URL` at a private devnet endpoint. Choose `--close-in` so trading finishes before the
+close: at about 3 s per transaction on devnet, allow at least 300 s for one ticker and 600 s for
+the full ladder.
+
 Runs the full seven-ticker ladder (5–7 strikes per ticker, ~45 markets) at book capacity 16 (see
 §1.1 for the rent this costs). `DEMO_SCALE=0` uses the production default (capacity 128, ~5.8
 SOL/day) and is not expected to fit a reviewer's faucet allowance in one sitting.
@@ -164,16 +178,28 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 20:00 ET. The service refuses to start if `ORACLE_PROVIDER` disagrees with the on-chain
 `Config.oracle_provider`.
 
-## 2. Recorded addresses (fill in after the Wave 7 devnet run)
+## 2. Recorded addresses (devnet, 2026-10-07)
 
 | Item | Value |
 | --- | --- |
-| Program ID | *to be filled after deployment* |
-| Config PDA | *to be filled after deployment* |
-| Deploy transaction signature | *to be filled after deployment* |
-| USDC mint used | *to be filled after deployment (expected: Circle devnet USDC above)* |
-| Sample market addresses (one per ticker) | *to be filled after deployment* |
-| Deploy date / cluster genesis hash | *to be filled after deployment* |
+| Program ID | `3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn` ([explorer](https://explorer.solana.com/address/3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn?cluster=devnet)) |
+| Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`, slot 508626847, 613,088 bytes, 3.115 SOL rent |
+| Upgrade authority (admin) | `3i2UN14eCEzLG7HvhgyWUFcN19zdbURj8s78QF6RBZPH` |
+| Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `mockPyth`, capacity 16, override delay 3600 s) |
+| Publisher | `HDBdqW1XzfCNZXdexLKiVw95B5HUDd3sYp8tX9ijnKRa` |
+| USDC mint used | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet USDC) |
+| First full lifecycle | trading day 20261011 (synthetic), AAPL ladder of 7 markets, settled at $335.00, maker +1.00 / taker −1.00 USDC, vault 0 |
+| Sample market (AAPL $330, traded) | `FxinHA2BdBaxZj5Pq6rtXvW23jnXQTxp5FJYMNJScrpM` |
+| Mock price account (AAPL) | `8xC1riDPLd1kDyVSjs8DLBZHY9VSLzncLmTW3mvgSfwP` |
+| Deploy date / cluster genesis hash | 2026-10-07 / `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
+
+Anchor's optional on-chain IDL upload (`Writing metadata account…`) failed after the program
+itself deployed; nothing reads it, since the web app and scripts bundle the IDL from
+`packages/sdk/src/idl.ts`. Two earlier lifecycle attempts on the public devnet RPC were cut short
+by rate limiting after creating 19 and 21 markets respectively (trading days 20261009 and
+20261010); those markets are unsettled and reclaimable via `admin_settle_override` + `close_market`
+once their override delay has elapsed. The pacing and batched probe described in §1.4 came out
+of those runs.
 
 **Why this table, and not `declare_id!` in `programs/meridian/src/lib.rs`, is the source of
 truth.** The program's keypair (`target/deploy/meridian-keypair.json`) is generated locally by

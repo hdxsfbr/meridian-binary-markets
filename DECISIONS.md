@@ -483,3 +483,21 @@ and past it for each path, plus a cancel-after-close test.
 **Trade-off:** A market that closes but never settles (oracle refusing every retry, operator
 override not yet allowed) has a frozen book for up to an hour. That is the intended behaviour:
 nothing about the outcome changes in that hour, and the escrows stay refundable through cancel.
+
+## 17. Devnet runs: manual USDC floors per demo wallet, paced transactions, batched probes
+
+**Date:** 2026-10-07 (first devnet deployment)
+**Context:** The lifecycle script on devnet demanded 1,000 USDC per demo wallet, a localnet number
+that no faucet pays out (Circle's gives 20 USDC per address every two hours). The first run that
+did get funded then failed because the maker mints 20 pairs and immediately posts a 2 USDC bid.
+Separately, two runs on the public devnet RPC died with `429 Too Many Requests`: once on a burst of
+45 parallel account reads, once mid-ladder after web3.js's own retries ran out.
+**Decision:** On devnet the floors are what the scenario actually needs, A ≥ 25 USDC and B ≥ 10
+USDC, funded by hand and checked before any market is created; localnet keeps minting 1,000 each.
+The day-freshness probe is one `getMultipleAccounts` call per 100 addresses, and on devnet the
+script pauses 750 ms between on-chain steps. Partial runs are not resumed: a run that dies leaves
+its markets to be override-settled and closed for rent later, and the next run uses a fresh
+synthetic day. `--tickers` is the budget lever when SOL or RPC headroom is short.
+**Trade-off:** A full seven-ticker devnet run now takes several minutes longer and still depends on
+a public RPC's mood; a private devnet endpoint removes that, at the cost of one more credential.
+Abandoned partial runs cost about 0.02 SOL per market until reclaimed.

@@ -156,6 +156,20 @@ export class LifecycleChain {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly program: any;
 
+  /**
+   * Delay inserted between consecutive on-chain steps (market creation, book
+   * growth polling). 0 on localnet; `lifecycle.ts` sets it on devnet, where the
+   * public RPC rate-limits bursts of the same call and web3.js's own retries
+   * run out mid-ladder.
+   */
+  paceMs = 0;
+
+  async pace(): Promise<void> {
+    if (this.paceMs > 0) {
+      await new Promise((resolve) => setTimeout(resolve, this.paceMs));
+    }
+  }
+
   constructor(connection: Connection, admin: Keypair, publisher: Keypair, usdcMint: PublicKey) {
     this.connection = connection;
     this.admin = admin;
@@ -230,6 +244,21 @@ export class LifecycleChain {
     };
   }
 
+  /**
+   * Which of `markets` already exist on chain, as one `getMultipleAccounts`
+   * call per 100 addresses rather than one `getAccountInfo` each. Public
+   * devnet RPC rate-limits bursts of the same call ("Too many requests for a
+   * specific RPC call"), which made a 45-market freshness probe fail outright.
+   */
+  async marketsExist(markets: PublicKey[]): Promise<boolean[]> {
+    const out: boolean[] = [];
+    for (let i = 0; i < markets.length; i += 100) {
+      const infos = await this.connection.getMultipleAccountsInfo(markets.slice(i, i + 100), "confirmed");
+      out.push(...infos.map((info) => info !== null));
+    }
+    return out;
+  }
+
   async fetchMarket(market: PublicKey): Promise<MarketAccountDecoded | null> {
     const raw = await this.program.account.market.fetchNullable(market);
     return raw ? decodeMarket(raw) : null;
@@ -278,6 +307,7 @@ export class LifecycleChain {
     const [config] = configPda(PROGRAM_ID);
     const [book] = bookPda(PROGRAM_ID, market);
     for (let i = 0; i < 32; i += 1) {
+      await this.pace();
       await this.program.methods
         .createBook()
         .accountsStrict({

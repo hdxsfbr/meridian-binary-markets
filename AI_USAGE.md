@@ -422,3 +422,26 @@ model drives the real UI with the test wallet before handing a build over.
 Raised rather than decided: whether realized P&L should show the losing leg's write-off before
 the winning side is redeemed, and whether the program itself should refuse mint and order
 placement after a market's close time (today only the UI hides it).
+
+### 2026-10-07 — Devnet deployment
+
+Andre funded the admin wallet with 5 SOL from the Solana faucet (the second request never landed)
+and the two demo wallets with 20 USDC each from Circle's faucet; Claude Code did the rest: deploy,
+config, four lifecycle attempts, and the fixes between them. The program deployed first try at
+the committed address. Anchor's IDL upload failed afterwards, harmlessly.
+
+The lifecycle took four attempts, each failing on something the localnet runs could not have
+shown: a 1,000 USDC per-wallet floor that only made sense where the script mints its own USDC; a
+burst of 45 parallel reads the public RPC refused; web3.js retries running out mid-ladder; the
+maker needing 22 USDC, not 20, because the scenario's bid comes right after the mint; and both
+demo wallets dipping a few thousandths of a SOL under the fee floor from the previous attempts.
+Between attempts the model recovered the maker's 20 USDC from the abandoned market by cancelling
+its asks and redeeming the pairs, and moved 10 USDC from the taker to the maker rather than wait
+two hours for the faucet. Each fix is small and recorded in `DECISIONS.md` §17; together they are
+the difference between "works on a validator we control" and "works on a shared network."
+
+The fifth run completed end to end: seven AAPL markets, four trades matching the hand-computed
+deltas, settlement at $335 by the mock oracle, redemption, vault at zero. Addresses are in
+`docs/deployment.md` §2. About 0.8 SOL of rent sits in the 40 markets from the aborted runs,
+reclaimable after their override delay. The real Pyth post on devnet still waits on 0.5 SOL for
+the publisher; the next faucet round covers it.
