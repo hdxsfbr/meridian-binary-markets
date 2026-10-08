@@ -288,8 +288,10 @@ export async function refreshEventCache(connection: Connection, programId: Publi
  * Minimum spacing between transaction fetches. Public devnet RPC allows 40
  * calls per method per 10 s; a tight loop over `getParsedTransaction` ran
  * at several times that and was rate-limited into failing every fetch.
+ * Overridable per deployment (`NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS`) so a
+ * private endpoint with a higher limit syncs history faster.
  */
-const TRANSACTION_FETCH_SPACING_MS = 600;
+const TRANSACTION_FETCH_SPACING_MS = Number(process.env.NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS ?? "600");
 
 /** In-flight refresh per cache key: several hooks refresh at once on page load and must share one sync. */
 const inFlight = new Map<string, Promise<RefreshResult>>();
