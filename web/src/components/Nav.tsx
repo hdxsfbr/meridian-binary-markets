@@ -68,17 +68,24 @@ export function Nav() {
           })}
         </div>
       </div>
-      <div className="hidden min-w-0 items-center gap-4 overflow-x-auto lg:flex" aria-label="Ticker prices">
-        {tickers.map((ticker) => (
-          <Link
-            key={ticker}
-            href={`/trade/${ticker}`}
-            className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted hover:text-text"
-          >
-            <span className="font-medium">{ticker}</span>
-            <span className="num">{prices[ticker]?.priceMicro !== undefined ? formatUsd(prices[ticker]!.priceMicro) : "—"}</span>
-          </Link>
-        ))}
+      <div className="ticker-tape hidden min-w-0 lg:block" aria-label="Ticker prices">
+        <div className="ticker-tape-track">
+          {[0, 1].map((copy) => (
+            <div key={copy} className="ticker-tape-group" aria-hidden={copy === 1}>
+              {tickers.map((ticker) => (
+                <Link
+                  key={`${copy}-${ticker}`}
+                  href={`/trade/${ticker}`}
+                  tabIndex={copy === 1 ? -1 : undefined}
+                  className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted hover:text-text"
+                >
+                  <span className="font-medium">{ticker}</span>
+                  <span className="num">{prices[ticker]?.priceMicro !== undefined ? formatUsd(prices[ticker]!.priceMicro) : "—"}</span>
+                </Link>
+              ))}
+            </div>
+          ))}
+        </div>
       </div>
       <div className="shrink-0">
         <WalletMultiButton />

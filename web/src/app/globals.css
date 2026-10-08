@@ -112,6 +112,31 @@ body {
   outline-offset: 2px;
 }
 
+/* Nav ticker tape: two copies of the list scroll left continuously; hover or keyboard focus pauses it so a link can be clicked. */
+.ticker-tape {
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 6%, #000 94%, transparent);
+}
+.ticker-tape-track {
+  display: flex;
+  width: max-content;
+  animation: ticker-tape 40s linear infinite;
+}
+.ticker-tape:hover .ticker-tape-track,
+.ticker-tape:focus-within .ticker-tape-track {
+  animation-play-state: paused;
+}
+.ticker-tape-group {
+  display: flex;
+  align-items: center;
+  gap: 1.5rem;
+  padding-right: 1.5rem;
+}
+@keyframes ticker-tape {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
