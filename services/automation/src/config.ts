@@ -91,7 +91,8 @@ const rawConfigSchema = z.object({
   PYTH_RECEIVER_PROGRAM: solanaPubkey("PYTH_RECEIVER_PROGRAM"),
   FINNHUB_API_KEY: optionalNonEmpty,
   ALERT_WEBHOOK_URL: optionalHttpUrl,
-  AUTOMATION_STATUS_PORT: portNumber.default("8787"),
+  // An empty value (a host whose port template resolved to nothing) falls back to the default.
+  AUTOMATION_STATUS_PORT: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), portNumber.default("8787")),
   DEMO_SCALE: booleanFromFlag,
   // Fix #22: CORS origin for the status endpoint. Optional URL, defaulting to the local web
   // dev server (`.env.example` needs a `WEB_ORIGIN=` line documenting this; not added here --

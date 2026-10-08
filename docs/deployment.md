@@ -347,8 +347,10 @@ Variables, set with `railway variable set --service <name>`:
 - **automation:** `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL`, `SOLANA_WS_URL`,
   `ADMIN_KEYPAIR_JSON`, `PUBLISHER_KEYPAIR_JSON` (the keypair files' JSON byte arrays; see
   `services/automation/src/keys.ts`), `USDC_MINT`, `ORACLE_PROVIDER=pyth`, `PYTH_HERMES_URL`,
-  `PYTH_API_KEY`, `PYTH_RECEIVER_PROGRAM`, `DEMO_SCALE=1`, `AUTOMATION_STATUS_PORT=${{PORT}}`,
-  `WEB_ORIGIN=https://<web domain>`, `ALERT_WEBHOOK_URL` (Slack).
+  `PYTH_API_KEY`, `PYTH_RECEIVER_PROGRAM`, `DEMO_SCALE=1`, `PORT=8787` and
+  `AUTOMATION_STATUS_PORT=8787` (Railway does not define `PORT` for a Dockerfile service on its
+  own; a `${{PORT}}` reference resolves to an empty string), `WEB_ORIGIN=https://<web domain>`,
+  `ALERT_WEBHOOK_URL` (Slack).
 
 The worker signs with the admin and publisher keys, so those live as Railway variables. That is
 acceptable for a devnet demo and is called out in `risks-and-limitations.md`; for anything with
