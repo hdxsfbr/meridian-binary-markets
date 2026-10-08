@@ -44,6 +44,10 @@ button, gated and disabled states with reasons (as today). Open orders table.
 **Wave R4 — Portfolio and History.** Position rows as cards with day label, state badge, redeem
 actions; realized P&L separated from side colours; maker panel restyled, exposure table as a real
 table; History rows with market, amount and explorer link, grouped by day.
+*Redeem all (Andre, 2026-10-08):* after settlement, a banner on every page, "You have $X to
+collect", with one **Redeem all** button that batches every winning position and every held pair
+into a single transaction (one signature). Self-custody stays as in FR-6; this only removes the
+hunting. Needs a small SDK helper that builds the instruction list from the wallet's positions.
 
 **Wave R4b — Docs tab.** A `Docs` entry in the nav and a `/docs` section rendered from markdown
 files kept in the repo (`web/content/docs/*.md`, one per page, with a left sidebar on desktop and a
