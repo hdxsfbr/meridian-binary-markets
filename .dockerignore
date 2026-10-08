@@ -1,0 +1,17 @@
+# Build context for deploy/*.Dockerfile (the dev image in ./Dockerfile copies nothing).
+.git
+node_modules
+**/node_modules
+target
+programs/target
+**/.next
+web/test-results
+web/playwright-report
+keys
+.env
+.env.*
+design
+docs
+specs
+test-ledger
+*.log
