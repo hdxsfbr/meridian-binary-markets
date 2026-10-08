@@ -37,7 +37,7 @@ export function BookView({ bids, asks, perspective, onToggle }: BookViewProps) {
           type="button"
           aria-pressed={perspective === "yes"}
           onClick={() => onToggle("yes")}
-          className={`rounded-sm border px-3 py-1 text-sm ${perspective === "yes" ? "border-yes bg-yes/15 text-yes" : "border-border text-text-muted"}`}
+          className={`min-h-10 rounded-sm border px-3 py-1 text-sm ${perspective === "yes" ? "border-yes bg-yes/15 text-yes" : "border-border text-text-muted"}`}
         >
           Yes
         </button>
@@ -45,7 +45,7 @@ export function BookView({ bids, asks, perspective, onToggle }: BookViewProps) {
           type="button"
           aria-pressed={perspective === "no"}
           onClick={() => onToggle("no")}
-          className={`rounded-sm border px-3 py-1 text-sm ${perspective === "no" ? "border-no bg-no/15 text-no" : "border-border text-text-muted"}`}
+          className={`min-h-10 rounded-sm border px-3 py-1 text-sm ${perspective === "no" ? "border-no bg-no/15 text-no" : "border-border text-text-muted"}`}
         >
           No
         </button>

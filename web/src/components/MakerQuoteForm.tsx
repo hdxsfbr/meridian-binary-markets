@@ -261,7 +261,7 @@ export function MakerQuoteForm({
         <button
           type="submit"
           disabled={disabled || openMarkets.length === 0}
-          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-indigo disabled:opacity-60"
+          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-cyan disabled:opacity-60"
         >
           {disabled ? "Trading is paused" : "Add to queue"}
         </button>

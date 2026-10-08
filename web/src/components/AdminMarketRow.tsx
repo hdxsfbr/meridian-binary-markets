@@ -56,13 +56,13 @@ export function AdminMarketRow({ row, overrideDelaySecs, now, statusUnavailable,
             value={price}
             onChange={(e) => setPrice(e.target.value)}
             placeholder="Settlement price ($)"
-            className="w-36 rounded border border-border px-2 py-1"
+            className="min-h-10 w-36 rounded-md border border-border px-2 py-1"
             disabled={!availability.available || submitting}
           />
           <button
             type="submit"
             disabled={!availability.available || price.trim() === "" || submitting}
-            className="rounded border border-border px-3 py-1 disabled:opacity-50"
+            className="min-h-10 rounded-md border border-border px-3 py-1 disabled:opacity-50"
           >
             Override
           </button>

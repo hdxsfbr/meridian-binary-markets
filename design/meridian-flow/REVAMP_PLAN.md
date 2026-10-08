@@ -61,7 +61,7 @@ dropdown on mobile). User-facing only, written for a trader, not for a reviewer 
 - *FAQ and limits*: devnet-only, no real funds, rate limits, what to do when something looks stale.
 Developer docs stay in `docs/` and the README; the Docs tab links out to the repo for those.
 
-**Wave R5 — Admin, responsive, accessibility.** Admin restyled; 1440 / 1024 / 390 passes; keyboard
+**Wave R5 — Admin, responsive, accessibility.** (done 2026-10-08; indigo token darkened to #4f52e8 for AA on white text, light-mode cyan set to #0e7490) Admin restyled; 1440 / 1024 / 390 passes; keyboard
 focus ring (cyan); contrast check (WCAG AA) on every text/background pair actually used; reduced
 motion; Playwright flows updated for new labels only where copy changed.
 

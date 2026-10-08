@@ -511,3 +511,10 @@ corrections (market-order partial execution, what each order type reserves, the 
 allowance, override delay, Redeem all batching, Chance fallback) plus a missing table renderer.
 A second Sonnet pass applied them with trader-level wording I supplied for the program-internal
 ones. Decision recorded as `DECISIONS.md` §22.
+
+Late evening: wave R5 (Admin restyle, responsive and accessibility pass). Sonnet built it; the
+Codex review returned two findings. One was wrong: it read the publish-time guard backwards, and
+the program source settles it (the price may be published up to the configured offset before the
+close), so the new label stands. The other, light-mode cyan text at 1.8:1, was a one-line token
+fix I applied myself. The Docs wave's first public deploy also shipped without the Docs pages
+because the upload ignore list matched any folder named docs; anchored and redeployed.

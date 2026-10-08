@@ -12,7 +12,7 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --color-indigo: #6366f1;
+  --color-indigo: #4f52e8;
   --color-violet: #a855f7;
   --color-cyan: #22d3ee;
   --color-midnight: #0b1026;
@@ -55,6 +55,7 @@
   --color-no: #be123c;
   --color-warning: #b45309;
   --color-success: #0f766e;
+  --color-cyan: #0e7490;
   --color-focus: #4f46e5;
 }
 

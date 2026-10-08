@@ -134,6 +134,70 @@ export function formatEt(unixSeconds: number, zone: string = DEFAULT_ZONE): stri
   return `${formatter.format(new Date(unixSeconds * 1000))} ET`;
 }
 
+/**
+ * Plain-language labels for the four on-chain settlement guards, shown
+ * collapsed under "Settlement checks" on `/admin` (REVAMP_PLAN Wave R5
+ * copy audit). Each converts the raw on-chain unit (seconds, basis points)
+ * into a label a non-operator can read without knowing the implementation.
+ */
+
+/** "Price no older than 5 min" / "...45s" -- whole minutes render as minutes, otherwise seconds. */
+export function stalenessLabel(maxStalenessSecs: number): string {
+  return `Price no older than ${minutesOrSeconds(maxStalenessSecs)}`;
+}
+
+/** "Confidence within 0.25%" from basis points (1 bps = 0.01%). */
+export function confidenceLabel(maxConfBps: number): string {
+  const pct = maxConfBps / 100;
+  const text = Number.isInteger(pct) ? String(pct) : trimTrailingZeros(pct.toFixed(2));
+  return `Confidence within ${text}%`;
+}
+
+/** "Price published at or after close" when the offset is 0, else "...up to 60s before close". */
+export function publishOffsetLabel(minPublishOffsetSecs: number): string {
+  if (minPublishOffsetSecs <= 0) {
+    return "Price published at or after close";
+  }
+  return `Price published up to ${minPublishOffsetSecs}s before close`;
+}
+
+/** "Override allowed 1 h after close" from the override delay in seconds. */
+export function overrideDelayLabel(overrideDelaySecs: number): string {
+  return `Override allowed ${hoursOrMinutesOrSeconds(overrideDelaySecs)} after close`;
+}
+
+function minutesOrSeconds(totalSeconds: number): string {
+  if (totalSeconds > 0 && totalSeconds % 60 === 0) {
+    return `${totalSeconds / 60} min`;
+  }
+  return `${totalSeconds}s`;
+}
+
+function hoursOrMinutesOrSeconds(totalSeconds: number): string {
+  if (totalSeconds > 0 && totalSeconds % 3600 === 0) {
+    return `${totalSeconds / 3600} h`;
+  }
+  return minutesOrSeconds(totalSeconds);
+}
+
+function trimTrailingZeros(value: string): string {
+  return value.replace(/0+$/, "").replace(/\.$/, "");
+}
+
+/** Plain-language price source for `Config.oracleProvider` (REVAMP_PLAN Wave R5 copy audit). */
+export function oracleProviderLabel(value: Record<string, unknown> | undefined): string {
+  if (!value) {
+    return "Price source: unknown";
+  }
+  if ("mockPyth" in value) {
+    return "Price source: test publisher";
+  }
+  if ("pythReceiver" in value) {
+    return "Price source: Pyth";
+  }
+  return "Price source: unknown";
+}
+
 /** Formats a duration in whole seconds as "3h 12m" / "5m 03s" / "42s", for "closed since" cells. */
 export function formatDuration(totalSeconds: number): string {
   const total = Math.max(0, Math.trunc(totalSeconds));

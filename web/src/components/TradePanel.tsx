@@ -255,7 +255,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
         <button
           type="button"
           aria-pressed={kind === "market"}
-          className={`rounded-sm px-3 py-1 text-sm ${kind === "market" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
+          className={`min-h-10 rounded-sm px-3 py-1 text-sm ${kind === "market" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
           onClick={() => setKind("market")}
         >
           {KIND_LABEL.market}
@@ -263,7 +263,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
         <button
           type="button"
           aria-pressed={kind === "limit"}
-          className={`rounded-sm px-3 py-1 text-sm ${kind === "limit" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
+          className={`min-h-10 rounded-sm px-3 py-1 text-sm ${kind === "limit" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
           onClick={() => setKind("limit")}
         >
           {KIND_LABEL.limit}
@@ -373,7 +373,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
               <div key={action} className="flex flex-col">
                 <button
                   type="button"
-                  className={`rounded-md border px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_STYLE[action]}`}
+                  className={`min-h-10 rounded-md border px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_STYLE[action]}`}
                   disabled={noHoldings || busy !== null || plan === undefined}
                   onClick={() => submit(action)}
                 >

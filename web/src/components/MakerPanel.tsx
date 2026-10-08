@@ -165,7 +165,7 @@ export function MakerPanel({
         <button
           type="submit"
           disabled={disabled || busy || !selected}
-          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-indigo disabled:opacity-60"
+          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-cyan disabled:opacity-60"
         >
           {disabled ? "Trading is paused" : minting ? "Minting…" : "Mint pair"}
         </button>

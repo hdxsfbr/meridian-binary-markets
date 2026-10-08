@@ -94,7 +94,7 @@ export function Nav() {
         {redeemableMicro > 0n ? (
           <Link
             href="/portfolio"
-            className="whitespace-nowrap rounded-full border border-indigo bg-indigo/10 px-3 py-1 text-xs font-medium text-indigo hover:bg-indigo/20"
+            className="whitespace-nowrap rounded-full border border-indigo bg-indigo/10 px-3 py-1 text-xs font-medium text-cyan hover:bg-indigo/20"
           >
             You have {formatUsd(redeemableMicro)} to collect
           </Link>

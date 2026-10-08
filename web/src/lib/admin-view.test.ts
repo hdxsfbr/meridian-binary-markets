@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  confidenceLabel,
   formatDuration,
   formatEt,
   mergeStatus,
+  oracleProviderLabel,
   overrideAvailability,
+  overrideDelayLabel,
+  publishOffsetLabel,
   settledByOverride,
+  stalenessLabel,
   unsettledAfterClose,
   type StatusMap,
   type UnsettledMarket,
@@ -123,5 +128,43 @@ describe("formatDuration", () => {
 
   it("clamps negative durations to 0", () => {
     expect(formatDuration(-5)).toBe("0s");
+  });
+});
+
+describe("settlement check labels (Wave R5 copy audit)", () => {
+  it("staleness: whole minutes render as minutes", () => {
+    expect(stalenessLabel(300)).toBe("Price no older than 5 min");
+  });
+
+  it("staleness: non-whole minutes render as seconds", () => {
+    expect(stalenessLabel(45)).toBe("Price no older than 45s");
+  });
+
+  it("confidence: basis points convert to a percent", () => {
+    expect(confidenceLabel(25)).toBe("Confidence within 0.25%");
+    expect(confidenceLabel(100)).toBe("Confidence within 1%");
+  });
+
+  it("publish offset: zero means at or after close", () => {
+    expect(publishOffsetLabel(0)).toBe("Price published at or after close");
+  });
+
+  it("publish offset: nonzero means up to N seconds before close", () => {
+    expect(publishOffsetLabel(60)).toBe("Price published up to 60s before close");
+  });
+
+  it("override delay: whole hours render as hours", () => {
+    expect(overrideDelayLabel(3600)).toBe("Override allowed 1 h after close");
+  });
+
+  it("override delay: non-whole hours render as whole minutes", () => {
+    expect(overrideDelayLabel(90)).toBe("Override allowed 90s after close");
+    expect(overrideDelayLabel(120)).toBe("Override allowed 2 min after close");
+  });
+
+  it("oracle provider: plain-language price source", () => {
+    expect(oracleProviderLabel({ mockPyth: {} })).toBe("Price source: test publisher");
+    expect(oracleProviderLabel({ pythReceiver: {} })).toBe("Price source: Pyth");
+    expect(oracleProviderLabel(undefined)).toBe("Price source: unknown");
   });
 });

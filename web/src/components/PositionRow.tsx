@@ -67,7 +67,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
         <span className="flex items-center gap-3 text-sm">
           <span className={`rounded-full px-2 py-0.5 text-xs ${badge.className}`}>{badge.label}</span>
           {row.state === "settled" ? null : (
-            <Link href={`/trade/${row.ticker}`} className="text-indigo underline">
+            <Link href={`/trade/${row.ticker}`} className="text-cyan underline">
               Trade
             </Link>
           )}
