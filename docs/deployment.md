@@ -324,3 +324,36 @@ call `initialize_config` for you. Run `make init-config` immediately afterward (
 between the deploy transaction landing and that second command actually running is exactly the
 window a racing caller could exploit. See `docs/risks-and-limitations.md` §5 for the full
 discussion of this risk and why it is accepted rather than fixed in code this wave.
+
+## 6. Hosting on Railway (public URL and unattended automation)
+
+Project `meridian-binary-markets` on Railway, one environment (`production`), two services built
+from this repo with `railway up` (the upload honours `.gitignore` and `.railwayignore`, so `keys/`
+and `.env` never leave the machine):
+
+| Service | Image | Start | Public |
+| --- | --- | --- | --- |
+| `web` | `deploy/web.Dockerfile` (`RAILWAY_DOCKERFILE_PATH`) | `next start` on `$PORT` | `https://web-production-385a5.up.railway.app` |
+| `automation` | `deploy/automation.Dockerfile` | `automation start` (cron: morning 08:00, settle 16:00:30, publisher, reclaim 20:00 ET) | status endpoint on `$PORT` at `/status` |
+
+Variables, set with `railway variable set --service <name>`:
+
+- **web:** `NEXT_PUBLIC_CLUSTER=devnet`, `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_WS_URL` (a private
+  devnet RPC; the public one rate-limits the browser), `NEXT_PUBLIC_PROGRAM_ID`,
+  `NEXT_PUBLIC_USDC_MINT`, `NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS=200`,
+  `NEXT_PUBLIC_AUTOMATION_STATUS_URL=https://<automation domain>/status`, `PYTH_HERMES_URL`,
+  `PYTH_API_KEY` (server side only; it feeds `/api/prices`). The `NEXT_PUBLIC_*` values are baked
+  in at image build time, so changing one needs a redeploy.
+- **automation:** `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL`, `SOLANA_WS_URL`,
+  `ADMIN_KEYPAIR_JSON`, `PUBLISHER_KEYPAIR_JSON` (the keypair files' JSON byte arrays; see
+  `services/automation/src/keys.ts`), `USDC_MINT`, `ORACLE_PROVIDER=pyth`, `PYTH_HERMES_URL`,
+  `PYTH_API_KEY`, `PYTH_RECEIVER_PROGRAM`, `DEMO_SCALE=1`, `AUTOMATION_STATUS_PORT=${{PORT}}`,
+  `WEB_ORIGIN=https://<web domain>`, `ALERT_WEBHOOK_URL` (Slack).
+
+The worker signs with the admin and publisher keys, so those live as Railway variables. That is
+acceptable for a devnet demo and is called out in `risks-and-limitations.md`; for anything with
+real funds the signer would move to a KMS-backed or hardware-held key.
+
+Railway's log viewer did not surface the worker's one-line JSON startup error on first deploy
+(a missing `DEMO_SCALE`); building the image locally and running it with the same variables showed
+it immediately. Keep that as the first debugging step for a worker that restarts in a loop.
