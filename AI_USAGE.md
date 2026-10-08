@@ -445,3 +445,38 @@ deltas, settlement at $335 by the mock oracle, redemption, vault at zero. Addres
 `docs/deployment.md` §2. About 0.8 SOL of rent sits in the 40 markets from the aborted runs,
 reclaimable after their override delay. The real Pyth post on devnet still waits on 0.5 SOL for
 the publisher; the next faucet round covers it.
+
+### 2026-10-08 — First devnet session with a real wallet
+
+Andre tested the devnet deployment from Phantom while Claude Code (Fable 5.1) fixed what he
+found, rebuilt, and had him reload; about a dozen round trips over three hours. In order:
+
+- The public devnet RPC rate-limited the Portfolio page into a wall of errors (about 650 account
+  reads on load against a 40-per-method limit). Fixed by batching: one token-accounts call, one
+  multi-account call for books, a paced and de-duplicated history sync. First load went from
+  560 refused reads to none.
+- The model then recommended Alchemy's free tier without checking it; Andre signed up and the
+  tier turned out to block `getProgramAccounts` and account subscriptions, both of which the app
+  needs. Andre: "do your research before you tell me to create stuff that is not gonna work."
+  Recorded as a standing rule. Helius was verified call by call against the key before switching.
+- Later refreshes crashed on cached events whose key fields had lost their class: the production
+  bundle carries two copies of `@solana/web3.js`, so `instanceof PublicKey` missed. The cache now
+  recognises keys by shape.
+- Andre's walk through the test plan found the real bug of the night: a Buy No limit that should
+  have traded rested below his own bid and left the book crossed, because `buy_no_limit` never
+  matches and so never reached the self-match rule. Program guard (`WouldCross`) plus SDK routing
+  of marketable No limits through the market path (`DECISIONS.md` §18); also sell-either-leg
+  gating (§19), market and day labels everywhere, a 2 by 2 trade panel, grouped history rows.
+- Upgraded the program on devnet once 5 SOL arrived, override-settled the 40 orphaned markets,
+  and ran the automation's `reclaim` job for the first time against a real cluster. It failed on
+  every market: the close instructions want the system program and the client never passed it,
+  a gap the mocked unit tests could not see. Fixed; 47 markets closed, 0.8 SOL back.
+- Compose quirk, also found live: a blank `KEY=   # comment` in `.env` arrives as the comment
+  text. `.env.example` keeps comments off blank values now.
+- The Pyth key that fetched BTC/USD last week now returns "Not entitled" for crypto too, so the
+  on-chain Pyth post remains unproven. Raised to Andre, who has the Pyth contact.
+
+Pattern worth naming: every one of tonight's bugs lived at a boundary the local validator and
+mocked tests smoothed over (a shared RPC's limits, a provider's plan, a bundler's duplicate
+module, a real wallet declining, a client account list never run against the chain). The
+devnet session with a human at the keyboard found in three hours what the suites could not.

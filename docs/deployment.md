@@ -183,7 +183,7 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 | Item | Value |
 | --- | --- |
 | Program ID | `3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn` ([explorer](https://explorer.solana.com/address/3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn?cluster=devnet)) |
-| Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`, slot 508626847, 613,088 bytes, 3.115 SOL rent |
+| Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`; first deploy slot 508626847; upgraded slot 508711568 (close-time and crossing guards), 623,328 bytes, 3.167 SOL rent |
 | Upgrade authority (admin) | `3i2UN14eCEzLG7HvhgyWUFcN19zdbURj8s78QF6RBZPH` |
 | Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `mockPyth`, capacity 16, override delay 3600 s) |
 | Publisher | `HDBdqW1XzfCNZXdexLKiVw95B5HUDd3sYp8tX9ijnKRa` |
@@ -197,9 +197,11 @@ Anchor's optional on-chain IDL upload (`Writing metadata account…`) failed aft
 itself deployed; nothing reads it, since the web app and scripts bundle the IDL from
 `packages/sdk/src/idl.ts`. Two earlier lifecycle attempts on the public devnet RPC were cut short
 by rate limiting after creating 19 and 21 markets respectively (trading days 20261009 and
-20261010); those markets are unsettled and reclaimable via `admin_settle_override` + `close_market`
-once their override delay has elapsed. The pacing and batched probe described in §1.4 came out
-of those runs.
+20261010). Those 40 markets were settled by `admin_settle_override` once their delay elapsed and,
+with the day's 7 settled lifecycle markets, closed by the automation `reclaim` job
+(`automation job reclaim --all-settled`), returning about 0.8 SOL of rent. The pacing and batched
+probe described in §1.4 came out of those runs. The browser RPC is a Helius free-tier devnet
+endpoint (see §5).
 
 **Why this table, and not `declare_id!` in `programs/meridian/src/lib.rs`, is the source of
 truth.** The program's keypair (`target/deploy/meridian-keypair.json`) is generated locally by
