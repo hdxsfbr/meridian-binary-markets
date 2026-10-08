@@ -106,12 +106,12 @@ function queuedReservation(queue: readonly QueuedQuote[], marketKey: string, sid
     .reduce((sum, q) => sum + (side === "bid" ? q.priceMicro * q.qty : q.qty), 0n);
 }
 
-/** "Locks $X" for a bid's USDC escrow, or "Locks N Yes" for an ask's token escrow -- never a dollar sign on a Yes-token lock. */
+/** "Reserves $X" for a bid's USDC escrow, or "Reserves N Yes" for an ask's token escrow -- never a dollar sign on a Yes-token lock, and never "filled" (contracts/frontend.md copy rule). */
 function escrowCopy(side: QuoteSide, priceMicro: bigint, qty: bigint): string {
   if (side === "bid") {
-    return `Locks ${formatUsd(priceMicro * qty)} until filled or cancelled.`;
+    return `Reserves ${formatUsd(priceMicro * qty)} until it trades or you cancel.`;
   }
-  return `Locks ${qty.toString()} Yes until filled or cancelled.`;
+  return `Reserves ${qty.toString()} Yes until it trades or you cancel.`;
 }
 
 export function MakerQuoteForm({
@@ -203,18 +203,21 @@ export function MakerQuoteForm({
   }
 
   const hasPending = queue.some((q) => q.status === "queued" || q.status === "error");
+  const fieldClass =
+    "rounded-md border border-border bg-surface-raised px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60";
 
   return (
-    <div className="flex flex-col gap-3 rounded border border-border p-4">
-      <h3 className="text-sm font-semibold text-text-muted">Quote resting orders</h3>
+    <div className="flex flex-col gap-3 rounded-lg border border-border bg-surface p-4">
+      <h3 className="text-sm font-semibold text-text-muted">Place quotes</h3>
 
       <form onSubmit={addToQueue} className="flex flex-wrap items-end gap-3">
-        <label className="flex flex-col text-sm">
+        <label className="flex flex-col gap-1 text-sm">
           Strike
           <select
             value={marketKey || (selected?.pubkey.toBase58() ?? "")}
             onChange={(e) => setMarketKey(e.target.value)}
             disabled={disabled || openMarkets.length === 0}
+            className={fieldClass}
           >
             {openMarkets.map((m) => (
               <option key={m.pubkey.toBase58()} value={m.pubkey.toBase58()}>
@@ -223,9 +226,9 @@ export function MakerQuoteForm({
             ))}
           </select>
         </label>
-        <label className="flex flex-col text-sm">
+        <label className="flex flex-col gap-1 text-sm">
           Side
-          <select value={side} onChange={(e) => setSide(e.target.value as QuoteSide)} disabled={disabled}>
+          <select value={side} onChange={(e) => setSide(e.target.value as QuoteSide)} disabled={disabled} className={fieldClass}>
             {SIDE_OPTIONS.map((opt) => (
               <option key={opt.value} value={opt.value}>
                 {opt.label}
@@ -233,7 +236,7 @@ export function MakerQuoteForm({
             ))}
           </select>
         </label>
-        <label className="flex flex-col text-sm">
+        <label className="flex flex-col gap-1 text-sm">
           Price ($0.01–$0.99)
           <input
             type="text"
@@ -241,9 +244,10 @@ export function MakerQuoteForm({
             value={priceInput}
             onChange={(e) => setPriceInput(e.target.value)}
             disabled={disabled}
+            className={fieldClass}
           />
         </label>
-        <label className="flex flex-col text-sm">
+        <label className="flex flex-col gap-1 text-sm">
           Quantity
           <input
             type="text"
@@ -251,9 +255,14 @@ export function MakerQuoteForm({
             value={qtyInput}
             onChange={(e) => setQtyInput(e.target.value)}
             disabled={disabled}
+            className={fieldClass}
           />
         </label>
-        <button type="submit" disabled={disabled || openMarkets.length === 0}>
+        <button
+          type="submit"
+          disabled={disabled || openMarkets.length === 0}
+          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-indigo disabled:opacity-60"
+        >
           {disabled ? "Trading is paused" : "Add to queue"}
         </button>
       </form>
@@ -265,44 +274,56 @@ export function MakerQuoteForm({
 
       {queue.length > 0 ? (
         <div className="flex flex-col gap-2">
-          <table className="w-full text-sm">
-            <thead>
-              <tr>
-                <th className="text-left">Strike</th>
-                <th className="text-left">Side</th>
-                <th className="text-left">Price</th>
-                <th className="text-left">Qty</th>
-                <th className="text-left">Status</th>
-                <th />
-              </tr>
-            </thead>
-            <tbody>
-              {queue.map((item) => (
-                <tr key={item.id}>
-                  <td>
-                    {item.market.ticker} {formatStrike(item.market.strike)}
-                  </td>
-                  <td>{item.side === "bid" ? "Buy Yes" : "Sell Yes"}</td>
-                  <td>{formatUsd(item.priceMicro)}</td>
-                  <td>{item.qty.toString()}</td>
-                  <td>
-                    {item.status === "queued" ? "Queued" : null}
-                    {item.status === "sending" ? "Sending…" : null}
-                    {item.status === "done" ? "Posted" : null}
-                    {item.status === "error" ? item.error ?? "Failed" : null}
-                  </td>
-                  <td>
-                    {item.status === "queued" || item.status === "error" ? (
-                      <button type="button" onClick={() => removeFromQueue(item.id)} disabled={submitting}>
-                        Remove
-                      </button>
-                    ) : null}
-                  </td>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[520px] text-left text-sm">
+              <thead>
+                <tr className="text-text-muted">
+                  <th className="py-1 pr-3 font-medium">Strike</th>
+                  <th className="py-1 pr-3 font-medium">Side</th>
+                  <th className="py-1 pr-3 font-medium">Price</th>
+                  <th className="py-1 pr-3 font-medium">Qty</th>
+                  <th className="py-1 pr-3 font-medium">Status</th>
+                  <th />
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <button type="button" disabled={disabled || submitting || !hasPending} onClick={() => void submitQueue()}>
+              </thead>
+              <tbody>
+                {queue.map((item) => (
+                  <tr key={item.id} className="border-t border-border">
+                    <td className="num py-1.5 pr-3">
+                      {item.market.ticker} {formatStrike(item.market.strike)}
+                    </td>
+                    <td className="py-1.5 pr-3">{item.side === "bid" ? "Buy Yes" : "Sell Yes"}</td>
+                    <td className="num py-1.5 pr-3">{formatUsd(item.priceMicro)}</td>
+                    <td className="num py-1.5 pr-3">{item.qty.toString()}</td>
+                    <td className="py-1.5 pr-3">
+                      {item.status === "queued" ? "Queued" : null}
+                      {item.status === "sending" ? "Sending…" : null}
+                      {item.status === "done" ? "Posted" : null}
+                      {item.status === "error" ? item.error ?? "Failed" : null}
+                    </td>
+                    <td className="py-1.5 pr-3">
+                      {item.status === "queued" || item.status === "error" ? (
+                        <button
+                          type="button"
+                          onClick={() => removeFromQueue(item.id)}
+                          disabled={submitting}
+                          className="rounded-md border border-border px-2 py-1 text-xs hover:border-text-muted disabled:opacity-60"
+                        >
+                          Remove
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button
+            type="button"
+            disabled={disabled || submitting || !hasPending}
+            onClick={() => void submitQueue()}
+            className="self-start rounded-md bg-indigo px-4 py-1.5 text-sm font-medium text-on-brand disabled:opacity-60"
+          >
             {submitting ? "Submitting…" : "Submit queued quotes"}
           </button>
         </div>

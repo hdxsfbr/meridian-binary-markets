@@ -24,6 +24,8 @@ export type MakerPanelProps = {
   /** Trading is paused: mint/quote are disabled, exposure/fills/orders still show (FR-034). */
   disabled?: boolean;
   minting?: boolean;
+  /** Any redemption or mint anywhere on the page is in flight: the mint button is disabled, whether or not minting itself is the one running (Wave R4 review item 4). */
+  busy?: boolean;
   /** The wallet's available USDC, micro-USDC -- a bid quote's escrow draws on this. */
   availableUsdcMicro: bigint;
   onSubmitQuote: (market: MarketLike, side: QuoteSide, priceMicro: bigint, qty: bigint) => Promise<void>;
@@ -48,6 +50,7 @@ export function MakerPanel({
   onMint,
   disabled,
   minting,
+  busy,
   availableUsdcMicro,
   onSubmitQuote,
   myOrders,
@@ -123,17 +126,22 @@ export function MakerPanel({
     void onMint(selected, parsed);
   }
 
-  return (
-    <div className="flex flex-col gap-4 rounded border border-border p-4">
-      <h2 className="text-lg font-semibold">Market maker</h2>
+  const selectClass =
+    "rounded-md border border-border bg-surface-raised px-2 py-1.5 text-sm focus-visible:outline-2 focus-visible:outline-focus disabled:opacity-60";
+  const inputClass = selectClass;
 
-      <form onSubmit={handleSubmit} className="flex items-end gap-3">
-        <label className="flex flex-col text-sm">
+  return (
+    <div className="flex flex-col gap-4 rounded-lg border border-border bg-surface p-4">
+      <h2 className="text-lg font-semibold">Your quotes</h2>
+
+      <form onSubmit={handleSubmit} className="flex flex-wrap items-end gap-3">
+        <label className="flex flex-col gap-1 text-sm">
           Market
           <select
             value={marketKey}
             onChange={(e) => setMarketKey(e.target.value)}
             disabled={disabled || openMarkets.length === 0}
+            className={selectClass}
           >
             {openMarkets.map((m) => (
               <option key={m.pubkey.toBase58()} value={m.pubkey.toBase58()}>
@@ -142,7 +150,7 @@ export function MakerPanel({
             ))}
           </select>
         </label>
-        <label className="flex flex-col text-sm">
+        <label className="flex flex-col gap-1 text-sm">
           Pairs to mint
           <input
             type="number"
@@ -151,43 +159,62 @@ export function MakerPanel({
             value={qty}
             onChange={(e) => setQty(e.target.value)}
             disabled={disabled}
+            className={inputClass}
           />
         </label>
-        <button type="submit" disabled={disabled || minting || !selected}>
+        <button
+          type="submit"
+          disabled={disabled || busy || !selected}
+          className="rounded-md border border-indigo px-4 py-1.5 text-sm font-medium text-indigo disabled:opacity-60"
+        >
           {disabled ? "Trading is paused" : minting ? "Minting…" : "Mint pair"}
         </button>
       </form>
 
       <span className="text-sm text-text-muted">
-        Realized P&amp;L across every market: <span className="font-semibold">{formatUsd(realizedPnlMicro)}</span>
+        Realized P&amp;L across every market: <span className="num font-semibold">{formatUsd(realizedPnlMicro)}</span>
       </span>
 
       <div>
-        <h3 className="text-sm font-semibold text-text-muted">Exposure, fills and resting totals</h3>
-        <div className="mt-2 flex flex-col gap-1">
-          {summaryRows.length === 0 ? (
-            <span className="text-sm text-text-muted">No resting exposure yet.</span>
-          ) : (
-            summaryRows.map((row) => {
-              const totals = restingTotalsByMarket.get(row.marketKey);
-              return (
-                <div key={row.marketKey} className="flex flex-wrap items-center justify-between gap-2 text-sm">
-                  <span>
-                    {row.ticker} {formatStrike(row.strike)}
-                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-text-muted">· {formatTradingDay(row.tradingDay)}</span> : null}
-                    {row.settled ? <span className="ml-2 text-xs text-text-muted">· Settled</span> : null}
-                  </span>
-                  <span>Exposure (Yes − No): {row.exposure.toString()}</span>
-                  <span>Pairs held: {row.pairsHeld.toString()}</span>
-                  <span>Fills: {fillsCountByMarket.get(row.marketKey) ?? 0}</span>
-                  <span>
-                    Resting: {totals?.bidQty.toString() ?? "0"} bid / {totals?.askQty.toString() ?? "0"} ask
-                  </span>
-                </div>
-              );
-            })
-          )}
-        </div>
+        {summaryRows.length === 0 ? (
+          <p className="mt-2 text-sm text-text-muted">No quotes yet.</p>
+        ) : (
+          <div className="mt-2 overflow-x-auto">
+            <table className="w-full min-w-[640px] text-left text-sm">
+              <thead>
+                <tr className="text-text-muted">
+                  <th className="py-1 pr-3 font-medium">Market</th>
+                  <th className="py-1 pr-3 font-medium">Net Yes</th>
+                  <th className="py-1 pr-3 font-medium">Pairs</th>
+                  <th className="py-1 pr-3 font-medium">Trades</th>
+                  <th className="py-1 pr-3 font-medium">Open buys</th>
+                  <th className="py-1 pr-3 font-medium">Open sells</th>
+                </tr>
+              </thead>
+              <tbody>
+                {summaryRows.map((row) => {
+                  const totals = restingTotalsByMarket.get(row.marketKey);
+                  return (
+                    <tr key={row.marketKey} className="border-t border-border">
+                      <td className="num py-1.5 pr-3">
+                        {row.ticker} {formatStrike(row.strike)}
+                        {row.tradingDay !== undefined ? (
+                          <span className="ml-2 text-xs text-text-muted">· {formatTradingDay(row.tradingDay)}</span>
+                        ) : null}
+                        {row.settled ? <span className="ml-2 text-xs text-text-muted">· Settled</span> : null}
+                      </td>
+                      <td className="num py-1.5 pr-3">{row.exposure.toString()}</td>
+                      <td className="num py-1.5 pr-3">{row.pairsHeld.toString()}</td>
+                      <td className="num py-1.5 pr-3">{fillsCountByMarket.get(row.marketKey) ?? 0}</td>
+                      <td className="num py-1.5 pr-3">{totals?.bidQty.toString() ?? "0"}</td>
+                      <td className="num py-1.5 pr-3">{totals?.askQty.toString() ?? "0"}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
       </div>
 
       <MakerQuoteForm

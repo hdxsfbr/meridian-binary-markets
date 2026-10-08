@@ -17,6 +17,17 @@ export function formatUsd(micro: bigint): string {
   return `${negative ? "-" : ""}$${whole.toString()}.${centsStr}`;
 }
 
+/**
+ * Formats a signed dollar amount (e.g. realized P&L) with an explicit `+`
+ * on a positive value, so the sign doesn't rely on colour alone (BRAND.md:
+ * "Use Yes/No text and icons, not color alone" -- the same rule applies to
+ * gain/loss). `formatUsd` already prepends `-` for negative amounts and `0n`
+ * reads as `$0.00` with no sign.
+ */
+export function formatSignedUsd(micro: bigint): string {
+  return micro > 0n ? `+${formatUsd(micro)}` : formatUsd(micro);
+}
+
 /** Formats a Yes/No order-book price (micro-USDC per token) the same way as `formatUsd`. */
 export function formatPrice(micro: bigint): string {
   return formatUsd(micro);

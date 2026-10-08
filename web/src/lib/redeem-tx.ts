@@ -105,6 +105,46 @@ export async function mintPair(
   );
 }
 
+/**
+ * Builds a `redeem_pair` instruction without sending it, so "Redeem all"
+ * (`redeem-all.ts`) can batch several of these (and `buildRedeemWinningInstruction`
+ * below) into one transaction instead of one wallet approval each.
+ */
+export function buildRedeemPairInstruction(
+  program: Program,
+  wallet: PublicKey,
+  market: RedeemMarket,
+  usdcMint: PublicKey,
+  qty: bigint,
+): Promise<TransactionInstruction> {
+  const [configAddress] = configPda(PROGRAM_ID);
+  const userUsdc = associatedTokenAddress(wallet, usdcMint);
+  const userYes = associatedTokenAddress(wallet, market.yesMint);
+  const userNo = associatedTokenAddress(wallet, market.noMint);
+
+  return (
+    program.methods as unknown as {
+      redeemPair: (qty: BN) => { accounts: (a: Record<string, PublicKey>) => { instruction: () => Promise<TransactionInstruction> } };
+    }
+  )
+    .redeemPair(new BN(qty.toString()))
+    .accounts({
+      user: wallet,
+      config: configAddress,
+      market: market.pubkey,
+      yesMint: market.yesMint,
+      noMint: market.noMint,
+      vault: market.vault,
+      userUsdc,
+      userYes,
+      userNo,
+      tokenProgram: TOKEN_PROGRAM_ID,
+      associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+}
+
 /** Redeems `qty` matched pairs (burns `qty` Yes + `qty` No) for `qty` USDC back; allowed in any market state, paused or not (FR-006/034). */
 export async function redeemPair(
   program: Program,
@@ -115,34 +155,48 @@ export async function redeemPair(
   usdcMint: PublicKey,
   qty: bigint,
 ): Promise<string> {
-  const [configAddress] = configPda(PROGRAM_ID);
-  const userUsdc = associatedTokenAddress(wallet, usdcMint);
-  const userYes = associatedTokenAddress(wallet, market.yesMint);
-  const userNo = associatedTokenAddress(wallet, market.noMint);
-
   return sendTx("Redeeming pair", connection, sendTransaction, wallet, () =>
-    (
-      program.methods as unknown as {
-        redeemPair: (qty: BN) => { accounts: (a: Record<string, PublicKey>) => { instruction: () => Promise<TransactionInstruction> } };
-      }
-    )
-      .redeemPair(new BN(qty.toString()))
-      .accounts({
-        user: wallet,
-        config: configAddress,
-        market: market.pubkey,
-        yesMint: market.yesMint,
-        noMint: market.noMint,
-        vault: market.vault,
-        userUsdc,
-        userYes,
-        userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .instruction(),
+    buildRedeemPairInstruction(program, wallet, market, usdcMint, qty),
   );
+}
+
+/**
+ * Builds a `redeem_winning` instruction without sending it, so "Redeem all"
+ * (`redeem-all.ts`) can batch several of these (and `buildRedeemPairInstruction`
+ * above) into one transaction instead of one wallet approval each.
+ */
+export function buildRedeemWinningInstruction(
+  program: Program,
+  wallet: PublicKey,
+  market: RedeemMarket,
+  usdcMint: PublicKey,
+  outcome: "yes" | "no",
+  qty: bigint,
+): Promise<TransactionInstruction> {
+  const userUsdc = associatedTokenAddress(wallet, usdcMint);
+  const userWinning = associatedTokenAddress(wallet, outcome === "yes" ? market.yesMint : market.noMint);
+  const side = outcome === "yes" ? 1 : 2;
+
+  return (
+    program.methods as unknown as {
+      redeemWinning: (
+        side: number,
+        qty: BN,
+      ) => { accounts: (a: Record<string, PublicKey>) => { instruction: () => Promise<TransactionInstruction> } };
+    }
+  )
+    .redeemWinning(side, new BN(qty.toString()))
+    .accounts({
+      user: wallet,
+      market: market.pubkey,
+      yesMint: market.yesMint,
+      noMint: market.noMint,
+      vault: market.vault,
+      userUsdc,
+      userWinning,
+      tokenProgram: TOKEN_PROGRAM_ID,
+    })
+    .instruction();
 }
 
 /** Redeems `qty` of the winning side (`outcome`) for `qty` USDC, one dollar each (FR-022); allowed even while paused (FR-034), since `redeem_winning` takes no `Config` account at all. */
@@ -156,30 +210,7 @@ export async function redeemWinning(
   outcome: "yes" | "no",
   qty: bigint,
 ): Promise<string> {
-  const userUsdc = associatedTokenAddress(wallet, usdcMint);
-  const userWinning = associatedTokenAddress(wallet, outcome === "yes" ? market.yesMint : market.noMint);
-  const side = outcome === "yes" ? 1 : 2;
-
   return sendTx("Redeeming winning tokens", connection, sendTransaction, wallet, () =>
-    (
-      program.methods as unknown as {
-        redeemWinning: (
-          side: number,
-          qty: BN,
-        ) => { accounts: (a: Record<string, PublicKey>) => { instruction: () => Promise<TransactionInstruction> } };
-      }
-    )
-      .redeemWinning(side, new BN(qty.toString()))
-      .accounts({
-        user: wallet,
-        market: market.pubkey,
-        yesMint: market.yesMint,
-        noMint: market.noMint,
-        vault: market.vault,
-        userUsdc,
-        userWinning,
-        tokenProgram: TOKEN_PROGRAM_ID,
-      })
-      .instruction(),
+    buildRedeemWinningInstruction(program, wallet, market, usdcMint, outcome, qty),
   );
 }

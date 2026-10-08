@@ -14,7 +14,7 @@
  * polls are cheap once the wallet's history has been paged once.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { bookPda, buildPositions, decodeBook, summarize, tickerFromBytes, type Position, type PositionSummary } from "@meridian/sdk";
 import { TOKEN_PROGRAM_ID } from "@/lib/ata";
@@ -28,6 +28,7 @@ import {
 } from "@/lib/positions-view";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { accountClient, useProgram } from "./useProgram";
+import { AppDataContext } from "./app-data-context";
 
 const BASE_UNITS_PER_CONTRACT = 1_000_000n;
 
@@ -168,8 +169,33 @@ const EMPTY_SUMMARY: PositionSummary = {
   realizedPnlMicro: 0n,
 };
 
-/** The wallet's Portfolio view: positions, summary, and the market data they're joined against. */
+/**
+ * The wallet's Portfolio view: positions, summary, and the market data
+ * they're joined against. Reads the shared snapshot from `AppDataProvider`
+ * when one is mounted above the caller (the normal case: it wraps the whole
+ * app in `layout.tsx`, and polls the connected wallet's positions once for
+ * everyone -- the Portfolio page and the nav's "redeem all" pill both read
+ * the same snapshot instead of each starting its own poll). Falls back to
+ * polling itself (via `usePositionsPolling`) only when no provider is
+ * present, e.g. in an isolated test.
+ */
 export function usePositions(wallet: PublicKey | null): UsePositionsResult {
+  const ctx = useContext(AppDataContext);
+  const polled = usePositionsPolling(wallet, ctx !== undefined);
+  return ctx !== undefined ? ctx.positions : polled;
+}
+
+/**
+ * The actual polling implementation: fetches positions on a 30s interval,
+ * paging the event cache in the background. Exactly one instance of this
+ * should run per wallet -- `AppDataProvider` is the only caller that should
+ * invoke it directly; every other caller should use `usePositions` above.
+ *
+ * `skip` short-circuits the effect (no fetch, no interval) once a
+ * provider's own snapshot has taken over for `usePositions`' fallback
+ * instance, the same convention as `useConfigPolling`.
+ */
+export function usePositionsPolling(wallet: PublicKey | null, skip = false): UsePositionsResult {
   const program = useProgram();
   const [rows, setRows] = useState<PositionRowData[]>([]);
   const [summary, setSummary] = useState<PositionSummary>(EMPTY_SUMMARY);
@@ -186,6 +212,22 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
 
   const load = useCallback(async () => {
     const generation = ++generationRef.current;
+    // No wallet: nothing to show and nothing to fetch. Reset to empty and
+    // return before any RPC call or event-cache work starts -- a
+    // disconnected wallet should never trigger a `market.all()` fetch, an
+    // inventory read, or `refreshEventCacheDetailed`.
+    if (wallet === null) {
+      setRows([]);
+      setSummary(EMPTY_SUMMARY);
+      setFillsCountByMarket(new Map());
+      setMarkets([]);
+      setHistoryComplete(false);
+      setHistoryLoaded(false);
+      setHistoryError(false);
+      setError(false);
+      setLoading(false);
+      return;
+    }
     let holdingsRendered = false;
     try {
       const connection = program.provider.connection;
@@ -202,45 +244,33 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
       const decodedMarkets = rawMarkets.map(({ publicKey, account }) => decodeMarket(publicKey, account));
       setMarkets(decodedMarkets);
 
-      if (wallet === null) {
-        setRows([]);
-        setSummary(EMPTY_SUMMARY);
-        setFillsCountByMarket(new Map());
-        setLoading(false);
-        const eventsResult = await eventsPromise;
-        if (generationRef.current === generation) {
-          setHistoryComplete(eventsResult.complete);
-          setHistoryLoaded(true);
-        }
-      } else {
-        // Available (wallet ATAs) and escrowed (resting asks) inventory,
-        // read straight from the chain (item 5) -- the event-derived
-        // `positions` below supplies cost basis/realized P&L only.
-        const inventories = await allMarketInventories(connection, decodedMarkets, wallet);
-        if (generationRef.current !== generation) {
-          return;
-        }
-        const available = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.available]));
-        const restingYes = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.restingYes]));
-
-        // First render: holdings only, cost basis pending.
-        setRows(buildPositionRows(new Map(), decodedMarkets, available, restingYes));
-        setLoading(false);
-        setError(false);
-        holdingsRendered = true;
-
-        const eventsResult = await eventsPromise;
-        if (generationRef.current !== generation) {
-          return;
-        }
-        setHistoryComplete(eventsResult.complete);
-        const positions: Map<string, Position> = buildPositions(eventsResult.events, wallet);
-        setRows(buildPositionRows(positions, decodedMarkets, available, restingYes));
-        setSummary(summarize(positions));
-        setFillsCountByMarket(countFillsByMarket(eventsResult.events, wallet));
-        setHistoryLoaded(true);
-        setHistoryError(false);
+      // Available (wallet ATAs) and escrowed (resting asks) inventory,
+      // read straight from the chain (item 5) -- the event-derived
+      // `positions` below supplies cost basis/realized P&L only.
+      const inventories = await allMarketInventories(connection, decodedMarkets, wallet);
+      if (generationRef.current !== generation) {
+        return;
       }
+      const available = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.available]));
+      const restingYes = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.restingYes]));
+
+      // First render: holdings only, cost basis pending.
+      setRows(buildPositionRows(new Map(), decodedMarkets, available, restingYes));
+      setLoading(false);
+      setError(false);
+      holdingsRendered = true;
+
+      const eventsResult = await eventsPromise;
+      if (generationRef.current !== generation) {
+        return;
+      }
+      setHistoryComplete(eventsResult.complete);
+      const positions: Map<string, Position> = buildPositions(eventsResult.events, wallet);
+      setRows(buildPositionRows(positions, decodedMarkets, available, restingYes));
+      setSummary(summarize(positions));
+      setFillsCountByMarket(countFillsByMarket(eventsResult.events, wallet));
+      setHistoryLoaded(true);
+      setHistoryError(false);
       setError(false);
     } catch (err) {
       console.error("[meridian] positions load failed", err);
@@ -259,11 +289,30 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
   }, [program, wallet]);
 
   useEffect(() => {
+    if (skip) {
+      return;
+    }
+    // No wallet: reset to empty and skip starting the poll entirely --
+    // no RPC call, no event-cache work, no 30s interval for a wallet that
+    // isn't connected.
+    if (wallet === null) {
+      generationRef.current += 1;
+      setRows([]);
+      setSummary(EMPTY_SUMMARY);
+      setFillsCountByMarket(new Map());
+      setMarkets([]);
+      setHistoryComplete(false);
+      setHistoryLoaded(false);
+      setHistoryError(false);
+      setError(false);
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     void load();
     const interval = setInterval(() => void load(), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [load]);
+  }, [load, skip, wallet]);
 
   return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, historyError, refresh: () => void load() };
 }

@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
 import { useConfig } from "@/hooks/useConfig";
 import { usePrices } from "@/hooks/usePrices";
+import { useRedeemable } from "@/hooks/useRedeemable";
 import { formatUsd } from "@/lib/format";
 
 // The wallet button's label depends on wallet state that only exists in the
@@ -26,6 +27,7 @@ export function Nav() {
   const pathname = usePathname() ?? "/";
   const config = useConfig();
   const prices = usePrices();
+  const { redeemableMicro } = useRedeemable();
   const tickers = config?.tickers ?? [];
 
   return (
@@ -87,7 +89,15 @@ export function Nav() {
           ))}
         </div>
       </div>
-      <div className="shrink-0">
+      <div className="flex shrink-0 items-center gap-2">
+        {redeemableMicro > 0n ? (
+          <Link
+            href="/portfolio"
+            className="whitespace-nowrap rounded-full border border-indigo bg-indigo/10 px-3 py-1 text-xs font-medium text-indigo hover:bg-indigo/20"
+          >
+            You have {formatUsd(redeemableMicro)} to collect
+          </Link>
+        ) : null}
         <WalletMultiButton />
       </div>
     </nav>

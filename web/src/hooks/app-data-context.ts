@@ -13,10 +13,13 @@ import { createContext } from "react";
 import type { Ticker } from "@meridian/sdk";
 import type { ConfigSnapshot } from "./useConfig";
 import type { TickerPrice } from "./usePrices";
+import type { UsePositionsResult } from "./usePositions";
 
 export type AppData = {
   config: ConfigSnapshot | null;
   prices: Partial<Record<Ticker, TickerPrice>>;
+  /** The connected wallet's positions, polled once for the whole app (see `usePositions.ts`); empty/default when no wallet is connected. */
+  positions: UsePositionsResult;
 };
 
 export const AppDataContext = createContext<AppData | undefined>(undefined);

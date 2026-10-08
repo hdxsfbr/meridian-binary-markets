@@ -3,6 +3,7 @@ import {
   countdownLabel,
   formatCountdown,
   formatPrice,
+  formatSignedUsd,
   formatStrike,
   formatUsd,
   impliedProbability,
@@ -33,6 +34,20 @@ describe("formatUsd", () => {
 
   it("pads single-digit cents", () => {
     expect(formatUsd(1_050_000n)).toBe("$1.05");
+  });
+});
+
+describe("formatSignedUsd", () => {
+  it("prepends a plus sign on a positive amount", () => {
+    expect(formatSignedUsd(1_000_000n)).toBe("+$1.00");
+  });
+
+  it("keeps the minus sign on a negative amount", () => {
+    expect(formatSignedUsd(-650_000n)).toBe("-$0.65");
+  });
+
+  it("has no sign at zero", () => {
+    expect(formatSignedUsd(0n)).toBe("$0.00");
   });
 });
 
