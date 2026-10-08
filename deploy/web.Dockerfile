@@ -11,6 +11,7 @@ COPY scripts/package.json scripts/
 COPY tests/package.json tests/
 RUN pnpm install --frozen-lockfile
 COPY packages/sdk packages/sdk
+COPY scripts scripts
 COPY web web
 # Next.js inlines NEXT_PUBLIC_* at build time; Railway passes service variables as build args
 # when they are declared here.
