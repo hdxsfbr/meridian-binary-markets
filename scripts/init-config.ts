@@ -63,6 +63,8 @@ export interface BuildArgsOptions {
   pythReceiverProgram?: PublicKey;
   publisher: PublicKey;
   demoScale: boolean;
+  /** Listed symbols; defaults to the SDK's `TICKERS`. Every symbol needs a known feed id. */
+  tickers?: readonly string[];
 }
 
 /**
@@ -70,16 +72,32 @@ export interface BuildArgsOptions {
  * mock/pyth and demo/default branches can be tested directly
  * (`test/init-config.test.ts`).
  */
+/** `TickerInfo` args for `symbols`, every one enabled; throws for a symbol without a known feed id. */
+export function tickerInfoArgs(symbols: readonly string[]): TickerInfoArg[] {
+  return symbols.map((ticker) => ({
+    symbol: Array.from(tickerSymbolBytes(ticker)),
+    feedId: Array.from(feedIdBytes(ticker)),
+    enabled: true,
+  }));
+}
+
+/** Parses `--tickers TSLA,QQQ,VOO`; `undefined` when the flag is absent. */
+export function parseTickersFlag(argv: string[]): string[] | undefined {
+  const idx = argv.indexOf("--tickers");
+  if (idx === -1) return undefined;
+  const value = argv[idx + 1];
+  if (!value) throw new Error("init-config: --tickers requires a comma-separated list");
+  const list = value.split(",").map((s) => s.trim().toUpperCase()).filter((s) => s.length > 0);
+  if (list.length === 0) throw new Error("init-config: --tickers list is empty");
+  return [...new Set(list)];
+}
+
 export function buildInitializeConfigArgs(opts: BuildArgsOptions): InitializeConfigArgsPlain {
   if (opts.oracleProvider === "pyth" && !opts.pythReceiverProgram) {
     throw new Error("buildInitializeConfigArgs: ORACLE_PROVIDER=pyth requires PYTH_RECEIVER_PROGRAM");
   }
 
-  const tickers: TickerInfoArg[] = TICKERS.map((ticker) => ({
-    symbol: Array.from(tickerSymbolBytes(ticker)),
-    feedId: Array.from(feedIdBytes(ticker)),
-    enabled: true,
-  }));
+  const tickers: TickerInfoArg[] = tickerInfoArgs(opts.tickers ?? TICKERS);
 
   return {
     oracleProvider: opts.oracleProvider === "mock" ? { mockPyth: {} } : { pythReceiver: {} },
@@ -162,6 +180,7 @@ async function main(): Promise<void> {
   const isUpdate = argv.includes("--update");
   const providerFlag = parseFlag(argv, "--provider");
   const capacityFlag = parseFlag(argv, "--capacity");
+  const tickersFlag = parseTickersFlag(argv);
   const pausedFlag = argv.includes("--paused");
   const unpausedFlag = argv.includes("--no-paused");
 
@@ -195,6 +214,9 @@ async function main(): Promise<void> {
       throw new Error(`init-config: --provider must be "mock" or "pyth", got "${providerFlag}"`);
     }
 
+    if (tickersFlag !== undefined) {
+      args.tickers = tickerInfoArgs(tickersFlag);
+    }
     if (capacityFlag !== undefined) {
       const capacity = Number(capacityFlag);
       if (!Number.isInteger(capacity) || capacity <= 0) {
@@ -243,6 +265,7 @@ async function main(): Promise<void> {
     pythReceiverProgram: env.pythReceiverProgram ? new PublicKey(env.pythReceiverProgram) : undefined,
     publisher: publisher.publicKey,
     demoScale: env.demoScale,
+    tickers: tickersFlag,
   });
 
   console.log(`init-config: initialize_config (provider=${env.oracleProvider}, capacity=${args.defaultBookCapacity}, usdc_mint=${usdcMint.toBase58()})`);

@@ -1,4 +1,5 @@
 import { PublicKey } from "@solana/web3.js";
+import { TICKERS } from "@meridian/sdk";
 import { describe, expect, it } from "vitest";
 import { buildInitializeConfigArgs, THRESHOLDS } from "../init-config.js";
 
@@ -98,7 +99,7 @@ describe("buildInitializeConfigArgs", () => {
       publisher: PUBLISHER,
       demoScale: false,
     });
-    expect(args.tickers).toHaveLength(7);
+    expect(args.tickers).toHaveLength(TICKERS.length);
     for (const t of args.tickers) {
       expect(t.enabled).toBe(true);
       expect(t.symbol).toHaveLength(8);

@@ -12,6 +12,7 @@ import { TICKERS } from "@meridian/sdk";
 import { formatUsd } from "@/lib/format";
 import { PayoffLine } from "@/components/PayoffLine";
 import { usePrices } from "@/hooks/usePrices";
+import { useConfig } from "@/hooks/useConfig";
 
 /** Illustrative Yes price (65 cents) for the payoff-line example on the landing page. */
 const EXAMPLE_YES_PRICE_MICRO = 650_000n;
@@ -19,6 +20,8 @@ const EXAMPLE_STRIKE_MICRO = 680_000_000n;
 
 export default function Home() {
   const prices = usePrices();
+  const config = useConfig();
+  const tickers = config?.tickers ?? TICKERS;
 
   return (
     <div className="mx-auto max-w-3xl px-6 py-12">
@@ -37,7 +40,7 @@ export default function Home() {
 
       <h2 className="mt-10 text-xl font-semibold">Last prices</h2>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
-        {TICKERS.map((ticker) => (
+        {tickers.map((ticker) => (
           <div key={ticker} className="rounded border border-black/10 p-3">
             <div className="font-semibold">{ticker}</div>
             <div>{prices[ticker] ? formatUsd(prices[ticker]!.priceMicro) : "—"}</div>

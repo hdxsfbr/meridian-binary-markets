@@ -99,7 +99,9 @@ fresh deploy it creates `Config` with:
   Pyth),
 - the publisher key from `PUBLISHER_KEYPAIR_PATH`,
 - staleness/confidence/publish-offset/override-delay thresholds (300 s / 25 bps / 60 s / 3600 s),
-- all seven tickers with their `Equity.US` feed IDs,
+- the listed tickers with their `Equity.US` feed IDs (default `TSLA,QQQ,VOO`, the feeds the
+  project's Pyth key is entitled to; override with `-- --tickers A,B,C`, and change later with
+  `init-config -- --update --tickers ...` as more feeds are granted),
 - book capacity 16 (`DEMO_SCALE=1`, the default) or 128 (`DEMO_SCALE=0`),
 - the USDC mint from `USDC_MINT` — **Circle's devnet USDC**, `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU`,
   by default. Get test USDC into your own wallet from `https://faucet.circle.com` to follow along
@@ -132,13 +134,15 @@ SOL by a small transfer from the admin wallet. On localnet the script mints 1,00
 
 The public devnet RPC (`api.devnet.solana.com`) rate-limits bursts of the same call. The script
 probes a day's planned markets with one batched `getMultipleAccounts` call and, on devnet, pauses
-750 ms between on-chain steps. Even so, a full seven-ticker run is roughly 150 transactions; if
+750 ms between on-chain steps. Even so, a full seven-ticker run is roughly 150 transactions (the
+default three-ticker set is about 60); if
 the run dies with `429 Too Many Requests`, rerun with `--tickers` for a subset or point
 `SOLANA_RPC_URL` at a private devnet endpoint. Choose `--close-in` so trading finishes before the
 close: at about 3 s per transaction on devnet, allow at least 300 s for one ticker and 600 s for
 the full ladder.
 
-Runs the full seven-ticker ladder (5–7 strikes per ticker, ~45 markets) at book capacity 16 (see
+Runs the ladder for every listed ticker (5–7 strikes each; ~21 markets for the default three,
+~45 for seven) at book capacity 16 (see
 §1.1 for the rent this costs). `DEMO_SCALE=0` uses the production default (capacity 128, ~5.8
 SOL/day) and is not expected to fit a reviewer's faucet allowance in one sitting.
 

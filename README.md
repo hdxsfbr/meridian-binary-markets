@@ -8,7 +8,7 @@ Binary stock outcome markets on Solana. Gauntlet AI partner project for Peak6.
 
 ## What Meridian is
 
-Every stock market day, Meridian lets anyone trade a simple yes/no question for each of seven
+Every stock market day, Meridian lets anyone trade a simple yes/no question for each listed
 tech stocks: *"Will AAPL close at or above $230 today?"* You buy a Yes or a No token for less
 than a dollar, and at 4:00 PM ET it resolves to exactly $1.00 or exactly $0.00, depending on
 where the stock actually closed. There are no margin calls, no assignment risk, and no surprise

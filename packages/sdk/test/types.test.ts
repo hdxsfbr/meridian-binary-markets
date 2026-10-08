@@ -5,19 +5,24 @@ import {
   feedIdBytes,
   ONE_USDC,
   PRICE_MAX,
+  KNOWN_TICKERS,
   TICKERS,
   tickerFromBytes,
   tickerSymbolBytes,
 } from "../src/types";
 
 describe("FEED_IDS", () => {
-  it("has all seven tickers, each a distinct 64-character hex string", () => {
-    const hexes = TICKERS.map((t) => FEED_IDS[t]);
-    expect(hexes).toHaveLength(7);
+  it("has a distinct 64-character hex feed id for every known ticker, and the default set is a subset", () => {
+    const hexes = KNOWN_TICKERS.map((t) => FEED_IDS[t]);
+    expect(hexes.length).toBeGreaterThanOrEqual(TICKERS.length);
     for (const hex of hexes) {
       expect(hex).toMatch(/^[0-9a-f]{64}$/);
     }
-    expect(new Set(hexes).size).toBe(7);
+    expect(new Set(hexes).size).toBe(hexes.length);
+    for (const t of TICKERS) {
+      expect(KNOWN_TICKERS).toContain(t);
+    }
+    expect(() => feedIdBytes("NOPE")).toThrow(/no known Pyth feed/);
   });
 });
 
@@ -32,6 +37,12 @@ describe("feedIdBytes", () => {
 });
 
 describe("tickerSymbolBytes / tickerFromBytes", () => {
+  it("round-trips a symbol that is not in the catalogue (the listed set is config-driven)", () => {
+    expect(tickerFromBytes(tickerSymbolBytes("BRK.B"))).toBe("BRK.B");
+    expect(() => tickerSymbolBytes("toolongsymbol")).toThrow();
+    expect(() => tickerFromBytes(new Uint8Array([65, 0, 66, 0, 0, 0, 0, 0]))).toThrow(/padding/);
+  });
+
   it("encodes to 8 bytes, zero-padded, and round-trips for every ticker", () => {
     for (const ticker of TICKERS) {
       const bytes = tickerSymbolBytes(ticker);
@@ -45,10 +56,10 @@ describe("tickerSymbolBytes / tickerFromBytes", () => {
     expect(Array.from(bytes)).toEqual([65, 65, 80, 76, 0, 0, 0, 0]);
   });
 
-  it("throws on an unknown symbol", () => {
-    const bogus = new Uint8Array(8);
-    bogus.set([88, 89, 90]); // "XYZ"
-    expect(() => tickerFromBytes(bogus)).toThrow();
+  it("accepts a symbol outside the catalogue (the listed set is the on-chain Config, not this file)", () => {
+    const xyz = new Uint8Array(8);
+    xyz.set([88, 89, 90]); // "XYZ"
+    expect(tickerFromBytes(xyz)).toBe("XYZ");
   });
 
   it("throws on bytes that are AAPL with the high bit set on each byte (no ASCII masking)", () => {

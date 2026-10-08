@@ -529,3 +529,22 @@ tokens regardless of what else the wallet holds.
 Buy-side gating (FR-015, a pair holder is never told to "close" anything) is unchanged.
 **Trade-off:** None beyond copy: the "paired" explanatory text is gone because the situation no
 longer arises.
+
+## 20. Listed tickers come from on-chain Config; default set is TSLA, QQQ, VOO
+
+**Date:** 2026-10-08 (decided by Andre after the new Pyth key arrived)
+**Context:** The PRD names seven stocks (AAPL, MSFT, GOOGL, AMZN, NVDA, META, TSLA). The Pyth key
+the project finally received is entitled to three US equity feeds, TSLA, QQQ and VOO, plus crypto
+and metals; the other six names return "Not entitled". The SDK, scripts and web had the seven
+baked in as a TypeScript union, so changing the set was a code change in four packages.
+**Decision:** The ticker universe is data. The on-chain `Config.tickers` (up to the program's
+fixed capacity) is the listed set; the SDK keeps a catalogue of known symbols and feed ids
+(`FEED_IDS`, now including QQQ, VOO and SPY) and a default `TICKERS = ["TSLA", "QQQ", "VOO"]`
+used only to initialise a fresh config. `init-config -- --tickers A,B,C` sets the list at init,
+`init-config -- --update --tickers ...` replaces it later; the web, automation and lifecycle
+script read the enabled list from Config. `Ticker` is a plain string type. Every market settles
+on a real Pyth price; the three-name deviation from the PRD is disclosed here rather than padded
+with crypto or metal feeds that have no 4 PM close.
+**Trade-off:** Fewer markets per day for the demo (about 21 instead of 45) and two of the three
+are index ETFs rather than single stocks. When Pyth grants the remaining equity feeds, listing
+them is one config call and no deploy.

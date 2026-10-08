@@ -56,7 +56,7 @@ Full field-level detail: `specs/001-binary-outcome-markets/data-model.md`. Full 
 account lists: `specs/001-binary-outcome-markets/contracts/program-instructions.md`.
 
 **Accounts:** `Config` (singleton: admin, pause flag, oracle provider/program, publisher
-allowlist, guard thresholds, the seven tickers, default book capacity), `Market` (one per
+allowlist, guard thresholds, the listed tickers, default book capacity), `Market` (one per
 ticker/strike/trading-day: state, outcome, settlement price, the two SPL mints, the vault, a
 pointer to its `Book`), `Book` (one per market: a fixed header plus variable-capacity bid/ask
 arrays of price-time-ordered orders), and `MockPriceUpdate` (one per feed ID, mock-provider only —

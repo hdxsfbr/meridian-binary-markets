@@ -53,7 +53,7 @@ that's a deliberate separation covered in the second half of this demo."
 make lifecycle CLUSTER=devnet DEMO_SCALE=1 LIFECYCLE_ARGS="--close-in 90"
 ```
 
-**Say, while it runs:** "This one command creates the strike ladder for all seven tickers, funds
+**Say, while it runs:** "This one command creates the strike ladder for every listed ticker, funds
 two demo users, has one mint and quote and the other take both sides of a trade, waits for the
 synthetic close, posts a signed price, settles every market, and has both users redeem — printing
 a report of the rent spent, the USDC that moved, and both users' final profit and loss." Let it
@@ -83,7 +83,7 @@ mints and quotes:
    new tokens enter the system"), then post a resting **bid** and a resting **ask** on the Yes
    book from the Maker panel ("two-sided liquidity — anyone can now buy or sell Yes against these
    resting orders").
-2. **Switch to the taker wallet.** "Here are the seven tickers, each showing live prices and how
+2. **Switch to the taker wallet.** "Here are the listed tickers, each showing live prices and how
    many active contracts exist right now." Click into the same ticker, same strike. "The order
    book shows both perspectives — Yes against USDC on one side, and the equivalent No price
    derived from it on the other, because Yes plus No always equals exactly one dollar."

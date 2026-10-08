@@ -66,7 +66,7 @@ export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
 
   useEffect(() => {
     let cancelled = false;
-    const targets = TICKERS.map((ticker) => ({
+    const targets = (config?.tickers ?? TICKERS).map((ticker) => ({
       ticker,
       pda: mockPricePda(PROGRAM_ID, feedIdBytesFor(ticker, feedIds))[0],
     }));

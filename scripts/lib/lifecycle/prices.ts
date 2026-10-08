@@ -12,7 +12,7 @@
  */
 
 import type { MicroUsd, Ticker } from "@meridian/sdk";
-import { round10 } from "@meridian/sdk";
+import { round10, TICKERS } from "@meridian/sdk";
 
 /** $1 in micro-USD. */
 const ONE_DOLLAR_MICRO = 1_000_000n;
@@ -29,18 +29,13 @@ export const DEFAULT_PREV_CLOSE_USD: Record<Ticker, number> = {
   NVDA: 239,
   META: 742,
   TSLA: 379,
+  QQQ: 752,
+  VOO: 712,
+  SPY: 650,
 };
 
-/** The ticker order the brief's fixed table is given in; also this script's default "all seven" order. */
-export const DEFAULT_TICKER_ORDER: readonly Ticker[] = [
-  "AAPL",
-  "MSFT",
-  "GOOGL",
-  "AMZN",
-  "NVDA",
-  "META",
-  "TSLA",
-];
+/** This script's default ticker set and order: the SDK's listed default (`TICKERS`). */
+export const DEFAULT_TICKER_ORDER: readonly Ticker[] = TICKERS;
 
 /**
  * Resolves `ticker`'s previous close (micro-USD): `latestMockPriceMicro` if
