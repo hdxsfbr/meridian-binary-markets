@@ -24,7 +24,16 @@ number settlement acts on was chosen and signed by our own service, not by an in
 That is a materially weaker trust model than Pyth, and it is disclosed here rather than left for a
 reviewer to discover, per the project's own engineering principles.
 
-## 2. Pyth equity entitlement is pending; no update has actually been posted on devnet yet
+## 2. Pyth: resolved 2026-10-08 (entitlement granted, first real on-chain settlement done)
+
+**Update 2026-10-08:** the project's Pyth key is now entitled to all seven PRD equity feeds. The
+on-chain `Config` provider is `pythReceiver`, and at the 4:00 PM ET close the settle job fetched
+each ticker's Hermes closing update, posted it to the devnet receiver, and settled every listed
+market against it with no override (see `deployment.md` §2). The remaining limitation is that the
+key is a free grant whose scope has changed twice this week; `probe pyth` verifies entitlement in
+seconds if settlement ever fails with `Not entitled`. The section below is kept as history.
+
+### History: Pyth equity entitlement was pending; no update had been posted on devnet
 
 The Pyth API key in use is active, but a request against an `Equity.US.*` feed returns `403 Not
 entitled` — Pyth gates US equity feeds behind a separate grant that has been requested but has not

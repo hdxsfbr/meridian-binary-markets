@@ -195,6 +195,8 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 | First full lifecycle | trading day 20261011 (synthetic), AAPL ladder of 7 markets, settled at $335.00, maker +1.00 / taker −1.00 USDC, vault 0 |
 | Sample market (AAPL $330, traded) | `FxinHA2BdBaxZj5Pq6rtXvW23jnXQTxp5FJYMNJScrpM` |
 | Mock price account (AAPL) | `8xC1riDPLd1kDyVSjs8DLBZHY9VSLzncLmTW3mvgSfwP` |
+| First Pyth-settled day | 2026-10-08: the `settle` job (run at 16:00:40 ET) posted each ticker's Hermes closing update to the devnet receiver and settled all 46 listed markets by 16:00:52 ET, no override. Closes: AAPL 340.62, MSFT 523.00, GOOGL 348.42, AMZN 254.25, NVDA 230.65, META 721.17, TSLA 374.56. Sample settled market: `3M8tE45eg8RJJeTMm3vwVBYTcK7ADXdydtVErLWs1kes` (AAPL $330, Yes). The delisted QQQ/VOO ladders were override-settled at their Pyth closes after the one-hour delay. |
+| Public web app | `https://web-production-385a5.up.railway.app` (Railway; automation worker on the same project) |
 | Deploy date / cluster genesis hash | 2026-10-07 / `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
 
 Anchor's optional on-chain IDL upload (`Writing metadata account…`) failed after the program

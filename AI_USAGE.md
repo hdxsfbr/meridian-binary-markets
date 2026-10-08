@@ -480,3 +480,27 @@ Pattern worth naming: every one of tonight's bugs lived at a boundary the local 
 mocked tests smoothed over (a shared RPC's limits, a provider's plan, a bundler's duplicate
 module, a real wallet declining, a client account list never run against the chain). The
 devnet session with a human at the keyboard found in three hours what the suites could not.
+
+### 2026-10-08 — First real settlement, PRD seven on Pyth, public URL
+
+The day the oracle story closed. In order: the Pyth key arrived entitled to three equities; the
+ticker universe was made config-driven in four packages so the listed set is an on-chain update,
+not a code change (`DECISIONS.md` §20); a second grant the same afternoon enabled all seven PRD
+names and the devnet config was switched by one command; the program was upgraded so `Config`
+accepts one to seven tickers; today's ladders were created for all seven with the maker quoting
+each at-the-money strike. At 16:00:40 ET the settle job, run once from the lab machine, posted
+each ticker's Pyth closing update to the devnet receiver and settled 46 markets in twelve seconds.
+Andre watched the countdown hit zero, the trade pages flip to "Settlement pending", then settled,
+and redeemed a winning position from his own wallet.
+
+Also today: the web app went public on Railway from a slim production image (validated locally
+before upload, after two Dockerfile misses the local build caught), with the Pyth key kept server
+side behind a small price proxy. The automation worker was deployed to the same project with the
+keypairs as variables, so from tomorrow the morning ladder and the close-time settlement run
+unattended. A UI revamp plan was written from the brand kit and from Kalshi/Polymarket references
+Andre supplied, with his three decisions recorded and a developer-copy audit attached.
+
+Two misses worth owning: I recommended Alchemy (yesterday) and then pointed Andre at a Helius
+setting (today) without checking either first; both are now covered by the "verify before
+recommending" rule. And the delisted QQQ/VOO ladders tripped the settle job's retry-and-alert
+path, which is the behaviour FR-5 asks for but should have been anticipated.
