@@ -20,8 +20,10 @@ const cache = new Map<string, { at: number; body: Record<string, DisplayPrice> }
 function apiKey(): string | undefined {
   const fromEnv = process.env.PYTH_API_KEY?.trim();
   if (fromEnv) return fromEnv;
+  const keyFile = process.env.PYTH_API_KEY_FILE ?? "/run/keys/pyth_api_key";
   try {
-    return readFileSync(process.env.PYTH_API_KEY_FILE ?? "/run/keys/pyth_api_key", "utf8").trim() || undefined;
+    // Runtime-only read of a mounted secret; the bundler must not trace it.
+    return readFileSync(/* turbopackIgnore: true */ keyFile, "utf8").trim() || undefined;
   } catch {
     return undefined;
   }
