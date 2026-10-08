@@ -567,3 +567,20 @@ not `declare_id!`, as the source of truth for the deployed address.
 rebuild that changes the IDL shows up as a diff to review and commit alongside the program change.
 **Trade-off:** A large generated file in the repo and one more thing to keep in step with the
 deployed program. The alternative, running the Rust toolchain inside every web build, is far worse.
+
+## 22. Product documentation lives in the app as a Docs tab
+
+**Date:** 2026-10-08 (UI revamp wave R4b)
+**Context:** The README and `docs/` folder are written for operators and reviewers. A trader on
+the public URL had nowhere to learn what a contract is, how the four trade buttons map onto one
+Yes book, how settlement and redemption work, or what the demo's limits are. Andre asked for a
+Docs tab with a quick start and appropriate documentation.
+**Decision:** Seven markdown pages under `web/content/docs/` (quick start, how contracts work,
+trading, market making, settlement and redemption, portfolio and history, FAQ and limits) are
+rendered statically at `/docs/<slug>` with a side nav and a "Docs" link in the top bar. They are
+written for traders in plain language under the same copy rules as the rest of the UI: no
+implementation vocabulary, and "devnet" only on the FAQ page. Every page was fact-checked against
+the program and web code by a Codex review before shipping, and any future behaviour change that
+affects a documented rule must update the matching page in the same commit.
+**Trade-off:** Some overlap with `docs/` and the PRD. Accepted: the audiences differ, and keeping
+the trader pages inside the app means the public deployment is self-explanatory without the repo.

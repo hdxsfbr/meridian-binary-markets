@@ -504,3 +504,10 @@ Two misses worth owning: I recommended Alchemy (yesterday) and then pointed Andr
 setting (today) without checking either first; both are now covered by the "verify before
 recommending" rule. And the delisted QQQ/VOO ladders tripped the settle job's retry-and-alert
 path, which is the behaviour FR-5 asks for but should have been anticipated.
+
+Evening: the UI revamp's Docs wave. A Sonnet agent wrote seven trader-facing pages and the
+static route; a Codex fact-check against the program and web code returned about thirty
+corrections (market-order partial execution, what each order type reserves, the oracle timing
+allowance, override delay, Redeem all batching, Chance fallback) plus a missing table renderer.
+A second Sonnet pass applied them with trader-level wording I supplied for the program-internal
+ones. Decision recorded as `DECISIONS.md` §22.
