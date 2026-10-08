@@ -150,6 +150,8 @@ export type UsePositionsResult = {
   markets: MarketLike[];
   /** False while the event cache's backfill has not yet reached the beginning of program history (item 13): cost basis/P&L may be understated until then. */
   historyComplete: boolean;
+  /** False until the wallet's trade history has synced at least once; cost basis and P&L are placeholders before that. */
+  historyLoaded: boolean;
   /** Forces an immediate refresh, bypassing the 30s interval. */
   refresh: () => void;
 };
@@ -172,28 +174,37 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
   const [historyComplete, setHistoryComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  /** False until the event history has been synced at least once for the current wallet. */
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const generationRef = useRef(0);
 
   const load = useCallback(async () => {
     const generation = ++generationRef.current;
     try {
       const connection = program.provider.connection;
-      const [eventsResult, rawMarkets] = await Promise.all([
-        refreshEventCacheDetailed(connection, PROGRAM_ID),
-        accountClient(program, "market").all() as Promise<Array<{ publicKey: PublicKey; account: RawMarket }>>,
-      ]);
+      // Start the (slow, paced) event sync but do not wait for it: on-chain
+      // balances render first, so the Positions list appears within a couple
+      // of RPC round-trips; cost basis and realized P&L fill in when the
+      // history sync finishes.
+      const eventsPromise = refreshEventCacheDetailed(connection, PROGRAM_ID);
+      const rawMarkets = (await accountClient(program, "market").all()) as Array<{ publicKey: PublicKey; account: RawMarket }>;
       if (generationRef.current !== generation) {
         return; // a newer load superseded this one
       }
 
       const decodedMarkets = rawMarkets.map(({ publicKey, account }) => decodeMarket(publicKey, account));
       setMarkets(decodedMarkets);
-      setHistoryComplete(eventsResult.complete);
 
       if (wallet === null) {
         setRows([]);
         setSummary(EMPTY_SUMMARY);
         setFillsCountByMarket(new Map());
+        setLoading(false);
+        const eventsResult = await eventsPromise;
+        if (generationRef.current === generation) {
+          setHistoryComplete(eventsResult.complete);
+          setHistoryLoaded(true);
+        }
       } else {
         // Available (wallet ATAs) and escrowed (resting asks) inventory,
         // read straight from the chain (item 5) -- the event-derived
@@ -205,6 +216,16 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
         const available = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.available]));
         const restingYes = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.restingYes]));
 
+        // First render: holdings only, cost basis pending.
+        setRows(buildPositionRows(new Map(), decodedMarkets, available, restingYes));
+        setLoading(false);
+
+        const eventsResult = await eventsPromise;
+        if (generationRef.current !== generation) {
+          return;
+        }
+        setHistoryComplete(eventsResult.complete);
+        setHistoryLoaded(true);
         const positions: Map<string, Position> = buildPositions(eventsResult.events, wallet);
         setRows(buildPositionRows(positions, decodedMarkets, available, restingYes));
         setSummary(summarize(positions));
@@ -229,5 +250,5 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
     return () => clearInterval(interval);
   }, [load]);
 
-  return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, refresh: () => void load() };
+  return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, refresh: () => void load() };
 }

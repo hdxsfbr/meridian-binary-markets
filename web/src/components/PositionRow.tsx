@@ -10,10 +10,12 @@ export type PositionRowProps = {
   onRedeemPair?: () => void;
   redeemingWinning?: boolean;
   redeemingPair?: boolean;
+  /** True while the wallet's trade history is still syncing, so cost basis and P&L are not yet known. */
+  costBasisPending?: boolean;
 };
 
 /** One market's line in the Portfolio page: open/settled badge, a single "Minted pair" line for the matched portion, any one-sided Yes/No balance, and the redeem actions each balance is eligible for. */
-export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinning, redeemingPair }: PositionRowProps) {
+export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinning, redeemingPair, costBasisPending }: PositionRowProps) {
   // The unmatched portion of each side; if a side is fully matched into
   // pairs but still redeemable as the winning side (settled, this side
   // won), show it anyway -- "Minted pair" and "Redeem winning" are two
@@ -97,7 +99,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
       ) : null}
 
       <div className="text-sm text-black/60">
-        Cost basis {formatUsd(row.costBasisMicro)} · Realized P&amp;L {formatUsd(row.realizedPnlMicro)}
+        {costBasisPending ? "Cost basis and P&L: syncing history…" : `Cost basis ${formatUsd(row.costBasisMicro)} · Realized P&L ${formatUsd(row.realizedPnlMicro)}`}
       </div>
     </div>
   );

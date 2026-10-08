@@ -36,7 +36,7 @@ export default function PortfolioPage() {
   const { connection } = useConnection();
   const program = useProgram();
   const config = useConfig();
-  const { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, refresh } = usePositions(
+  const { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, refresh } = usePositions(
     publicKey ?? null,
   );
   const myOrders = useMyOrders(publicKey ?? null);
@@ -215,7 +215,11 @@ export default function PortfolioPage() {
       <section className="flex flex-col gap-2">
         <span className="text-sm text-black/60">Realized P&amp;L</span>
         <span className="text-xl font-semibold">{formatUsd(summary.realizedPnlMicro)}</span>
-        {!historyComplete ? <span className="text-sm text-black/60">Partial history</span> : null}
+        {!historyLoaded ? (
+          <span className="text-sm text-black/60">Syncing history…</span>
+        ) : !historyComplete ? (
+          <span className="text-sm text-black/60">Partial history</span>
+        ) : null}
       </section>
 
       {actionError ? <p className="text-red-700">{actionError}</p> : null}
@@ -233,6 +237,7 @@ export default function PortfolioPage() {
             onRedeemWinning={() => handleRedeemWinning(row)}
             redeemingPair={redeemingKey === `${row.marketKey}:pair`}
             redeemingWinning={redeemingKey === `${row.marketKey}:winning`}
+            costBasisPending={!historyLoaded}
           />
         ))}
       </section>
