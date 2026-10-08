@@ -30,7 +30,7 @@ export function Nav() {
 
   return (
     <nav className="flex items-center justify-between gap-2 border-b border-border bg-midnight px-3 py-3 sm:gap-4 sm:px-6">
-      <div className="flex min-w-0 items-center gap-2 sm:gap-6">
+      <div className="flex min-w-0 items-center gap-2 sm:gap-6 lg:shrink-0">
         <Link href="/" className="flex shrink-0 items-center">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -51,7 +51,7 @@ export function Nav() {
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/logo-mark.svg" alt="Meridian" width={28} height={28} className="block sm:hidden" />
         </Link>
-        <div className="-mx-1 flex min-w-0 items-center gap-2 overflow-x-auto px-1 py-1 sm:gap-6">
+        <div className="-mx-1 flex min-w-0 items-center gap-2 overflow-x-auto px-1 py-1 sm:gap-6 lg:overflow-visible">
           {LINKS.map((link) => {
             const active = link.match(pathname);
             return (
@@ -68,7 +68,7 @@ export function Nav() {
           })}
         </div>
       </div>
-      <div className="ticker-tape hidden min-w-0 lg:block" aria-label="Ticker prices">
+      <div className="ticker-tape hidden min-w-0 flex-1 lg:block" aria-label="Ticker prices">
         <div className="ticker-tape-track">
           {[0, 1].map((copy) => (
             <div key={copy} className="ticker-tape-group" aria-hidden={copy === 1}>
