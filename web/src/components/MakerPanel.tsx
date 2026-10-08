@@ -174,7 +174,7 @@ export function MakerPanel({
                 <div key={row.marketKey} className="flex flex-wrap items-center justify-between gap-2 text-sm">
                   <span>
                     {row.ticker} {formatStrike(row.strike)}
-                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-black/60">{formatTradingDay(row.tradingDay)}</span> : null}
+                    {row.tradingDay !== undefined ? <span className="ml-2 text-xs text-black/60">· {formatTradingDay(row.tradingDay)}</span> : null}
                     {row.settled ? <span className="ml-2 text-xs text-black/60">· Settled</span> : null}
                   </span>
                   <span>Exposure (Yes − No): {row.exposure.toString()}</span>

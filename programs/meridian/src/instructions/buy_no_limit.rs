@@ -21,7 +21,7 @@ use crate::errors::MeridianError;
 use crate::events::OrderPlaced;
 use crate::instructions::mint_pair::mint_pair_core;
 use crate::math::{pairs_to_usdc, PRICE_MAX};
-use crate::state::book::{asks_mut, insert_sorted, read_header, sum_ask_escrow, write_header, Order};
+use crate::state::book::{asks_mut, bids_mut, insert_sorted, read_header, sum_ask_escrow, write_header, Order};
 use crate::state::config::Config;
 use crate::state::market::{Market, SEED as MARKET_SEED};
 
@@ -49,6 +49,16 @@ pub fn handle_buy_no_limit(ctx: Context<BuyNoLimit>, qty: u64, price: u64) -> Re
         (header, header.capacity)
     };
     require!(header.ask_count < capacity, MeridianError::BookFull);
+
+    // This path only rests an ask; it never matches. An ask priced at or
+    // below the best bid would therefore sit crossed on the book instead of
+    // filling, so refuse it (`WouldCross`) and let the client route a
+    // marketable No price through `buy_no_market` instead.
+    if header.bid_count > 0 {
+        let mut data = book_ai.try_borrow_mut_data()?;
+        let bids = bids_mut(&mut data, capacity)?;
+        require!(bids[0].price < price, MeridianError::WouldCross);
+    }
 
     // Mint qty pairs: USDC user -> vault, Yes+No to user. Emits `Minted`.
     mint_pair_core(

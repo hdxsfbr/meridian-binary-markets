@@ -38,7 +38,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
       <div className="flex items-baseline justify-between">
         <span className="font-semibold">
           {row.ticker} {formatStrike(row.strike)}
-          {row.tradingDay !== undefined ? <span className="ml-2 font-normal text-black/60">{formatTradingDay(row.tradingDay)}</span> : null}
+          {row.tradingDay !== undefined ? <span className="ml-2 font-normal text-black/60">· {formatTradingDay(row.tradingDay)}</span> : null}
         </span>
         <span className="flex items-center gap-3 text-sm">
           <span

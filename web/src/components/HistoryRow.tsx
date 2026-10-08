@@ -19,7 +19,7 @@ export function HistoryRow({ entry }: HistoryRowProps) {
       <div className="flex flex-col">
         <span>
           {entry.label}
-          {entry.market !== undefined ? <span className="ml-2 text-black/60">{entry.market}</span> : null}
+          {entry.market !== undefined ? <span className="ml-2 text-black/60">· {entry.market}</span> : null}
         </span>
         <span className="text-sm text-black/60">{formatTimestamp(entry.ts)}</span>
       </div>

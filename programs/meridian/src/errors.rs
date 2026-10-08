@@ -55,4 +55,6 @@ pub enum MeridianError {
     NotImplemented,
     #[msg("Market has closed and is awaiting settlement")]
     MarketClosed,
+    #[msg("Order would cross the book; use a market order instead")]
+    WouldCross,
 }

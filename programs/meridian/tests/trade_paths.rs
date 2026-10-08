@@ -1198,3 +1198,24 @@ fn sell_no_market_refused_once_close_ts_has_passed() {
     assert_eq!(read_token_amount(&env, no_ata(&seller, &market)), no_before, "no No was taken");
     assert_escrow_invariants(&env, &market);
 }
+
+#[test]
+fn buy_no_limit_refused_when_its_yes_ask_would_cross_the_best_bid() {
+    let (mut env, market) = setup();
+    seed_bids(&mut env, &market, 1, 5, 500_000);
+    let (user, user_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
+
+    // No at $0.55 = Yes ask at $0.45, below the resting $0.50 bid: would cross.
+    let result = send_buy_no_limit(&mut env, &user, &market, user_usdc, 2, 450_000);
+    assert_err(&result, MeridianError::WouldCross);
+    // Exactly at the best bid would match too: also refused.
+    let result = send_buy_no_limit(&mut env, &user, &market, user_usdc, 2, 500_000);
+    assert_err(&result, MeridianError::WouldCross);
+    assert_eq!(read_token_amount(&env, user_usdc), 10_000 * ONE_USDC, "a refused order mints nothing");
+    assert_eq!(env.read_book_header(market.book).ask_count, 0);
+
+    // Above the best bid rests as before.
+    send_buy_no_limit(&mut env, &user, &market, user_usdc, 2, 550_000).expect("non-crossing ask should rest");
+    assert_eq!(env.read_book_header(market.book).ask_count, 1);
+    assert_escrow_invariants(&env, &market);
+}
