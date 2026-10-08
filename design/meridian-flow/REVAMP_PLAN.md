@@ -45,6 +45,18 @@ button, gated and disabled states with reasons (as today). Open orders table.
 actions; realized P&L separated from side colours; maker panel restyled, exposure table as a real
 table; History rows with market, amount and explorer link, grouped by day.
 
+**Wave R4b — Docs tab.** A `Docs` entry in the nav and a `/docs` section rendered from markdown
+files kept in the repo (`web/content/docs/*.md`, one per page, with a left sidebar on desktop and a
+dropdown on mobile). User-facing only, written for a trader, not for a reviewer of the code:
+- *Quick start*: wallet on devnet, free SOL and USDC, connect, first trade, where to see it settle.
+- *How contracts work*: Yes/No, $1.00 payout, "at or above" tie rule, implied chance, 4:00 PM ET close.
+- *Trading*: market vs limit, Buy/Sell Yes/No, what "You pay" and "Reserved" mean, position rule.
+- *Market making*: minting pairs, quoting, exposure, cancelling.
+- *Settlement and redemption*: where the closing price comes from (Pyth), checks it must pass, override, how to redeem.
+- *Portfolio and history*: balances, cost basis, realized P&L, explorer links.
+- *FAQ and limits*: devnet-only, no real funds, rate limits, what to do when something looks stale.
+Developer docs stay in `docs/` and the README; the Docs tab links out to the repo for those.
+
 **Wave R5 — Admin, responsive, accessibility.** Admin restyled; 1440 / 1024 / 390 passes; keyboard
 focus ring (cyan); contrast check (WCAG AA) on every text/background pair actually used; reduced
 motion; Playwright flows updated for new labels only where copy changed.
