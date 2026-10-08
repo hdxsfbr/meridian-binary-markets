@@ -38,7 +38,6 @@ import {
   SENDING,
   SETTLEMENT_PENDING,
   TRADING_PAUSED,
-  closeButtonLabel,
   estimateLabel,
   guidanceCopy,
   settledOutcomeCopy,
@@ -161,14 +160,6 @@ export function TradePanel({ market, config }: TradePanelProps) {
     void execute(action, { action, kind, qty, price }, action);
   }
 
-  function closeFirst(action: "sellYes" | "sellNo") {
-    const closeQty = action === "sellYes" ? intentPosition.yes - position.pairsHeld : intentPosition.no - position.pairsHeld;
-    if (closeQty <= 0n) {
-      return;
-    }
-    void execute(action, { action, kind: "market", qty: closeQty }, `close-${action}`);
-  }
-
   const now = Math.floor(Date.now() / 1000);
   const isSettled = market.state === "settled";
   const isPastCloseAwaitingSettlement = !isSettled && now >= Number(market.closeTs);
@@ -262,20 +253,6 @@ export function TradePanel({ market, config }: TradePanelProps) {
         <div className="mt-3 grid grid-cols-2 gap-2">
           {ACTIONS.map((action) => {
             const plan = plans[action];
-            const isGatingError = plan !== undefined && "code" in plan && (plan.code === "closeNoFirst" || plan.code === "closeYesFirst");
-
-            if (isGatingError) {
-              const code = (plan as { code: "closeNoFirst" | "closeYesFirst" }).code;
-              const closeAction = code === "closeNoFirst" ? "sellNo" : "sellYes";
-              return (
-                <div key={action} className="col-span-2 flex items-center justify-between">
-                  <span className="text-sm text-black/70">{guidanceCopy(code)}</span>
-                  <button type="button" className="rounded border border-black/20 bg-black px-3 py-2 text-sm font-medium text-white hover:bg-black/80 disabled:cursor-not-allowed disabled:bg-black/30" disabled={busy !== null} onClick={() => closeFirst(closeAction)}>
-                    {busy === `close-${closeAction}` ? SENDING : closeButtonLabel(code)}
-                  </button>
-                </div>
-              );
-            }
 
             const noHoldings =
               (action === "sellYes" && position.netYes <= 0n) || (action === "sellNo" && position.netNo <= 0n);
