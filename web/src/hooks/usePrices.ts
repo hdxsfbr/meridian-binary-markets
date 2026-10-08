@@ -64,7 +64,52 @@ export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
   const feedIds = config?.feedIds ?? {};
   const [prices, setPrices] = useState<Partial<Record<Ticker, TickerPrice>>>({});
 
+  const oracleProvider = config?.oracleProvider ?? "mock";
+
+  // Pyth provider: prices are not on chain between settlements, so poll the
+  // app's own `/api/prices` proxy (server-side key) for the enabled feeds.
   useEffect(() => {
+    if (oracleProvider !== "pyth") return;
+    let cancelled = false;
+    const tickers = config?.tickers ?? [];
+    const idByTicker = new Map<Ticker, string>();
+    for (const ticker of tickers) {
+      const hex = feedIds[ticker];
+      if (hex !== undefined) idByTicker.set(ticker, hex.toLowerCase());
+    }
+    if (idByTicker.size === 0) return;
+
+    async function load() {
+      try {
+        const response = await fetch(`/api/prices?ids=${[...idByTicker.values()].join(",")}`, { cache: "no-store" });
+        if (!response.ok) return;
+        const body = (await response.json()) as Record<string, { priceMicro: string; publishTime: number }>;
+        if (cancelled) return;
+        setPrices((prev) => {
+          const next = { ...prev };
+          for (const [ticker, id] of idByTicker) {
+            const entry = body[id];
+            if (entry !== undefined) {
+              next[ticker] = { priceMicro: BigInt(entry.priceMicro), publishTime: entry.publishTime };
+            }
+          }
+          return next;
+        });
+      } catch {
+        // Keep the last prices; the interval retries.
+      }
+    }
+    void load();
+    const interval = setInterval(() => void load(), REFRESH_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [oracleProvider, JSON.stringify(feedIds)]);
+
+  useEffect(() => {
+    if (oracleProvider === "pyth") return;
     let cancelled = false;
     const targets = (config?.tickers ?? TICKERS).map((ticker) => ({
       ticker,

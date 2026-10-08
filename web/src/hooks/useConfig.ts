@@ -18,6 +18,8 @@ export type ConfigSnapshot = {
   /** `TickerInfo.feed_id`, lowercase hex (no `0x`), keyed by ticker, for every enabled ticker. */
   feedIds: Partial<Record<Ticker, string>>;
   overrideDelaySecs: number;
+  /** Which price source settles markets: the in-program mock or the Pyth receiver. */
+  oracleProvider: "mock" | "pyth";
 };
 
 const REFRESH_INTERVAL_MS = 15_000;
@@ -27,6 +29,7 @@ type RawConfig = {
   paused: boolean;
   tickers: RawTickerInfo[];
   overrideDelaySecs: number | string;
+  oracleProvider?: Record<string, unknown>;
 };
 
 function decodeConfig(raw: RawConfig): ConfigSnapshot {
@@ -44,6 +47,7 @@ function decodeConfig(raw: RawConfig): ConfigSnapshot {
     tickers,
     feedIds,
     overrideDelaySecs: Number(raw.overrideDelaySecs),
+    oracleProvider: raw.oracleProvider !== undefined && "pythReceiver" in raw.oracleProvider ? "pyth" : "mock",
   };
 }
 
