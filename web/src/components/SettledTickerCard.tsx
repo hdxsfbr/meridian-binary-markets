@@ -19,6 +19,7 @@ export type SettledTickerCardProps = {
 export function SettledTickerCard({ ticker, markets }: SettledTickerCardProps) {
   const sorted = [...markets].sort((a, b) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0));
   const strikes = nearestStrikes(sorted, undefined, 3);
+  const hidden = sorted.length - strikes.length;
   const closePrice = markets.find((m) => m.settlementPrice !== 0n)?.settlementPrice;
 
   return (
@@ -38,13 +39,14 @@ export function SettledTickerCard({ ticker, markets }: SettledTickerCardProps) {
             <span key={market.pubkey.toBase58()} className="num flex items-center gap-1">
               <span className="text-text-muted">{formatStrike(market.strike)}</span>
               {won !== null ? (
-                <span className={`font-medium ${won === "Yes" ? "text-yes" : "text-no"}`}>{won}</span>
+                <span className={`font-medium ${won === "Yes" ? "text-yes" : "text-no"}`}>{won} won</span>
               ) : (
                 <span className="text-text-muted">—</span>
               )}
             </span>
           );
         })}
+        {hidden > 0 ? <span className="text-text-muted">+{hidden} more</span> : null}
       </span>
     </Link>
   );
