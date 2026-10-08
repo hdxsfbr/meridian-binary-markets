@@ -10,8 +10,8 @@ web/playwright-report
 keys
 .env
 .env.*
-design
-docs
-specs
+/design
+/docs
+/specs
 test-ledger
 *.log
