@@ -31,6 +31,8 @@ export type MarketLike = {
   pubkey: PublicKey;
   ticker: string;
   strike: bigint;
+  /** `YYYYMMDD`; optional so older fixtures without it still type-check. */
+  tradingDay?: number;
   closeTs: bigint;
   state: "open" | "settled";
   outcome: "unset" | "yes" | "no";

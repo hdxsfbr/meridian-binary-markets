@@ -8,7 +8,7 @@
  * day first, then ticker; strikes are listed within each group.
  */
 
-import { formatPrice, formatStrike, formatUsd } from "@/lib/format";
+import { formatPrice, formatStrike, formatUsd, formatTradingDay } from "@/lib/format";
 import { groupMyOrderRows, type MyOrderRow } from "@/lib/maker-view";
 import { CANCEL, CANCELLING } from "@/lib/trade-copy";
 
@@ -21,14 +21,6 @@ export type MyOrdersProps = {
   /** `useMyOrders`' `error`: a Book fetch failed for at least one market, so `rows` may be stale (item 17). */
   error?: boolean;
 };
-
-/** Trading day `YYYYMMDD` -> "2026-10-06". */
-function formatTradingDay(day: number): string {
-  const year = Math.floor(day / 10_000);
-  const month = Math.floor((day % 10_000) / 100);
-  const date = day % 100;
-  return `${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
-}
 
 const SIDE_LABEL: Record<MyOrderRow["side"], string> = {
   bid: "Buy Yes",

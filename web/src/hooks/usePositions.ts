@@ -107,6 +107,7 @@ type EnumValue = Record<string, unknown>;
 type RawMarket = {
   ticker: number[];
   strike: BnLike;
+  tradingDay: number;
   closeTs: BnLike;
   state: EnumValue;
   outcome: EnumValue;
@@ -129,6 +130,7 @@ function decodeMarket(pubkey: PublicKey, raw: RawMarket): MarketLike {
     pubkey,
     ticker: tickerFromBytes(Uint8Array.from(raw.ticker)),
     strike: toBigInt(raw.strike),
+    tradingDay: raw.tradingDay,
     closeTs: toBigInt(raw.closeTs),
     state: enumKey(raw.state) as MarketLike["state"],
     outcome: enumKey(raw.outcome) as MarketLike["outcome"],

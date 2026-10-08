@@ -85,3 +85,24 @@ export function countdownLabel(now: number, closeTs: number, settled?: boolean):
   }
   return formatCountdown(remaining);
 }
+
+/** Trading day `YYYYMMDD` -> "2026-10-06". */
+export function formatTradingDay(day: number): string {
+  const year = Math.floor(day / 10_000);
+  const month = Math.floor((day % 10_000) / 100);
+  const date = day % 100;
+  return `${year}-${String(month).padStart(2, "0")}-${String(date).padStart(2, "0")}`;
+}
+
+/**
+ * "AAPL $330", or "AAPL $330 · 2026-10-08" when `markets` span more than one
+ * trading day, so two ladders for the same ticker are tellable apart.
+ */
+export function marketOptionLabel(
+  market: { ticker: string; strike: bigint; tradingDay?: number },
+  markets: ReadonlyArray<{ tradingDay?: number }>,
+): string {
+  const base = `${market.ticker} ${formatStrike(market.strike)}`;
+  const days = new Set(markets.map((m) => m.tradingDay).filter((d): d is number => d !== undefined));
+  return days.size > 1 && market.tradingDay !== undefined ? `${base} · ${formatTradingDay(market.tradingDay)}` : base;
+}

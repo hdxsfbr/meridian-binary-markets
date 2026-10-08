@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import type { Book } from "@meridian/sdk";
-import { formatStrike, formatUsd } from "@/lib/format";
+import { formatStrike, formatUsd, marketOptionLabel } from "@/lib/format";
 import type { MyOrderRow, RestingTotals } from "@/lib/maker-view";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
 import { MakerQuoteForm, type QuoteSide } from "./MakerQuoteForm";
@@ -135,7 +135,7 @@ export function MakerPanel({
           >
             {openMarkets.map((m) => (
               <option key={m.pubkey.toBase58()} value={m.pubkey.toBase58()}>
-                {m.ticker} {formatStrike(m.strike)}
+                {marketOptionLabel(m, openMarkets)}
               </option>
             ))}
           </select>

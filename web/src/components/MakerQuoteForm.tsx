@@ -11,7 +11,7 @@
 
 import { useState } from "react";
 import type { Book } from "@meridian/sdk";
-import { formatStrike, formatUsd } from "@/lib/format";
+import { formatStrike, formatUsd, marketOptionLabel } from "@/lib/format";
 import type { MarketLike } from "@/lib/positions-view";
 
 export type QuoteSide = "bid" | "ask";
@@ -218,7 +218,7 @@ export function MakerQuoteForm({
           >
             {openMarkets.map((m) => (
               <option key={m.pubkey.toBase58()} value={m.pubkey.toBase58()}>
-                {m.ticker} {formatStrike(m.strike)}
+                {marketOptionLabel(m, openMarkets)}
               </option>
             ))}
           </select>
