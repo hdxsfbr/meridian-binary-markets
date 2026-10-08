@@ -161,3 +161,39 @@ fn rejects_mock_pyth_with_oracle_program_not_equal_to_program_id() {
 fn rejects_zero_capacity() {
     rejection_case(|args| args.default_book_capacity = 0);
 }
+
+#[test]
+fn config_lists_between_one_and_seven_tickers() {
+    let mut env = Env::new();
+    let admin_pk = env.admin.pubkey_pk();
+    let mut args = default_config_args(admin_pk, 16);
+    args.tickers = default_tickers().into_iter().take(3).collect();
+    env.init_config_with(args).expect("three tickers should initialise");
+    let config_pda_key = config_pda();
+    let cfg: Config = env.fetch(config_pda_key);
+    assert_eq!(cfg.tickers.iter().filter(|t| t.enabled).count(), 3);
+    assert!(cfg.tickers[3..].iter().all(|t| !t.enabled && t.symbol == [0u8; 8]));
+
+    // Growing the list later is a config update, not a deploy.
+    env.update_config(UpdateConfigArgs {
+        tickers: Some(default_tickers()),
+        ..Default::default()
+    })
+    .expect("seven tickers should be accepted");
+    let cfg: Config = env.fetch(config_pda_key);
+    assert_eq!(cfg.tickers.iter().filter(|t| t.enabled).count(), 7);
+
+    let empty = env.update_config(UpdateConfigArgs {
+        tickers: Some(vec![]),
+        ..Default::default()
+    });
+    assert_err(&empty, MeridianError::InvariantViolated);
+
+    let mut eight = default_tickers();
+    eight.push(default_tickers()[0]);
+    let too_many = env.update_config(UpdateConfigArgs {
+        tickers: Some(eight),
+        ..Default::default()
+    });
+    assert_err(&too_many, MeridianError::InvariantViolated);
+}

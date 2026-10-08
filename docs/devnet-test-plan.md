@@ -19,17 +19,18 @@ shown in plain language in the panel; anything that reads like a raw error code 
 5. **Connect.** Click Select Wallet, pick your wallet, approve. The nav shows your shortened
    address. Portfolio shows your USDC balance.
 
-Two AAPL ladders exist for testing: one for today's trading day (closes 10:00 AM ET Oct 8) and
-one for Oct 8 (closes 4:00 PM ET Oct 8). The web app shows the ladder for the current ET calendar
-day. On each, the $330 strike has a resting ask of 5 Yes at $0.60 and a resting bid of 5 Yes at
-$0.40 from a demo maker.
+The listed tickers are TSLA, QQQ and VOO (the feeds the Pyth key is entitled to; see
+`DECISIONS.md` §20). Each has a ladder for the current trading day closing 4:00 PM ET, and on each
+ladder the at-the-money strike has a resting ask of 5 Yes at $0.60 and a resting bid of 5 Yes at
+$0.40 from a demo maker. Earlier AAPL ladders still exist on chain for wallets that hold
+positions there (reachable at `/trade/AAPL`) but are no longer listed.
 
 ## Trader cases
 
 | # | Case | Steps | Expect |
 | --- | --- | --- | --- |
-| T1 | Browse | Markets page | AAPL shows 7 open contracts and a countdown; other tickers 0. |
-| T2 | Pick a strike | Trade → AAPL → click $330 | Yes $0.60 / No $0.40, implied probability 60%; payoff line "You pay $0.60. You win $1.00 if AAPL closes at or above $330." |
+| T1 | Browse | Markets page | TSLA, QQQ and VOO each show their open contracts, a live last price, and a countdown to 4:00 PM ET. |
+| T2 | Pick a strike | Trade → TSLA → click the highlighted at-the-money strike | Yes $0.60 / No $0.40, implied probability 60%; payoff line "You pay $0.60. You win $1.00 if TSLA closes at or above $<strike>." |
 | T3 | Buy Yes at market | Market, quantity 1, Buy Yes, approve in wallet | Holdings "1 Yes · 0 No". USDC down $0.60 on Portfolio. Book ask qty drops to 4. |
 | T4 | Opposite side is gated | With Yes held, look at Buy No | Buy No is greyed with "Close your Yes position first"; Sell Yes sits directly below it. Holding a minted pair gates nothing: either leg can be sold. |
 | T5 | Sell Yes at market | Sell Yes, quantity 1 | Fills against the $0.40 bid. Holdings back to 0 · 0; USDC up $0.40. |
@@ -55,7 +56,7 @@ operator wallet" (test that too, it's case O1).
 | O1 | Access control | Open /admin with a non-admin wallet | Access message, no controls. |
 | O2 | Pause | Admin → Pause | Config shows Paused: Yes. Trader's panel says trading is paused; Market/Limit disabled; redeem still works. |
 | O3 | Unpause | Admin → Unpause | Trading re-enabled. |
-| O4 | Add strike | Admin → Add strike: AAPL, Strike 400, Capacity 16 → Add strike | Green "Added AAPL $400." The trade page lists $400. Costs ~0.02 SOL. |
+| O4 | Add strike | Admin → Add strike: TSLA, Strike 450, Capacity 16 → Add strike | Green "Added TSLA $450." The trade page lists $450. Costs ~0.02 SOL. |
 | O5 | Unsettled list | After a ladder's close passes | Admin lists each unsettled market with "Closed since" and the override time (close + 1 hour, ET). Override button disabled until then. |
 | O6 | Override | After the delay: enter a settlement price, Override | Market moves to "Settled by override"; trade page shows the outcome; holders can Redeem winning. |
 

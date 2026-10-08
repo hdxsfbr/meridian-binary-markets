@@ -65,9 +65,12 @@ fn pad_publishers(publishers: &[Pubkey]) -> Result<([Pubkey; MAX_PUBLISHERS], u8
     Ok((out, publishers.len() as u8))
 }
 
+/// Pads 1..=`TICKER_COUNT` tickers into the fixed-size on-chain array; the
+/// unused slots are `empty_ticker()` (disabled, zero symbol). The listed set
+/// is whatever is enabled here, not a fixed seven (DECISIONS §20).
 fn pad_tickers(tickers: &[TickerInfo]) -> Result<[TickerInfo; TICKER_COUNT]> {
     require!(
-        tickers.len() == TICKER_COUNT,
+        !tickers.is_empty() && tickers.len() <= TICKER_COUNT,
         MeridianError::InvariantViolated
     );
     let mut out = [empty_ticker(); TICKER_COUNT];
