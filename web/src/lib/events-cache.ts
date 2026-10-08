@@ -42,8 +42,8 @@
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { parseEventsFromTransaction, type MeridianEvent } from "@meridian/sdk";
 
-const CACHE_KEY_PREFIX = "meridian:events:v2:";
-const CACHE_VERSION = 2;
+const CACHE_KEY_PREFIX = "meridian:events:v3:";
+const CACHE_VERSION = 3;
 const SIGNATURES_PAGE_SIZE = 1000;
 /** Per-refresh budget on backfill pages; progress persists via `backfillCursor`, so this never prevents eventually reaching `complete`. */
 const MAX_BACKFILL_PAGES_PER_REFRESH = 10;
@@ -87,11 +87,28 @@ function hasLocalStorage(): boolean {
 
 type Tagged = { __bigint: string } | { __pubkey: string };
 
+/**
+ * Duck-typed PublicKey check. `instanceof PublicKey` is not enough: the
+ * production bundle can carry two copies of `@solana/web3.js` (the SDK's and
+ * the wallet adapter's), and a key built by one copy fails `instanceof`
+ * against the other. A key that slipped through as a plain object came back
+ * from the cache without `.equals`, crashing the P&L replay on every refresh
+ * after the first.
+ */
+function isPublicKeyLike(value: unknown): value is { toBase58: () => string } {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    typeof (value as { toBase58?: unknown }).toBase58 === "function" &&
+    typeof (value as { toBytes?: unknown }).toBytes === "function"
+  );
+}
+
 function serializeValue(value: unknown): unknown {
   if (typeof value === "bigint") {
     return { __bigint: value.toString() } satisfies Tagged;
   }
-  if (value instanceof PublicKey) {
+  if (isPublicKeyLike(value)) {
     return { __pubkey: value.toBase58() } satisfies Tagged;
   }
   if (Array.isArray(value)) {

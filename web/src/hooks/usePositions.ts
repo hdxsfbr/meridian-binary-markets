@@ -154,6 +154,8 @@ export type UsePositionsResult = {
   historyComplete: boolean;
   /** False until the wallet's trade history has synced at least once; cost basis and P&L are placeholders before that. */
   historyLoaded: boolean;
+  /** Positions are showing but the latest trade-history sync failed; cost basis and P&L may be stale. */
+  historyError: boolean;
   /** Forces an immediate refresh, bypassing the 30s interval. */
   refresh: () => void;
 };
@@ -176,12 +178,15 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
   const [historyComplete, setHistoryComplete] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  /** True when positions rendered but the trade-history sync behind them failed; cleared on the next successful sync. */
+  const [historyError, setHistoryError] = useState(false);
   /** False until the event history has been synced at least once for the current wallet. */
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const generationRef = useRef(0);
 
   const load = useCallback(async () => {
     const generation = ++generationRef.current;
+    let holdingsRendered = false;
     try {
       const connection = program.provider.connection;
       // Start the (slow, paced) event sync but do not wait for it: on-chain
@@ -221,22 +226,30 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
         // First render: holdings only, cost basis pending.
         setRows(buildPositionRows(new Map(), decodedMarkets, available, restingYes));
         setLoading(false);
+        setError(false);
+        holdingsRendered = true;
 
         const eventsResult = await eventsPromise;
         if (generationRef.current !== generation) {
           return;
         }
         setHistoryComplete(eventsResult.complete);
-        setHistoryLoaded(true);
         const positions: Map<string, Position> = buildPositions(eventsResult.events, wallet);
         setRows(buildPositionRows(positions, decodedMarkets, available, restingYes));
         setSummary(summarize(positions));
         setFillsCountByMarket(countFillsByMarket(eventsResult.events, wallet));
+        setHistoryLoaded(true);
+        setHistoryError(false);
       }
       setError(false);
-    } catch {
+    } catch (err) {
+      console.error("[meridian] positions load failed", err);
       if (generationRef.current === generation) {
-        setError(true);
+        if (holdingsRendered) {
+          setHistoryError(true);
+        } else {
+          setError(true);
+        }
       }
     } finally {
       if (generationRef.current === generation) {
@@ -252,5 +265,5 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
     return () => clearInterval(interval);
   }, [load]);
 
-  return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, refresh: () => void load() };
+  return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, historyError, refresh: () => void load() };
 }
