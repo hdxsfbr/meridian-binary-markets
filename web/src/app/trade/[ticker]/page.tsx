@@ -18,17 +18,19 @@ import { useMarkets, type MarketAccount } from "@/hooks/useMarkets";
 import { useBook } from "@/hooks/useBook";
 import { usePosition } from "@/hooks/usePosition";
 import { usePrices } from "@/hooks/usePrices";
-import { formatUsd } from "@/lib/format";
+import { usePriceHistory } from "@/hooks/usePriceHistory";
+import { formatStrike, formatUsd } from "@/lib/format";
 import { useProgram } from "@/hooks/useProgram";
 import { cancelOrder, fetchUsdcMint, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
 import { BookView } from "@/components/BookView";
 import { Countdown } from "@/components/Countdown";
 import { OrderList } from "@/components/OrderList";
 import { PayoffLine } from "@/components/PayoffLine";
+import { Sparkline } from "@/components/Sparkline";
 import { StrikeList } from "@/components/StrikeList";
 import { TradePanel } from "@/components/TradePanel";
 import type { BookLevel, Perspective } from "@/lib/book-perspective";
-import type { Order } from "@meridian/sdk";
+import type { Order, Ticker } from "@meridian/sdk";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { InlineError } from "@/components/ui/InlineError";
 
@@ -77,12 +79,17 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
 
   const book = useBook(selected?.pubkey);
   const position = usePosition(selected?.pubkey, publicKey ?? undefined);
+  const priceHistory = usePriceHistory(ticker as Ticker);
 
+  // Falls back to the selected market's own close time when today has no
+  // open market left (e.g. every strike already settled): the header chip
+  // should still show "Settled at $X" for the selected strike rather than
+  // disappearing just because `earliestCloseTs` only looks at open markets.
   const closeTs = earliestCloseTs(
     tickerMarkets,
     (m) => m.state === "open",
     (m) => m.closeTs,
-  );
+  ) ?? (selected !== null ? Number(selected.closeTs) : undefined);
 
   async function handleCancel(order: Order) {
     if (publicKey === null || publicKey === undefined || selected === null) {
@@ -104,13 +111,25 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
 
   return (
     <div className="mx-auto max-w-[1440px] px-6 py-4">
-      <div className="flex items-baseline justify-between">
-        <h1 className="text-2xl font-semibold">
-          {ticker}
-          {lastPrice !== undefined ? <span className="num ml-3 text-lg font-normal text-text-muted">{formatUsd(lastPrice)}</span> : null}
-        </h1>
-        {closeTs !== undefined ? <Countdown closeTs={closeTs} /> : null}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-baseline gap-3">
+          <h1 className="text-2xl font-semibold">{ticker}</h1>
+          {lastPrice !== undefined ? <span className="num text-lg font-normal text-text-muted">{formatUsd(lastPrice)}</span> : null}
+          {selected !== null ? (
+            <span className="num rounded-full border border-border bg-surface-raised px-3 py-1 text-sm text-text-muted">
+              Price to beat {formatStrike(selected.strike)}
+            </span>
+          ) : null}
+        </div>
+        {closeTs !== undefined ? (
+          <Countdown
+            closeTs={closeTs}
+            settled={selected?.state === "settled"}
+            settlementPriceMicro={selected?.settlementPrice}
+          />
+        ) : null}
       </div>
+      <p className="mt-1 text-sm text-text-muted">Closes 4:00 PM ET</p>
 
       {error ? (
         <div className="mt-6">
@@ -123,40 +142,55 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
         </div>
       ) : (
         <div className="mt-6 grid grid-cols-1 gap-8 lg:grid-cols-2">
-          <div>
-            <h2 className="font-semibold">Strikes</h2>
-            <div className="mt-2">
-              <StrikeList
-                markets={tickerMarkets}
-                selected={selected?.pubkey ?? null}
-                onSelect={(m) => setSelectedKey(m.pubkey.toBase58())}
-              />
+          <div className="flex flex-col gap-6">
+            <div>
+              <h2 className="font-semibold">Price history</h2>
+              <div className="mt-2">
+                <Sparkline ticker={ticker} points={priceHistory} strikeMicro={selected?.strike} />
+              </div>
             </div>
 
-            {selected !== null ? (
-              <div className="mt-6">
-                <PayoffLine ticker={ticker} strike={selected.strike} cost={book.asks[0]?.price ?? 0n} />
-              </div>
-            ) : null}
-          </div>
-
-          {selected !== null ? (
             <div>
-              <h2 className="font-semibold">Order book</h2>
+              <h2 className="font-semibold">Strikes</h2>
               <div className="mt-2">
-                <BookView
-                  bids={toBookLevels(book.bids)}
-                  asks={toBookLevels(book.asks)}
-                  perspective={perspective}
-                  onToggle={setPerspective}
+                <StrikeList
+                  markets={tickerMarkets}
+                  selected={selected?.pubkey ?? null}
+                  onSelect={(m) => setSelectedKey(m.pubkey.toBase58())}
+                  lastPriceMicro={lastPrice}
                 />
               </div>
 
-              <div className="mt-6">
-                <TradePanel market={selected} config={config} />
+              {selected !== null ? (
+                <div className="mt-4">
+                  <PayoffLine ticker={ticker} strike={selected.strike} cost={book.asks[0]?.price ?? 0n} />
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {selected !== null ? (
+            <div className="flex flex-col gap-6">
+              <div>
+                <h2 className="font-semibold">Trade</h2>
+                <div className="mt-2">
+                  <TradePanel market={selected} config={config} />
+                </div>
               </div>
 
-              <div className="mt-6">
+              <div>
+                <h2 className="font-semibold">Order book</h2>
+                <div className="mt-2">
+                  <BookView
+                    bids={toBookLevels(book.bids)}
+                    asks={toBookLevels(book.asks)}
+                    perspective={perspective}
+                    onToggle={setPerspective}
+                  />
+                </div>
+              </div>
+
+              <div>
                 <h2 className="font-semibold">Your open orders</h2>
                 <div className="mt-2">
                   <OrderList orders={position.restingOrders} askIds={new Set(book.asks.map((o) => o.id.toString()))} onCancel={handleCancel} cancelling={cancelling} />

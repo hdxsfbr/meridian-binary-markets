@@ -29,6 +29,23 @@ export function impliedProbability(yesPriceMicro: bigint): string {
   return `${pct.toString()}%`;
 }
 
+/**
+ * Payout multiple for a Yes price: `$1.00 / price`, formatted like
+ * "1.67x". `undefined` or a non-positive price (no offer to quote against)
+ * returns `""` rather than a divide-by-zero or a misleading multiple.
+ */
+export function payoutMultiple(yesPriceMicro: bigint | undefined): string {
+  if (yesPriceMicro === undefined || yesPriceMicro <= 0n) {
+    return "";
+  }
+  // Scaled by 1000 before the integer division so the result keeps two
+  // decimal places (truncated, not rounded) without ever going through a float.
+  const scaled = (ONE_USDC * 1000n) / yesPriceMicro;
+  const whole = scaled / 1000n;
+  const hundredths = (scaled % 1000n) / 10n;
+  return `${whole.toString()}.${hundredths.toString().padStart(2, "0")}x`;
+}
+
 /** The No-side price implied by a Yes price: `$1.00 - price`. */
 export function oppositePrice(micro: bigint): bigint {
   return ONE_USDC - micro;

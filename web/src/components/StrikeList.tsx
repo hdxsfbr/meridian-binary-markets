@@ -2,18 +2,19 @@
 
 /**
  * All of today's strikes for a ticker (T065), each showing its Yes/No best
- * price and implied probability; selecting one drives the Trade page's
- * `BookView`/`TradePanel`. Best prices here are a periodic snapshot (15s
- * poll of each strike's `Book`), not a live subscription — the selected
- * strike's book is already live via `useBook` in `BookView`/`TradePanel`,
- * so this list only needs to be fresh enough to pick a strike by.
+ * price, Chance (best ask, else last bid) and payout multiple; selecting
+ * one drives the Trade page's `BookView`/`TradePanel`. Best prices here
+ * are a periodic snapshot (15s poll of each strike's `Book`), not a live
+ * subscription -- the selected strike's book is already live via `useBook`
+ * in `BookView`/`TradePanel`, so this list only needs to be fresh enough to
+ * pick a strike by.
  */
 
 import { useEffect, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
 import { bookPda, decodeBook, type Book } from "@meridian/sdk";
-import { formatPrice, formatStrike, impliedProbability, oppositePrice } from "@/lib/format";
-import { representativeYesPrice } from "@/lib/book-quote";
+import { formatPrice, formatStrike, impliedProbability, oppositePrice, payoutMultiple } from "@/lib/format";
+import { representativeYesQuote } from "@/lib/book-quote";
 import { PROGRAM_ID } from "@/lib/rpc";
 import type { MarketAccount } from "@/hooks/useMarkets";
 import { useProgram } from "@/hooks/useProgram";
@@ -22,11 +23,30 @@ export type StrikeListProps = {
   markets: MarketAccount[];
   selected: PublicKey | null;
   onSelect: (market: MarketAccount) => void;
+  /** The ticker's live price, for highlighting the at-the-money row (nearest strike). */
+  lastPriceMicro?: bigint;
 };
 
 const REFRESH_INTERVAL_MS = 15_000;
 
-export function StrikeList({ markets, selected, onSelect }: StrikeListProps) {
+/** The market whose strike is numerically closest to `lastPriceMicro`, or `null` with no price yet / no markets. */
+function atTheMoneyKey(markets: MarketAccount[], lastPriceMicro: bigint | undefined): string | null {
+  if (lastPriceMicro === undefined || markets.length === 0) {
+    return null;
+  }
+  let best = markets[0];
+  let bestDiff = best.strike < lastPriceMicro ? lastPriceMicro - best.strike : best.strike - lastPriceMicro;
+  for (const market of markets) {
+    const diff = market.strike < lastPriceMicro ? lastPriceMicro - market.strike : market.strike - lastPriceMicro;
+    if (diff < bestDiff) {
+      best = market;
+      bestDiff = diff;
+    }
+  }
+  return best.pubkey.toBase58();
+}
+
+export function StrikeList({ markets, selected, onSelect, lastPriceMicro }: StrikeListProps) {
   const program = useProgram();
   const [books, setBooks] = useState<Record<string, Book | null>>({});
 
@@ -67,35 +87,93 @@ export function StrikeList({ markets, selected, onSelect }: StrikeListProps) {
     return <p className="text-text-muted">No contracts yet today.</p>;
   }
 
+  const atmKey = atTheMoneyKey(markets, lastPriceMicro);
+
+  function selectRow(market: MarketAccount) {
+    onSelect(market);
+  }
+
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr>
-          <th className="text-left">Strike</th>
-          <th className="text-left">Yes</th>
-          <th className="text-left">No</th>
-          <th className="text-left">Implied probability</th>
-        </tr>
-      </thead>
-      <tbody>
-        {markets.map((market) => {
-          const yesPrice = representativeYesPrice(books[market.pubkey.toBase58()] ?? null);
-          const isSelected = selected !== null && selected.equals(market.pubkey);
-          return (
-            <tr
-              key={market.pubkey.toBase58()}
-              onClick={() => onSelect(market)}
-              aria-selected={isSelected}
-              className={isSelected ? "cursor-pointer bg-surface-raised" : "cursor-pointer"}
-            >
-              <td className="num">{formatStrike(market.strike)}</td>
-              <td className="num">{yesPrice !== undefined ? formatPrice(yesPrice) : "—"}</td>
-              <td className="num">{yesPrice !== undefined ? formatPrice(oppositePrice(yesPrice)) : "—"}</td>
-              <td className="num">{yesPrice !== undefined ? impliedProbability(yesPrice) : "—"}</td>
-            </tr>
-          );
-        })}
-      </tbody>
-    </table>
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-xs text-text-muted">
+            <th className="px-3 py-2 font-medium">Strike</th>
+            <th className="px-3 py-2 font-medium">Yes</th>
+            <th className="px-3 py-2 font-medium">No</th>
+            <th className="px-3 py-2 font-medium" title="Best price to buy Yes; shows the last bid when no one is offering to sell Yes yet">
+              Chance
+            </th>
+            <th className="px-3 py-2 font-medium">Payout</th>
+          </tr>
+        </thead>
+        <tbody>
+          {markets.map((market) => {
+            const key = market.pubkey.toBase58();
+            const quote = representativeYesQuote(books[key] ?? null);
+            const isSelected = selected !== null && selected.equals(market.pubkey);
+            const isAtm = atmKey === key;
+            const isSettled = market.state === "settled";
+            const rowClasses = [
+              "cursor-pointer border-b border-border/60 last:border-b-0 outline-none focus-visible:ring-2 focus-visible:ring-focus",
+              isSelected ? "bg-surface-raised" : isAtm ? "bg-cyan/5" : "",
+            ]
+              .filter(Boolean)
+              .join(" ");
+
+            return (
+              <tr
+                key={key}
+                role="row"
+                tabIndex={0}
+                aria-selected={isSelected}
+                onClick={() => selectRow(market)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    selectRow(market);
+                  }
+                }}
+                className={rowClasses}
+              >
+                <td className="num px-3 py-2">
+                  {formatStrike(market.strike)}
+                  {isAtm ? <span className="ml-2 rounded-sm bg-cyan/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan">Near price</span> : null}
+                </td>
+                <td className="num px-3 py-2">
+                  {isSettled ? (
+                    <span className={market.outcome === "yes" ? "font-medium text-yes" : "text-text-muted"}>
+                      {market.outcome === "yes" ? "Yes won" : "—"}
+                    </span>
+                  ) : (
+                    (quote !== undefined ? formatPrice(quote.price) : "—")
+                  )}
+                </td>
+                <td className="num px-3 py-2">
+                  {isSettled ? (
+                    <span className={market.outcome === "no" ? "font-medium text-no" : "text-text-muted"}>
+                      {market.outcome === "no" ? "No won" : "—"}
+                    </span>
+                  ) : (
+                    (quote !== undefined ? formatPrice(oppositePrice(quote.price)) : "—")
+                  )}
+                </td>
+                <td className="num px-3 py-2">
+                  {!isSettled && quote !== undefined ? (
+                    <div className="flex flex-col">
+                      <span>{impliedProbability(quote.price)}</span>
+                      <span className="text-[10px] font-normal text-text-muted">{quote.fromAsk ? "to buy Yes" : "last bid"}</span>
+                    </div>
+                  ) : (
+                    "—"
+                  )}
+                </td>
+                <td className="num px-3 py-2">{!isSettled && quote !== undefined ? payoutMultiple(quote.price) : "—"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

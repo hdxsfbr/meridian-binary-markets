@@ -7,6 +7,7 @@ import {
   formatUsd,
   impliedProbability,
   oppositePrice,
+  payoutMultiple,
 } from "./format";
 
 describe("formatUsd", () => {
@@ -52,6 +53,29 @@ describe("impliedProbability", () => {
 
   it("handles 100%", () => {
     expect(impliedProbability(1_000_000n)).toBe("100%");
+  });
+});
+
+describe("payoutMultiple", () => {
+  it("is $1.00 divided by the price", () => {
+    expect(payoutMultiple(500_000n)).toBe("2.00x");
+  });
+
+  it("truncates to two decimal places", () => {
+    expect(payoutMultiple(600_000n)).toBe("1.66x");
+  });
+
+  it("is 1.00x at a $1.00 price", () => {
+    expect(payoutMultiple(1_000_000n)).toBe("1.00x");
+  });
+
+  it("is blank for undefined (no price to quote against)", () => {
+    expect(payoutMultiple(undefined)).toBe("");
+  });
+
+  it("is blank for zero or negative", () => {
+    expect(payoutMultiple(0n)).toBe("");
+    expect(payoutMultiple(-100n)).toBe("");
   });
 });
 

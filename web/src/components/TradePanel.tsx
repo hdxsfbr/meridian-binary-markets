@@ -18,7 +18,9 @@ import {
   type Intent,
   type IntentPosition,
   type Kind,
+  MAX_FILLS,
   describeTransientState,
+  plannedFills,
   toInstructionPlan,
 } from "@meridian/sdk";
 import type { ConfigSnapshot } from "@/hooks/useConfig";
@@ -46,7 +48,45 @@ import {
   NO_NO_TO_SELL,
   HOLDINGS_LABEL,
   lockedUntilFilledLabel,
+  winIfRightLabel,
 } from "@/lib/trade-copy";
+
+/** Visual style per action: side colour for the primary buy, outlined for the matching sell (REVAMP_PLAN Wave R3). */
+const ACTION_STYLE: Record<Action, string> = {
+  buyYes: "border-yes bg-yes/15 text-yes hover:bg-yes/25",
+  buyNo: "border-no bg-no/15 text-no hover:bg-no/25",
+  sellYes: "border-yes/50 bg-transparent text-yes hover:bg-yes/10",
+  sellNo: "border-no/50 bg-transparent text-no hover:bg-no/10",
+};
+
+const QTY_PRESETS = ["1", "5", "10"] as const;
+
+// Sweep-the-whole-book worst prices for a market buy's matched-quantity
+// preview, mirroring `intent.ts`'s own `PRICE_MAX`/`PRICE_MIN` defaults for
+// an unset `Intent.price` (not exported, so duplicated here as a comment
+// rather than an import -- these are the two ends of the program's valid
+// price range, 1..999_999 micro-USDC).
+const SWEEP_WORST_BID_PRICE = 999_999n;
+const SWEEP_WORST_ASK_PRICE = 1n;
+
+/**
+ * The quantity a Buy Yes/Buy No would actually execute right now: the full
+ * requested quantity for a limit order (it rests for the remainder rather
+ * than failing), or the quantity the book can actually match for a market
+ * order, walked best-first up to the planner's `MAX_FILLS` cap -- the same
+ * walk `toInstructionPlan` performs internally, replayed here against the
+ * panel's own book snapshot since the plan's `Estimate` doesn't expose the
+ * matched quantity itself.
+ */
+function matchedBuyQty(action: "buyYes" | "buyNo", kind: Kind, qty: bigint, book: SdkBook): bigint {
+  if (kind === "limit") {
+    return qty;
+  }
+  const side = action === "buyYes" ? "bid" : "ask";
+  const worstPrice = action === "buyYes" ? SWEEP_WORST_BID_PRICE : SWEEP_WORST_ASK_PRICE;
+  const { fills } = plannedFills(book, side, worstPrice, qty, MAX_FILLS);
+  return fills.reduce((sum, f) => sum + f.qty, 0n);
+}
 
 export type TradePanelProps = {
   market: MarketAccount;
@@ -167,7 +207,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
 
   if (isSettled) {
     return (
-      <div className="rounded border border-border p-4">
+      <div className="rounded-lg border border-border bg-surface p-4">
         <p>{settledOutcomeCopy(market.outcome === "yes" ? "yes" : "no", market.settlementPrice)}</p>
         <Link href="/portfolio" className="mt-2 inline-block underline">
           {REDEEM_IN_PORTFOLIO}
@@ -178,7 +218,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
 
   if (isPastCloseAwaitingSettlement) {
     return (
-      <div className="rounded border border-border p-4">
+      <div className="rounded-lg border border-border bg-surface p-4">
         <p>{SETTLEMENT_PENDING}</p>
       </div>
     );
@@ -198,32 +238,43 @@ export function TradePanel({ market, config }: TradePanelProps) {
         : null;
 
   return (
-    <div className="rounded border border-border p-4">
-      {position.pairsHeld > 0n ? (
-        <p className="text-sm text-text-muted">
-          {MINTED_PAIR}: {position.pairsHeld.toString()}
-        </p>
-      ) : null}
-      {transientState === "noHeldYesResting" ? <p className="text-sm text-text-muted">{NO_HELD_YES_RESTING}</p> : null}
+    <div className="rounded-lg border border-border bg-surface p-4">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <span className="sr-only">{HOLDINGS_LABEL}</span>
+        <span className="rounded-full border border-yes/40 bg-yes/10 px-2 py-0.5 text-yes">Yes {position.yes.toString()}</span>
+        <span className="rounded-full border border-no/40 bg-no/10 px-2 py-0.5 text-no">No {position.no.toString()}</span>
+        {position.pairsHeld > 0n ? (
+          <span className="rounded-full border border-border px-2 py-0.5 text-text-muted">
+            {MINTED_PAIR} {position.pairsHeld.toString()}
+          </span>
+        ) : null}
+      </div>
+      {transientState === "noHeldYesResting" ? <p className="mt-2 text-sm text-text-muted">{NO_HELD_YES_RESTING}</p> : null}
 
-      <p className="text-sm text-text-muted">
-        {HOLDINGS_LABEL}: {position.yes.toString()} Yes · {position.no.toString()} No
-      </p>
-
-      <div className="mt-2 flex gap-2">
-        <button type="button" aria-pressed={kind === "market"} className={`rounded border px-3 py-1 text-sm ${kind === "market" ? "border-indigo bg-indigo text-on-brand" : "border-border text-text-muted hover:border-indigo/50"}`} onClick={() => setKind("market")}>
+      <div className="mt-3 inline-flex rounded-md border border-border p-0.5">
+        <button
+          type="button"
+          aria-pressed={kind === "market"}
+          className={`rounded-sm px-3 py-1 text-sm ${kind === "market" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
+          onClick={() => setKind("market")}
+        >
           {KIND_LABEL.market}
         </button>
-        <button type="button" aria-pressed={kind === "limit"} className={`rounded border px-3 py-1 text-sm ${kind === "limit" ? "border-indigo bg-indigo text-on-brand" : "border-border text-text-muted hover:border-indigo/50"}`} onClick={() => setKind("limit")}>
+        <button
+          type="button"
+          aria-pressed={kind === "limit"}
+          className={`rounded-sm px-3 py-1 text-sm ${kind === "limit" ? "bg-indigo text-on-brand" : "text-text-muted hover:text-text"}`}
+          onClick={() => setKind("limit")}
+        >
           {KIND_LABEL.limit}
         </button>
       </div>
 
-      <div className="mt-2 flex gap-2">
+      <div className="mt-2 flex flex-wrap gap-2">
         <label className="flex flex-col text-sm">
           Quantity
           <input
-            className="mt-1 w-32 rounded border border-border px-2 py-1 text-sm disabled:bg-surface-raised"
+            className="num mt-1 w-28 rounded-md border border-border bg-surface px-2 py-1 text-sm disabled:bg-surface-raised"
             type="text"
             inputMode="numeric"
             value={qtyInput}
@@ -235,7 +286,7 @@ export function TradePanel({ market, config }: TradePanelProps) {
           <label className="flex flex-col text-sm">
             Price ($)
             <input
-              className="mt-1 w-32 rounded border border-border px-2 py-1 text-sm disabled:bg-surface-raised"
+              className="num mt-1 w-28 rounded-md border border-border bg-surface px-2 py-1 text-sm disabled:bg-surface-raised"
               type="text"
               inputMode="decimal"
               value={priceInput}
@@ -244,14 +295,47 @@ export function TradePanel({ market, config }: TradePanelProps) {
             />
           </label>
         ) : null}
+        <div className="flex items-end gap-1 pb-0.5">
+          {QTY_PRESETS.map((preset) => (
+            <button
+              key={preset}
+              type="button"
+              className="num rounded-sm border border-border px-2 py-1 text-xs text-text-muted hover:border-indigo/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabledReason !== null}
+              onClick={() => setQtyInput(preset)}
+            >
+              {preset}
+            </button>
+          ))}
+          {position.yes > 0n ? (
+            <button
+              type="button"
+              className="rounded-sm border border-border px-2 py-1 text-xs text-text-muted hover:border-indigo/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabledReason !== null}
+              onClick={() => setQtyInput(position.yes.toString())}
+            >
+              Max Yes
+            </button>
+          ) : null}
+          {position.no > 0n ? (
+            <button
+              type="button"
+              className="rounded-sm border border-border px-2 py-1 text-xs text-text-muted hover:border-indigo/50 hover:text-text disabled:cursor-not-allowed disabled:opacity-50"
+              disabled={disabledReason !== null}
+              onClick={() => setQtyInput(position.no.toString())}
+            >
+              Max No
+            </button>
+          ) : null}
+        </div>
       </div>
 
       {noWallet ? (
-        <div className="mt-2">
+        <div className="mt-3">
           <EmptyState>{CONNECT_WALLET}</EmptyState>
         </div>
       ) : disabledReason !== null ? (
-        <p className="mt-2 text-sm text-text-muted">{disabledReason}</p>
+        <p className="mt-3 text-sm text-text-muted">{disabledReason}</p>
       ) : (
         <div className="mt-3 grid grid-cols-2 gap-2">
           {ACTIONS.map((action) => {
@@ -268,24 +352,36 @@ export function TradePanel({ market, config }: TradePanelProps) {
               : plan !== undefined && "code" in plan
                 ? guidanceCopy(plan.code)
                 : null;
+            const isBuy = action === "buyYes" || action === "buyNo";
             let estimate: string | null = null;
+            let winLabel: string | null = null;
             if (!noHoldings && plan !== undefined && !("code" in plan)) {
               if (plan.ix === "buy_no_limit") {
                 estimate = lockedUntilFilledLabel(plan.qty * 1_000_000n, 1_000_000n - plan.price);
               } else if (plan.ix === "place_order" && plan.estimate.deposit !== undefined) {
                 estimate = lockedUntilFilledLabel(plan.estimate.deposit);
               } else {
-                estimate = estimateLabel(plan.estimate.cost, plan.estimate.fills);
+                estimate = estimateLabel(plan.estimate.cost);
+                if (isBuy && qty !== undefined && sdkBook !== null) {
+                  const matchedQty = matchedBuyQty(action as "buyYes" | "buyNo", kind, qty, sdkBook);
+                  winLabel = winIfRightLabel(matchedQty, qty);
+                }
               }
             }
 
             return (
               <div key={action} className="flex flex-col">
-                <button type="button" className="rounded border border-border bg-indigo px-3 py-2 text-sm font-medium text-on-brand hover:bg-indigo/80 disabled:cursor-not-allowed disabled:bg-indigo/30" disabled={noHoldings || busy !== null || plan === undefined} onClick={() => submit(action)}>
+                <button
+                  type="button"
+                  className={`rounded-md border px-3 py-2 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-40 ${ACTION_STYLE[action]}`}
+                  disabled={noHoldings || busy !== null || plan === undefined}
+                  onClick={() => submit(action)}
+                >
                   {busy === action ? SENDING : ACTION_LABEL[action]}
                 </button>
-                {estimate !== null ? <span className="text-xs text-text-muted">{estimate}</span> : null}
-                {guidance !== null ? <span className="text-xs text-text-muted">{guidance}</span> : null}
+                {estimate !== null ? <span className="num mt-1 text-xs text-text-muted">{estimate}</span> : null}
+                {winLabel !== null ? <span className="num text-xs text-text-muted">{winLabel}</span> : null}
+                {guidance !== null ? <span className="mt-1 text-xs text-text-muted">{guidance}</span> : null}
               </div>
             );
           })}

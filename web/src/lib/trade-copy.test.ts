@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import * as TradeCopy from "./trade-copy";
 import {
   ACTION_LABEL,
   BOOK_FULL,
@@ -22,8 +23,10 @@ import {
   closeButtonLabel,
   estimateLabel,
   guidanceCopy,
+  lockedUntilFilledLabel,
   programErrorCopy,
   settledOutcomeCopy,
+  winIfRightLabel,
 } from "./trade-copy";
 
 const FORBIDDEN_WORDS = ["mock", "provider", "pyth", "simulated", "todo", "stub", "placeholder", "coming soon"];
@@ -64,9 +67,10 @@ function allDynamicStrings(): string[] {
     programErrorCopy("WrongSide"),
     programErrorCopy(undefined),
     programErrorCopy("SomeUnknownError"),
-    estimateLabel(1_000_000n, 0),
-    estimateLabel(-1_000_000n, 3),
-    estimateLabel(650_000n, 1),
+    estimateLabel(1_000_000n),
+    estimateLabel(-1_000_000n),
+    estimateLabel(650_000n),
+    winIfRightLabel(3n),
     settledOutcomeCopy("yes", 680_000_000n),
     settledOutcomeCopy("no", 1_234_560n),
     closeButtonLabel("closeNoFirst"),
@@ -86,6 +90,40 @@ describe("trade-copy: no forbidden words in any user-facing string", () => {
   it("dynamic/formatted strings", () => {
     for (const s of allDynamicStrings()) {
       for (const word of FORBIDDEN_WORDS) {
+        expect(s.toLowerCase()).not.toContain(word);
+      }
+    }
+  });
+});
+
+/**
+ * Global rule (CLAUDE.md): UI copy is for the end user, never implementation
+ * commentary. This scans every exported *string* constant of the module
+ * (including the values inside `ACTION_LABEL`/`KIND_LABEL`) for words that
+ * would leak the on-chain/matching-engine plumbing into product copy, so a
+ * future addition can't reintroduce one without failing a test.
+ */
+const UI_IMPLEMENTATION_WORDS = ["resting", "fill", "filled", "escrow", "mock", "devnet", "rpc", "pda"];
+
+function collectStrings(value: unknown, acc: string[] = []): string[] {
+  if (typeof value === "string") {
+    acc.push(value);
+  } else if (typeof value === "object" && value !== null) {
+    for (const nested of Object.values(value)) {
+      collectStrings(nested, acc);
+    }
+  }
+  return acc;
+}
+
+describe("trade-copy: no implementation commentary in any exported string constant", () => {
+  it("scans every exported constant (string or record-of-strings) for forbidden words", () => {
+    const strings = Object.entries(TradeCopy)
+      .filter(([, value]) => typeof value !== "function")
+      .flatMap(([, value]) => collectStrings(value));
+    expect(strings.length).toBeGreaterThan(0);
+    for (const s of strings) {
+      for (const word of UI_IMPLEMENTATION_WORDS) {
         expect(s.toLowerCase()).not.toContain(word);
       }
     }
@@ -118,16 +156,46 @@ describe("programErrorCopy", () => {
 });
 
 describe("estimateLabel", () => {
-  it("shows 'You pay' for a positive cost with no fill count when zero", () => {
-    expect(estimateLabel(1_000_000n, 0)).toBe("You pay $1.00");
+  it("shows 'You pay' for a positive cost", () => {
+    expect(estimateLabel(1_000_000n)).toBe("You pay $1.00");
   });
 
-  it("shows 'You receive' for a negative cost, with fill count pluralized", () => {
-    expect(estimateLabel(-1_000_000n, 3)).toBe("You receive $1.00 (3 fills)");
+  it("shows 'You receive' for a negative cost", () => {
+    expect(estimateLabel(-1_000_000n)).toBe("You receive $1.00");
   });
 
-  it("singularizes a single fill", () => {
-    expect(estimateLabel(650_000n, 1)).toBe("You pay $0.65 (1 fill)");
+  it("never mentions fill counts (copy audit)", () => {
+    expect(estimateLabel(650_000n)).toBe("You pay $0.65");
+  });
+});
+
+describe("winIfRightLabel", () => {
+  it("is qty times $1.00", () => {
+    expect(winIfRightLabel(3n)).toBe("You win $3.00 if right");
+  });
+
+  it("handles a single contract", () => {
+    expect(winIfRightLabel(1n)).toBe("You win $1.00 if right");
+  });
+
+  it("notes the matched amount in plain words when less than what was requested", () => {
+    expect(winIfRightLabel(2n, 5n)).toBe("You win $2.00 if right (for the 2 that can trade now)");
+  });
+
+  it("omits the note when the matched amount equals the requested amount", () => {
+    expect(winIfRightLabel(5n, 5n)).toBe("You win $5.00 if right");
+  });
+});
+
+describe("lockedUntilFilledLabel", () => {
+  it("reports the reserved amount for a No-side market estimate", () => {
+    expect(lockedUntilFilledLabel(1_000_000n)).toBe("Reserves $1.00 until it trades");
+  });
+
+  it("also reports the per-contract return for a No-limit order", () => {
+    expect(lockedUntilFilledLabel(1_000_000n, 400_000n)).toBe(
+      "Returns $0.40 per contract when it trades. Reserves $1.00 until it trades",
+    );
   });
 });
 

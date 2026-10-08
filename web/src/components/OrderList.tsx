@@ -26,38 +26,49 @@ export function OrderList({ orders, onCancel, cancelling, askIds }: OrderListPro
   }
 
   return (
-    <table className="w-full text-sm">
-      <thead>
-        <tr>
-          <th className="text-left">Order</th>
-          <th className="text-left">Side</th>
-          <th className="text-left">Price</th>
-          <th className="text-left">Remaining</th>
-          <th />
-        </tr>
-      </thead>
-      <tbody>
-        {orders.map((order) => (
-          <tr key={order.id.toString()}>
-            <td className="num">#{order.id.toString()}</td>
-            <td>{askIds?.has(order.id.toString()) ? "Sell Yes" : "Buy Yes"}</td>
-            <td className="num">{formatPrice(order.price)}</td>
-            <td className="num">{order.remaining.toString()}</td>
-            <td>
-              <button
-                type="button"
-                disabled={cancelling === true}
-                onClick={() => {
-                  setPendingId(order.id);
-                  onCancel(order);
-                }}
-              >
-                {cancelling === true && pendingId === order.id ? CANCELLING : CANCEL}
-              </button>
-            </td>
+    <div className="overflow-x-auto rounded-md border border-border">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border text-left text-xs text-text-muted">
+            <th className="px-3 py-2 font-medium">Order</th>
+            <th className="px-3 py-2 font-medium">Side</th>
+            <th className="px-3 py-2 font-medium">Price</th>
+            <th className="px-3 py-2 font-medium">Open qty</th>
+            <th className="px-3 py-2 font-medium">Reserved</th>
+            <th className="px-3 py-2" />
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {orders.map((order) => {
+            const isAsk = askIds?.has(order.id.toString()) ?? false;
+            // Reserved collateral for a resting bid is price * remaining (micro-USDC);
+            // a resting ask reserves the Yes tokens themselves, not USDC.
+            const reserved = isAsk ? `${order.remaining.toString()} Yes` : formatPrice(order.price * order.remaining);
+            return (
+              <tr key={order.id.toString()} className="border-t border-border/40">
+                <td className="num px-3 py-2">#{order.id.toString()}</td>
+                <td className="px-3 py-2">{isAsk ? "Sell Yes" : "Buy Yes"}</td>
+                <td className="num px-3 py-2">{formatPrice(order.price)}</td>
+                <td className="num px-3 py-2">{order.remaining.toString()}</td>
+                <td className="num px-3 py-2">{reserved}</td>
+                <td className="px-3 py-2 text-right">
+                  <button
+                    type="button"
+                    className="rounded-sm border border-border px-2 py-1 text-xs text-text-muted hover:border-no/50 hover:text-no disabled:cursor-not-allowed disabled:opacity-50"
+                    disabled={cancelling === true}
+                    onClick={() => {
+                      setPendingId(order.id);
+                      onCancel(order);
+                    }}
+                  >
+                    {cancelling === true && pendingId === order.id ? CANCELLING : CANCEL}
+                  </button>
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }
