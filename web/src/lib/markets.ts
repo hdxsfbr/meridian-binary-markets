@@ -136,3 +136,95 @@ export function closeTsForDay(day: number, zone: string = DEFAULT_ZONE): number 
 
   return Math.floor(finalMs / 1000);
 }
+
+/**
+ * "4:00 PM ET" for a close timestamp (Unix seconds), `zone`-local
+ * (America/New_York by default). Used for the Markets page's settled-day
+ * summary and settlement labels; always says "ET" regardless of the
+ * zone's current EST/EDT offset, matching the product's own convention
+ * (REVAMP_PLAN.md: "closes at 4:00 PM ET").
+ */
+export function formatCloseTimeEt(closeTs: number, zone: string = DEFAULT_ZONE): string {
+  const formatter = new Intl.DateTimeFormat("en-US", {
+    timeZone: zone,
+    hour: "numeric",
+    minute: "2-digit",
+    hour12: true,
+  });
+  return `${formatter.format(new Date(closeTs * 1000))} ET`;
+}
+
+/**
+ * The `count` strikes (default 3) whose `strike` is nearest `liveMicro` by
+ * absolute distance, ties broken toward the lower strike, returned sorted
+ * by strike ascending (so callers render a normal ladder, not a
+ * distance-sorted list). With no live price yet, falls back to the middle
+ * of the ladder so the Markets page still shows something plausible while
+ * waiting for the first price fetch. Used by the Markets page's ticker
+ * cards and featured ladder to show only the strikes near the money.
+ */
+export function nearestStrikes<T extends { strike: bigint }>(
+  items: readonly T[],
+  liveMicro: bigint | undefined,
+  count = 3,
+): T[] {
+  if (items.length === 0) {
+    return [];
+  }
+  const sorted = [...items].sort((a, b) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0));
+
+  if (liveMicro === undefined) {
+    const mid = Math.floor(sorted.length / 2);
+    const start = Math.max(0, Math.min(sorted.length - count, mid - Math.floor(count / 2)));
+    return sorted.slice(Math.max(0, start), start + count);
+  }
+
+  const withDistance = sorted.map((item, index) => ({
+    item,
+    index,
+    distance: item.strike > liveMicro ? item.strike - liveMicro : liveMicro - item.strike,
+  }));
+  withDistance.sort((a, b) => {
+    if (a.distance !== b.distance) {
+      return a.distance < b.distance ? -1 : 1;
+    }
+    return a.index - b.index;
+  });
+  const picked = withDistance.slice(0, count).map((w) => w.item);
+  return picked.sort((a, b) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0));
+}
+
+/**
+ * True when `closeTs` is still in the future but within `thresholdSeconds`
+ * (default 30 minutes) of `now` -- drives the Markets page countdown
+ * chip's warning colour (REVAMP_PLAN.md Wave R2: "turns warning-coloured
+ * under 30 minutes"). False once `closeTs` has already passed; the
+ * "Closed, settling…" pending chip takes over at that point instead.
+ */
+export function isCountdownUrgent(now: number, closeTs: number, thresholdSeconds = 1_800): boolean {
+  const remaining = closeTs - now;
+  return remaining > 0 && remaining <= thresholdSeconds;
+}
+
+export type TickerLifecycle = "none" | "open" | "pending" | "settled";
+
+/**
+ * A ticker's overall state on the Markets page, from its today's markets:
+ * "none" with no markets at all, "settled" once every one of them has
+ * settled, "pending" once every open one has passed its own `closeTs` but
+ * at least one is still unsettled (the "Closed, settling…" chip), else
+ * "open" (the countdown chip).
+ */
+export function tickerLifecycle(
+  markets: readonly { state: "open" | "settled"; closeTs: bigint }[],
+  now: number,
+): TickerLifecycle {
+  if (markets.length === 0) {
+    return "none";
+  }
+  if (markets.every((m) => m.state === "settled")) {
+    return "settled";
+  }
+  const anyOpenBeforeClose = markets.some((m) => m.state === "open" && now < Number(m.closeTs));
+  return anyOpenBeforeClose ? "open" : "pending";
+}

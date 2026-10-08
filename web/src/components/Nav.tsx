@@ -3,6 +3,9 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import dynamic from "next/dynamic";
+import { useConfig } from "@/hooks/useConfig";
+import { usePrices } from "@/hooks/usePrices";
+import { formatUsd } from "@/lib/format";
 
 // The wallet button's label depends on wallet state that only exists in the
 // browser (detected extensions, autoconnect), so it is rendered client-side
@@ -21,6 +24,9 @@ const LINKS: Array<{ href: string; label: string; match: (path: string) => boole
 
 export function Nav() {
   const pathname = usePathname() ?? "/";
+  const config = useConfig();
+  const prices = usePrices();
+  const tickers = config?.tickers ?? [];
 
   return (
     <nav className="flex items-center justify-between gap-2 border-b border-border bg-midnight px-3 py-3 sm:gap-4 sm:px-6">
@@ -61,6 +67,18 @@ export function Nav() {
             );
           })}
         </div>
+      </div>
+      <div className="hidden min-w-0 items-center gap-4 overflow-x-auto lg:flex" aria-label="Ticker prices">
+        {tickers.map((ticker) => (
+          <Link
+            key={ticker}
+            href={`/trade/${ticker}`}
+            className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted hover:text-text"
+          >
+            <span className="font-medium">{ticker}</span>
+            <span className="num">{prices[ticker]?.priceMicro !== undefined ? formatUsd(prices[ticker]!.priceMicro) : "—"}</span>
+          </Link>
+        ))}
       </div>
       <div className="shrink-0">
         <WalletMultiButton />

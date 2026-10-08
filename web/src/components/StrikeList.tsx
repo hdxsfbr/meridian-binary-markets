@@ -11,8 +11,9 @@
 
 import { useEffect, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
-import { bestAsk, bestBid, bookPda, decodeBook, type Book } from "@meridian/sdk";
+import { bookPda, decodeBook, type Book } from "@meridian/sdk";
 import { formatPrice, formatStrike, impliedProbability, oppositePrice } from "@/lib/format";
+import { representativeYesPrice } from "@/lib/book-quote";
 import { PROGRAM_ID } from "@/lib/rpc";
 import type { MarketAccount } from "@/hooks/useMarkets";
 import { useProgram } from "@/hooks/useProgram";
@@ -24,14 +25,6 @@ export type StrikeListProps = {
 };
 
 const REFRESH_INTERVAL_MS = 15_000;
-
-/** A representative Yes price for the strike row: best ask, else best bid, else undefined (no orders yet). */
-function representativeYesPrice(book: Book | null): bigint | undefined {
-  if (book === null) {
-    return undefined;
-  }
-  return bestAsk(book)?.price ?? bestBid(book)?.price;
-}
 
 export function StrikeList({ markets, selected, onSelect }: StrikeListProps) {
   const program = useProgram();

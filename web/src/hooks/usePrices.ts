@@ -9,11 +9,12 @@
  * copy — the product calls this "Last price".
  */
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { feedIdBytes, mockPricePda, TICKERS, type Ticker } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { accountClient, useProgram } from "./useProgram";
-import { useConfig } from "./useConfig";
+import { useConfig, type ConfigSnapshot } from "./useConfig";
+import { AppDataContext } from "./app-data-context";
 
 export type TickerPrice = {
   /** Last observed price, normalised to micro-USD (6 decimals). */
@@ -57,10 +58,34 @@ function feedIdBytesFor(ticker: Ticker, feedIds: Partial<Record<Ticker, string>>
   return hex !== undefined ? hexToBytes(hex) : feedIdBytes(ticker);
 }
 
-/** Latest price per ticker, keyed by `Ticker`; absent until the first successful fetch for that ticker. */
+/**
+ * Latest price per ticker, keyed by `Ticker`; absent until the first
+ * successful fetch for that ticker. Reads the shared snapshot from
+ * `AppDataProvider` when one is mounted above the caller, so no extra
+ * poller is started; falls back to polling itself (via `usePricesPolling`)
+ * only when no provider is present, e.g. in an isolated test.
+ */
 export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
-  const program = useProgram();
+  const ctx = useContext(AppDataContext);
   const config = useConfig();
+  const polled = usePricesPolling(config, ctx !== undefined);
+  return ctx !== undefined ? ctx.prices : polled;
+}
+
+/**
+ * The actual polling implementation, parameterised on the already-fetched
+ * `Config` snapshot rather than calling `useConfig` itself, so
+ * `AppDataProvider` can share one `Config` poll between this hook and
+ * `useConfig`'s callers instead of each hook fetching `Config` on its own.
+ * Exactly one instance of this should run per app -- `AppDataProvider` is
+ * the only caller that should invoke it directly; every other caller
+ * should use `usePrices` above.
+ *
+ * `skip` short-circuits both effects once a provider's own snapshot has
+ * taken over for `usePrices`'s fallback instance.
+ */
+export function usePricesPolling(config: ConfigSnapshot | null, skip = false): Partial<Record<Ticker, TickerPrice>> {
+  const program = useProgram();
   const feedIds = config?.feedIds ?? {};
   const [prices, setPrices] = useState<Partial<Record<Ticker, TickerPrice>>>({});
 
@@ -69,7 +94,7 @@ export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
   // Pyth provider: prices are not on chain between settlements, so poll the
   // app's own `/api/prices` proxy (server-side key) for the enabled feeds.
   useEffect(() => {
-    if (oracleProvider !== "pyth") return;
+    if (skip || oracleProvider !== "pyth") return;
     let cancelled = false;
     const tickers = config?.tickers ?? [];
     const idByTicker = new Map<Ticker, string>();
@@ -106,10 +131,10 @@ export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
       clearInterval(interval);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [oracleProvider, JSON.stringify(feedIds)]);
+  }, [skip, oracleProvider, JSON.stringify(feedIds)]);
 
   useEffect(() => {
-    if (oracleProvider === "pyth") return;
+    if (skip || oracleProvider === "pyth") return;
     let cancelled = false;
     const targets = (config?.tickers ?? TICKERS).map((ticker) => ({
       ticker,
@@ -169,7 +194,7 @@ export function usePrices(): Partial<Record<Ticker, TickerPrice>> {
     // `feedIdsKey` (not `feedIds` itself, a new object every config poll)
     // is the real dependency: only re-subscribe when a feed id actually changes.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [program, JSON.stringify(feedIds)]);
+  }, [skip, program, JSON.stringify(feedIds)]);
 
   return prices;
 }

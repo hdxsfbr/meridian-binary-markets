@@ -6,10 +6,11 @@
  * an `onAccountChange` subscription, whichever notices a change first.
  */
 
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
 import { bytesToHex, configPda, tickerFromBytes, type Ticker } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { accountClient, useProgram } from "./useProgram";
+import { AppDataContext } from "./app-data-context";
 
 export type ConfigSnapshot = {
   paused: boolean;
@@ -51,12 +52,40 @@ function decodeConfig(raw: RawConfig): ConfigSnapshot {
   };
 }
 
-/** The current `Config` snapshot, or `null` until the first fetch resolves. */
+/**
+ * The current `Config` snapshot, or `null` until the first fetch resolves.
+ * Reads the shared snapshot from `AppDataProvider` when one is mounted
+ * above the caller (the normal case: it wraps the whole app in
+ * `layout.tsx`), so no extra poller/subscription is started; falls back to
+ * polling itself (via `useConfigPolling`) only when no provider is present,
+ * e.g. in an isolated test.
+ */
 export function useConfig(): ConfigSnapshot | null {
+  const ctx = useContext(AppDataContext);
+  const polled = useConfigPolling(ctx !== undefined);
+  return ctx !== undefined ? ctx.config : polled;
+}
+
+/**
+ * The actual polling implementation: fetches `Config` on a 15s interval and
+ * an `onAccountChange` subscription. Exactly one instance of this should
+ * run per app -- `AppDataProvider` is the only caller that should invoke
+ * it directly; every other caller should use `useConfig` above, which reads
+ * the provider's shared snapshot instead of starting its own poller.
+ *
+ * `skip` short-circuits the effect (no fetch, no subscription) once a
+ * provider's own snapshot has taken over for `useConfig`'s fallback
+ * instance, so switching from "no provider" to "provider mounted" across a
+ * re-render can't leave two pollers running.
+ */
+export function useConfigPolling(skip = false): ConfigSnapshot | null {
   const program = useProgram();
   const [config, setConfig] = useState<ConfigSnapshot | null>(null);
 
   useEffect(() => {
+    if (skip) {
+      return;
+    }
     let cancelled = false;
     const [pda] = configPda(PROGRAM_ID);
 
@@ -94,7 +123,7 @@ export function useConfig(): ConfigSnapshot | null {
       clearInterval(interval);
       void program.provider.connection.removeAccountChangeListener(subscriptionId);
     };
-  }, [program]);
+  }, [program, skip]);
 
   return config;
 }

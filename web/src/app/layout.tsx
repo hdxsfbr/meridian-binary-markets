@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProviders } from "@/lib/wallet";
+import { AppDataProvider } from "@/hooks/AppDataProvider";
 import { Nav } from "@/components/Nav";
 
 const inter = Inter({
@@ -33,8 +34,10 @@ export default function RootLayout({
     <html lang="en" data-theme="dark" className={`${inter.variable} ${ibmPlexMono.variable}`}>
       <body className="bg-bg text-text">
         <WalletProviders>
-          <Nav />
-          <main className="min-h-screen">{children}</main>
+          <AppDataProvider>
+            <Nav />
+            <main className="min-h-screen">{children}</main>
+          </AppDataProvider>
         </WalletProviders>
       </body>
     </html>

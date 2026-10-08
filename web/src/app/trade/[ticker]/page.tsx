@@ -9,6 +9,7 @@
  */
 
 import { use, useMemo, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useSendTransaction } from "../../../lib/wallet-send";
 import { earliestCloseTs, todayTradingDay } from "@/lib/markets";
@@ -39,6 +40,11 @@ function toBookLevels(orders: Order[]): BookLevel[] {
 export default function TradePage({ params }: { params: Promise<{ ticker: string }> }) {
   const { ticker: rawTicker } = use(params);
   const ticker = rawTicker.toUpperCase();
+  const searchParams = useSearchParams();
+  // Preselects a strike linked from the Markets page (`?strike=<micro-USD>`);
+  // falls back to the usual default (the ladder's middle strike) when absent
+  // or when it doesn't match any of today's strikes for this ticker.
+  const strikeParam = searchParams.get("strike");
 
   const program = useProgram();
   const { connection } = useConnection();
@@ -63,6 +69,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
 
   const selected: MarketAccount | null =
     tickerMarkets.find((m) => m.pubkey.toBase58() === selectedKey) ??
+    (strikeParam !== null ? tickerMarkets.find((m) => m.strike.toString() === strikeParam) : undefined) ??
     // Default to the middle of the ladder (the rounded previous close), which is
     // where quotes cluster, rather than the lowest strike.
     tickerMarkets[Math.floor(tickerMarkets.length / 2)] ??

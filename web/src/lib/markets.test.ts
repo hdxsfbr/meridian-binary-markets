@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { closeTsForDay, countOpen, earliestCloseTs, groupByTicker, todayTradingDay } from "./markets";
+import {
+  closeTsForDay,
+  countOpen,
+  earliestCloseTs,
+  formatCloseTimeEt,
+  groupByTicker,
+  isCountdownUrgent,
+  nearestStrikes,
+  tickerLifecycle,
+  todayTradingDay,
+} from "./markets";
 
 describe("groupByTicker", () => {
   it("groups items by key, preserving order", () => {
@@ -119,5 +129,103 @@ describe("closeTsForDay", () => {
     }).format(decemberMs);
     expect(julyLocal).toBe("16:00");
     expect(decemberLocal).toBe("16:00");
+  });
+});
+
+describe("formatCloseTimeEt", () => {
+  it("formats 16:00 EDT as '4:00 PM ET'", () => {
+    const closeTs = closeTsForDay(20250715, "America/New_York");
+    expect(formatCloseTimeEt(closeTs, "America/New_York")).toBe("4:00 PM ET");
+  });
+});
+
+describe("nearestStrikes", () => {
+  const ladder = [
+    { strike: 300_000_000n },
+    { strike: 310_000_000n },
+    { strike: 320_000_000n },
+    { strike: 330_000_000n },
+    { strike: 340_000_000n },
+    { strike: 350_000_000n },
+    { strike: 360_000_000n },
+  ];
+
+  it("returns an empty array for no items", () => {
+    expect(nearestStrikes([], 330_000_000n)).toEqual([]);
+  });
+
+  it("picks the 3 strikes closest to the live price, sorted ascending", () => {
+    const picked = nearestStrikes(ladder, 331_000_000n, 3);
+    expect(picked.map((m) => m.strike)).toEqual([320_000_000n, 330_000_000n, 340_000_000n]);
+  });
+
+  it("breaks an exact tie toward the lower strike when only one can be picked", () => {
+    // live price exactly between 330 and 340 -> equidistant; asking for a
+    // single strike must deterministically pick the lower one (330), not
+    // whichever the sort happens to leave first.
+    const picked = nearestStrikes(ladder, 335_000_000n, 1);
+    expect(picked.map((m) => m.strike)).toEqual([330_000_000n]);
+  });
+
+  it("falls back to the middle of the ladder when there is no live price yet", () => {
+    const picked = nearestStrikes(ladder, undefined, 3);
+    expect(picked.map((m) => m.strike)).toEqual([320_000_000n, 330_000_000n, 340_000_000n]);
+  });
+
+  it("never returns more items than available", () => {
+    const picked = nearestStrikes([{ strike: 300_000_000n }], 300_000_000n, 3);
+    expect(picked.map((m) => m.strike)).toEqual([300_000_000n]);
+  });
+});
+
+describe("isCountdownUrgent", () => {
+  it("is false when there is more than 30 minutes left", () => {
+    expect(isCountdownUrgent(1_000, 1_000 + 1_801)).toBe(false);
+  });
+
+  it("is true at exactly 30 minutes left", () => {
+    expect(isCountdownUrgent(1_000, 1_000 + 1_800)).toBe(true);
+  });
+
+  it("is true with 1 second left", () => {
+    expect(isCountdownUrgent(1_000, 1_001)).toBe(true);
+  });
+
+  it("is false once closeTs has passed", () => {
+    expect(isCountdownUrgent(1_000, 999)).toBe(false);
+  });
+
+  it("is false exactly at closeTs (not before it, not negative remaining)", () => {
+    expect(isCountdownUrgent(1_000, 1_000)).toBe(false);
+  });
+});
+
+describe("tickerLifecycle", () => {
+  it("is 'none' with no markets", () => {
+    expect(tickerLifecycle([], 1_000)).toBe("none");
+  });
+
+  it("is 'open' when at least one market is open and not yet closed", () => {
+    const markets = [
+      { state: "open" as const, closeTs: 2_000n },
+      { state: "settled" as const, closeTs: 500n },
+    ];
+    expect(tickerLifecycle(markets, 1_000)).toBe("open");
+  });
+
+  it("is 'pending' when every open market has passed its close but none are settled", () => {
+    const markets = [
+      { state: "open" as const, closeTs: 500n },
+      { state: "open" as const, closeTs: 600n },
+    ];
+    expect(tickerLifecycle(markets, 1_000)).toBe("pending");
+  });
+
+  it("is 'settled' once every market has settled", () => {
+    const markets = [
+      { state: "settled" as const, closeTs: 500n },
+      { state: "settled" as const, closeTs: 600n },
+    ];
+    expect(tickerLifecycle(markets, 1_000)).toBe("settled");
   });
 });
