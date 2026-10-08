@@ -84,21 +84,30 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
     // account yet") must not clobber that market's last good snapshot.
     // `failed` carries the distinction; `decoded` is only meaningful when
     // `failed` is false (including the legitimate `null` "no Book yet").
+    // One `getMultipleAccountsInfo` per 100 markets rather than one
+    // `getAccountInfo` per market: public devnet RPC caps a single method at
+    // 40 calls per 10 s, which a per-market fan-out exceeded on load.
     let hadFailure = false;
-    const entries = await Promise.all(
-      markets.map(async (market) => {
-        const key = market.pubkey.toBase58();
-        const [pda] = bookPda(PROGRAM_ID, market.pubkey);
-        try {
-          const info = await connection.getAccountInfo(pda, "confirmed");
-          const decoded = info === null ? null : decodeBook(Uint8Array.from(info.data));
-          return { key, decoded, failed: false } as const;
-        } catch {
-          hadFailure = true;
-          return { key, decoded: null, failed: true } as const;
-        }
-      }),
-    );
+    const entries: Array<{ key: string; decoded: Book | null; failed: boolean }> = [];
+    for (let i = 0; i < markets.length; i += 100) {
+      const slice = markets.slice(i, i + 100);
+      const pdas = slice.map((market) => bookPda(PROGRAM_ID, market.pubkey)[0]);
+      try {
+        const infos = await connection.getMultipleAccountsInfo(pdas, "confirmed");
+        infos.forEach((info, j) => {
+          const key = slice[j].pubkey.toBase58();
+          try {
+            entries.push({ key, decoded: info === null ? null : decodeBook(Uint8Array.from(info.data)), failed: false });
+          } catch {
+            hadFailure = true;
+            entries.push({ key, decoded: null, failed: true });
+          }
+        });
+      } catch {
+        hadFailure = true;
+        for (const market of slice) entries.push({ key: market.pubkey.toBase58(), decoded: null, failed: true });
+      }
+    }
     setBooks((prev) => {
       const next = new Map(prev);
       for (const entry of entries) {

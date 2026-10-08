@@ -284,8 +284,31 @@ export async function refreshEventCache(connection: Connection, programId: Publi
 }
 
 /** Same as `refreshEventCache`, but also reports whether backfill is complete (item 13). */
+/**
+ * Minimum spacing between transaction fetches. Public devnet RPC allows 40
+ * calls per method per 10 s; a tight loop over `getParsedTransaction` ran
+ * at several times that and was rate-limited into failing every fetch.
+ */
+const TRANSACTION_FETCH_SPACING_MS = 600;
+
+/** In-flight refresh per cache key: several hooks refresh at once on page load and must share one sync. */
+const inFlight = new Map<string, Promise<RefreshResult>>();
+
 export async function refreshEventCacheDetailed(connection: Connection, programId: PublicKey): Promise<RefreshResult> {
   const key = await cacheKeyFor(connection, programId);
+  const existing = inFlight.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  const run = refreshEventCacheUncached(connection, programId, key).finally(() => {
+    inFlight.delete(key);
+  });
+  inFlight.set(key, run);
+  return run;
+}
+
+async function refreshEventCacheUncached(connection: Connection, programId: PublicKey, cacheKey: string): Promise<RefreshResult> {
+  const key = cacheKey;
   let envelope = loadCache(key);
 
   const entriesBySignature = new Map<string, CachedEntry>(envelope.entries.map((e) => [e.signature, e]));
@@ -379,6 +402,7 @@ export async function refreshEventCacheDetailed(connection: Connection, programI
       continue;
     }
     const entry = await fetchEntry(connection, programId, signature);
+    await new Promise((resolve) => setTimeout(resolve, TRANSACTION_FETCH_SPACING_MS));
     if (entry === null) {
       // Fetch/decode failed: keep it for retry next refresh (item 14). The
       // signature-paging cursors above have already moved past it -- there

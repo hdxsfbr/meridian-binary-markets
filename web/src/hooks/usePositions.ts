@@ -15,9 +15,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Connection, PublicKey } from "@solana/web3.js";
+import { PublicKey, type Connection } from "@solana/web3.js";
 import { bookPda, buildPositions, decodeBook, summarize, tickerFromBytes, type Position, type PositionSummary } from "@meridian/sdk";
-import { associatedTokenAddress } from "@/lib/ata";
+import { TOKEN_PROGRAM_ID } from "@/lib/ata";
 import { refreshEventCacheDetailed } from "@/lib/events-cache";
 import {
   buildPositionRows,
@@ -31,50 +31,73 @@ import { accountClient, useProgram } from "./useProgram";
 
 const BASE_UNITS_PER_CONTRACT = 1_000_000n;
 
-/** A wallet's available (ATA) balance for one mint, whole contracts; 0 on any failure (missing ATA or RPC flake) -- Portfolio tolerates this the same way `usePosition` tolerates a missing ATA. */
-async function availableBalance(connection: Connection, ata: PublicKey): Promise<bigint> {
-  try {
-    const result = await connection.getTokenAccountBalance(ata, "confirmed");
-    return BigInt(result.value.amount) / BASE_UNITS_PER_CONTRACT;
-  } catch {
-    return 0n;
-  }
-}
-
 /**
- * One market's on-chain inventory for `wallet` (item 5): available Yes/No
- * (the wallet's ATAs) and escrowed Yes (the wallet's own resting asks on
- * the market's `Book`). Never throws: a missing ATA or missing/corrupt
- * Book both resolve to zero rather than failing the whole refresh.
+ * Every market's on-chain inventory for `wallet` in three RPC calls total,
+ * not three per market: one `getTokenAccountsByOwner` for every Yes/No
+ * balance the wallet holds, and `getMultipleAccountsInfo` (100 per call) for
+ * the markets' Books, from which the wallet's own resting asks are summed.
+ * Public devnet RPC allows 40 calls per method per 10 s; the previous
+ * per-market fan-out exceeded that on the first page load.
+ *
+ * Never throws: a missing ATA is a zero balance, and a missing or corrupt
+ * Book is zero resting Yes.
  */
-async function marketInventory(
+async function allMarketInventories(
   connection: Connection,
-  market: MarketLike,
+  markets: readonly MarketLike[],
   wallet: PublicKey,
-): Promise<{ available: AvailableBalance; restingYes: bigint }> {
-  const yesAta = associatedTokenAddress(wallet, market.yesMint);
-  const noAta = associatedTokenAddress(wallet, market.noMint);
-  const [bookAddress] = bookPda(PROGRAM_ID, market.pubkey);
-
-  const [yes, no, bookInfo] = await Promise.all([
-    availableBalance(connection, yesAta),
-    availableBalance(connection, noAta),
-    connection.getAccountInfo(bookAddress, "confirmed").catch(() => null),
-  ]);
-
-  let restingYes = 0n;
-  if (bookInfo !== null) {
-    try {
-      const book = decodeBook(Uint8Array.from(bookInfo.data));
-      restingYes = book.asks
-        .filter((order) => order.owner.equals(wallet))
-        .reduce((sum, order) => sum + order.remaining, 0n);
-    } catch {
-      // Not a well-formed Book (shouldn't happen for a real Book account); treat as no resting Yes.
+): Promise<Map<string, { available: AvailableBalance; restingYes: bigint }>> {
+  const balancesByMint = new Map<string, bigint>();
+  try {
+    const owned = await connection.getTokenAccountsByOwner(wallet, { programId: TOKEN_PROGRAM_ID }, "confirmed");
+    for (const { account } of owned.value) {
+      const data = Uint8Array.from(account.data);
+      if (data.length < 72) continue;
+      const mint = new PublicKey(data.subarray(0, 32)).toBase58();
+      const amount = new DataView(data.buffer, data.byteOffset + 64, 8).getBigUint64(0, true);
+      balancesByMint.set(mint, (balancesByMint.get(mint) ?? 0n) + amount);
     }
+  } catch {
+    // RPC flake: treat as no balances this round, same tolerance as before.
   }
 
-  return { available: { yes, no }, restingYes };
+  const bookAddresses = markets.map((market) => bookPda(PROGRAM_ID, market.pubkey)[0]);
+  const restingByMarket = new Map<string, bigint>();
+  for (let i = 0; i < bookAddresses.length; i += 100) {
+    const slice = bookAddresses.slice(i, i + 100);
+    let infos: Array<{ data: Buffer } | null> = [];
+    try {
+      infos = await connection.getMultipleAccountsInfo(slice, "confirmed");
+    } catch {
+      infos = slice.map(() => null);
+    }
+    infos.forEach((info, j) => {
+      const market = markets[i + j];
+      if (info === null) return;
+      try {
+        const book = decodeBook(Uint8Array.from(info.data));
+        const resting = book.asks
+          .filter((order) => order.owner.equals(wallet))
+          .reduce((sum, order) => sum + order.remaining, 0n);
+        restingByMarket.set(market.pubkey.toBase58(), resting);
+      } catch {
+        // Not a well-formed Book; treat as no resting Yes.
+      }
+    });
+  }
+
+  const out = new Map<string, { available: AvailableBalance; restingYes: bigint }>();
+  for (const market of markets) {
+    const key = market.pubkey.toBase58();
+    out.set(key, {
+      available: {
+        yes: (balancesByMint.get(market.yesMint.toBase58()) ?? 0n) / BASE_UNITS_PER_CONTRACT,
+        no: (balancesByMint.get(market.noMint.toBase58()) ?? 0n) / BASE_UNITS_PER_CONTRACT,
+      },
+      restingYes: restingByMarket.get(key) ?? 0n,
+    });
+  }
+  return out;
 }
 
 const REFRESH_INTERVAL_MS = 30_000;
@@ -175,14 +198,12 @@ export function usePositions(wallet: PublicKey | null): UsePositionsResult {
         // Available (wallet ATAs) and escrowed (resting asks) inventory,
         // read straight from the chain (item 5) -- the event-derived
         // `positions` below supplies cost basis/realized P&L only.
-        const inventories = await Promise.all(
-          decodedMarkets.map((market) => marketInventory(connection, market, wallet)),
-        );
+        const inventories = await allMarketInventories(connection, decodedMarkets, wallet);
         if (generationRef.current !== generation) {
           return;
         }
-        const available = new Map(decodedMarkets.map((m, i) => [m.pubkey.toBase58(), inventories[i].available]));
-        const restingYes = new Map(decodedMarkets.map((m, i) => [m.pubkey.toBase58(), inventories[i].restingYes]));
+        const available = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.available]));
+        const restingYes = new Map(decodedMarkets.map((m) => [m.pubkey.toBase58(), inventories.get(m.pubkey.toBase58())!.restingYes]));
 
         const positions: Map<string, Position> = buildPositions(eventsResult.events, wallet);
         setRows(buildPositionRows(positions, decodedMarkets, available, restingYes));
