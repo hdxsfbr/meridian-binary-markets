@@ -91,3 +91,14 @@ pass, commit, stop for Andre. Screenshots before/after per page in `design/merid
 
 Rule (from `~/.claude/CLAUDE.md`): no implementation commentary in product copy. "Resting",
 "fill", "escrow", "mock", "devnet", "bps", "staleness" are all implementation words.
+
+## Follow-up found during R4 (2026-10-08): history sync time grows with program history
+
+The Portfolio/History pages rebuild cost basis from every transaction the program has ever
+emitted (one `getTransaction` per signature, paced at 200 ms on the private RPC). After one full
+devnet day that is about 600 transactions, so a browser with an empty cache needs roughly three
+minutes before cost basis and History appear; the cache then makes later visits incremental.
+Positions, balances and trading do not wait on it. Options, cheapest first: raise the pace on the
+private RPC (Helius allows 10 req/s, we use 5); have the automation worker keep the event index
+and serve it from its status server (`/events?wallet=…`) so the browser downloads one JSON instead
+of replaying the chain; or index by wallet. Not part of the restyle waves.
