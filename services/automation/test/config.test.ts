@@ -66,12 +66,12 @@ describe("loadConfig", () => {
   it("aggregates multiple invalid fields in one error", () => {
     let threw = false;
     try {
-      loadConfig(baseEnv({ USDC_MINT: undefined, ADMIN_KEYPAIR_PATH: undefined }));
+      loadConfig(baseEnv({ USDC_MINT: undefined, SOLANA_RPC_URL: undefined }));
     } catch (err) {
       threw = true;
       const message = (err as Error).message;
       expect(message).toMatch(/USDC_MINT/);
-      expect(message).toMatch(/ADMIN_KEYPAIR_PATH/);
+      expect(message).toMatch(/SOLANA_RPC_URL/);
     }
     expect(threw).toBe(true);
   });

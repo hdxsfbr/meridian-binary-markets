@@ -80,8 +80,10 @@ const rawConfigSchema = z.object({
   SOLANA_CLUSTER: clusterEnum,
   SOLANA_RPC_URL: httpUrl("SOLANA_RPC_URL"),
   SOLANA_WS_URL: wsUrl,
-  ADMIN_KEYPAIR_PATH: z.string().min(1),
-  PUBLISHER_KEYPAIR_PATH: z.string().min(1),
+  // Paths may be left at their defaults when the keypairs arrive as
+  // `ADMIN_KEYPAIR_JSON` / `PUBLISHER_KEYPAIR_JSON` instead (see keys.ts).
+  ADMIN_KEYPAIR_PATH: z.string().min(1).default("/run/keys/admin.json"),
+  PUBLISHER_KEYPAIR_PATH: z.string().min(1).default("/run/keys/publisher.json"),
   USDC_MINT: solanaPubkey("USDC_MINT"),
   ORACLE_PROVIDER: oracleProviderEnum,
   PYTH_HERMES_URL: httpUrl("PYTH_HERMES_URL"),

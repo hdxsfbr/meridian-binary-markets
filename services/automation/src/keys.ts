@@ -43,11 +43,34 @@ export function loadKeypair(path: string): Keypair {
 }
 
 /** Loads the admin keypair from `ADMIN_KEYPAIR_PATH`. */
+/**
+ * Keypair from an environment variable holding the JSON byte array (the same
+ * content as the keypair file), for hosts that inject secrets as variables
+ * rather than files (Railway). Takes precedence over the path when set.
+ */
+export function keypairFromEnvJson(name: string): Keypair | undefined {
+  const raw = process.env[name]?.trim();
+  if (!raw) return undefined;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`${name} is not valid JSON: ${(err as Error).message}`);
+  }
+  const isByteValue = (n: unknown): boolean => typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 255;
+  if (!Array.isArray(parsed) || parsed.length !== 64 || !parsed.every(isByteValue)) {
+    throw new Error(`${name} must be a JSON array of 64 integers, each 0-255`);
+  }
+  return Keypair.fromSecretKey(Uint8Array.from(parsed as number[]));
+}
+
+/** Loads the admin keypair: `ADMIN_KEYPAIR_JSON` if set, else the file at `path`. */
 export function loadAdminKeypair(path: string): Keypair {
-  return loadKeypair(path);
+  return keypairFromEnvJson("ADMIN_KEYPAIR_JSON") ?? loadKeypair(path);
 }
 
 /** Loads the publisher keypair from `PUBLISHER_KEYPAIR_PATH`. */
+/** Loads the publisher keypair: `PUBLISHER_KEYPAIR_JSON` if set, else the file at `path`. */
 export function loadPublisherKeypair(path: string): Keypair {
-  return loadKeypair(path);
+  return keypairFromEnvJson("PUBLISHER_KEYPAIR_JSON") ?? loadKeypair(path);
 }
