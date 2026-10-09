@@ -524,3 +524,9 @@ into `docs/prd-compliance.md` (real gaps: no demo video yet; a handful of invari
 structurally, not by a named test). The other brought README and the operator docs in line with the
 revamped UI; it also caught a false README claim that no browser test suite existed. I fixed the
 stale README status banner and the deployment table's ticker list by hand.
+
+Also tonight: the worker-served event index (`DECISIONS.md` §23). A Sonnet agent built it and
+measured the cold build on devnet (612 transactions in about three minutes, once, on the worker
+instead of in every browser). Codex found ten real problems, mostly about the completeness flag,
+retries and ordering within a slot; a second Sonnet pass fixed all ten with tests. I added the
+build-time variable to the web Dockerfile and set it on Railway.

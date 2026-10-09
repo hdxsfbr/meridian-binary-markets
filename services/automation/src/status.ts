@@ -2,17 +2,26 @@
  * Status HTTP server (contracts/automation.md "Status endpoint"): read-only,
  * no auth, bound to the container network only. `GET /status` returns the
  * settlement job's in-memory map as JSON; `GET /healthz` is a trivial
- * liveness check. The admin page is the only consumer and shows "Status
- * unavailable" if this can't be reached -- this is the only way it learns
- * *why* a market is unsettled.
+ * liveness check; `GET /events` (optionally `?after=<signature>`) serves
+ * the worker's program event index (`events-index.ts`) so the web app can
+ * stop replaying the whole chain itself for cost basis/History. The admin
+ * page is the only consumer of `/status` and shows "Status unavailable" if
+ * it can't be reached -- this is the only way it learns *why* a market is
+ * unsettled.
  *
  * Fix #22: the admin page runs on a different origin (`WEB_ORIGIN`, default
  * `http://localhost:3000`) than this service, so every response carries
  * `Access-Control-Allow-Origin` or the browser's `fetch` never sees the body.
+ *
+ * `new URL()` throws on a malformed request target (e.g. a client sending a
+ * raw `//[` as the request line); that parse is wrapped in a try/catch and
+ * answered with 400 rather than left to throw inside the request handler,
+ * which would otherwise crash the whole process.
  */
 
 import { createServer, type Server } from "node:http";
 import type { SettlementStatusEntry } from "./jobs/settle.js";
+import type { EventIndex } from "./events-index.js";
 
 export interface StatusPayload {
   updatedAt: string;
@@ -38,6 +47,7 @@ export function startStatusServer(
   port: number,
   statusMap: Map<string, SettlementStatusEntry>,
   webOrigin: string = DEFAULT_WEB_ORIGIN,
+  eventIndex?: EventIndex,
 ): Server {
   const server = createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", webOrigin);
@@ -48,14 +58,36 @@ export function startStatusServer(
       return;
     }
 
-    if (req.url === "/healthz") {
+    let url: URL;
+    try {
+      url = new URL(req.url ?? "/", "http://localhost");
+    } catch {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "bad request" }));
+      return;
+    }
+
+    if (url.pathname === "/healthz") {
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: true }));
       return;
     }
 
-    if (req.url === "/status") {
+    if (url.pathname === "/status") {
       const payload = buildPayload(statusMap);
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(payload));
+      return;
+    }
+
+    if (url.pathname === "/events") {
+      if (eventIndex === undefined) {
+        res.writeHead(503, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "event index not available" }));
+        return;
+      }
+      const after = url.searchParams.get("after") ?? undefined;
+      const payload = eventIndex.toSerializedPayload(after);
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(payload));
       return;

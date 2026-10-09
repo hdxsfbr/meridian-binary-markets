@@ -98,6 +98,20 @@ const rawConfigSchema = z.object({
   // dev server (`.env.example` needs a `WEB_ORIGIN=` line documenting this; not added here --
   // out of scope for this file).
   WEB_ORIGIN: optionalHttpUrlFor("WEB_ORIGIN"),
+  // Event index (worker-served program event history, see events-index.ts): snapshot file path
+  // (Railway's disk is ephemeral, but a missing file just means a cold-start rebuild from the
+  // chain -- see events-index.ts's module doc), spacing between transaction fetches (same
+  // rate-limit concern as the web cache's NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS), and the poll
+  // interval for new signatures once the initial backfill completes.
+  EVENT_INDEX_PATH: z.string().min(1).default("./data/event-index.json"),
+  EVENT_FETCH_SPACING_MS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().regex(/^\d+$/, "must be an integer").transform((v) => Number(v)).pipe(z.number().int().min(0)).default("200"),
+  ),
+  EVENT_POLL_INTERVAL_MS: z.preprocess(
+    (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
+    z.string().regex(/^\d+$/, "must be an integer").transform((v) => Number(v)).pipe(z.number().int().min(1000)).default("30000"),
+  ),
 });
 
 export type AppConfig = {
@@ -117,6 +131,12 @@ export type AppConfig = {
   demoScale: boolean;
   /** CORS origin for the status endpoint (fix #22). Defaults to the local web dev server. */
   webOrigin: string;
+  /** Snapshot file path for the event index (events-index.ts). */
+  eventIndexPath: string;
+  /** Minimum spacing between transaction fetches while building/polling the event index. */
+  eventFetchSpacingMs: number;
+  /** Poll interval for new program signatures once the event index's initial backfill completes. */
+  eventPollIntervalMs: number;
 };
 
 class ConfigError extends Error {}
@@ -184,5 +204,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     automationStatusPort: raw.AUTOMATION_STATUS_PORT,
     demoScale: raw.DEMO_SCALE,
     webOrigin: raw.WEB_ORIGIN ?? "http://localhost:3000",
+    eventIndexPath: raw.EVENT_INDEX_PATH,
+    eventFetchSpacingMs: raw.EVENT_FETCH_SPACING_MS,
+    eventPollIntervalMs: raw.EVENT_POLL_INTERVAL_MS,
   };
 }

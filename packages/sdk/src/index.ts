@@ -36,4 +36,5 @@ export {
   type SellNoMarketPlan,
 } from "#intent";
 export * from "#events";
+export * from "#events-json";
 export * from "#pnl";

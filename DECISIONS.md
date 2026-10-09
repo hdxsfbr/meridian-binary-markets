@@ -584,3 +584,46 @@ the program and web code by a Codex review before shipping, and any future behav
 affects a documented rule must update the matching page in the same commit.
 **Trade-off:** Some overlap with `docs/` and the PRD. Accepted: the audiences differ, and keeping
 the trader pages inside the app means the public deployment is self-explanatory without the repo.
+
+## 23. A worker-served event index replaces per-browser chain replay for cost basis/History
+
+**Date:** 2026-10-08
+**Context:** `web/src/lib/events-cache.ts` has every browser independently page
+`getSignaturesForAddress` for the whole program and fetch/decode each transaction, paced to avoid
+the RPC's rate limit (contracts/automation.md's rate-limit numbers). An empty cache took about
+three minutes to catch up on ~600 transactions on the private devnet RPC, and that cost only grows
+with program history -- paid again by every new tab/device/wallet, independent of every other
+browser doing the identical work.
+**Decision:** The automation worker (already long-running, already serving `/status`) builds and
+continuously maintains the same decoded event stream in memory (`services/automation/src/
+events-index.ts`), persists a JSON snapshot so a restart resumes rather than re-paying for the
+whole history, and serves it over the existing status server as `GET /events` (optionally
+`?after=<signature>`). The browser cache (`events-cache.ts`) fetches that first when
+`NEXT_PUBLIC_EVENTS_INDEX_URL` is set, validates `programId`/genesis hash before trusting it, and
+merges the result in; the existing chain-based forward sync still runs afterward (cheap once the
+remote fetch did most of the work) so a transaction newer than the worker's own 30s poll is never
+missed, and the whole chain-replay path is kept as the fallback when the remote fetch fails or the
+variable is unset. The wire format (`PublicKey` as base58, `bigint` as decimal strings) lives in
+`packages/sdk/src/events-json.ts` so neither side can drift from the other.
+**Trade-off:** The worker is now a second thing (besides the chain itself) whose downtime degrades
+the web app -- accepted, because the degraded path is the exact chain replay that was the only
+path before this. Railway's ephemeral disk means a worker redeploy pays for the full backfill
+again; that is the same cost every browser paid on every empty cache before, just centralized to
+one process instead of N browsers.
+**Follow-up (2026-10-08, review fixes):** `complete` is derived from two separately-tracked
+states -- signature *paging* reaching genesis, and a persisted `retrySignatures` queue (also
+checkpointed in the snapshot) draining to empty -- so a transaction that fails to fetch/decode can
+never silently report the index complete, and is retried every sync independent of the forward
+cursor. Entries carry a `seq` (assigned at discovery time, increasing forward / decreasing
+backfill) so sorting by `(slot, seq)` reproduces true on-chain order even when a slot holds more
+than one of this program's transactions; the browser cache uses the same order when merging
+remote and chain-fetched entries. A snapshot is only installed after the live genesis hash is
+resolved and matches the snapshot's, and after confirming the snapshot's oldest signature still
+resolves on chain (same-genesis validator resets); either check failing discards the snapshot and
+rebuilds from zero. The cold backfill now runs in bounded, paced batches with a snapshot
+checkpoint after each one, so an in-process restart resumes instead of losing all progress, and
+`start()` retries every step (genesis resolution, snapshot load, each sync) with backoff so a
+transient RPC error during startup delays rather than permanently stops the index. The browser
+cache only ever trusts a remote payload that itself reports `complete: true`, and only requests
+`?after=<signature>` once its own local cache already reports complete -- otherwise it requests
+the full index -- so a partial/incomplete response can never be mistaken for full coverage.

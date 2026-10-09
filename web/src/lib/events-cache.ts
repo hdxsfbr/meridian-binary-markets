@@ -12,7 +12,7 @@
  * only a program-wide, not wallet-scoped, signature list sees every event
  * that mentions a given wallet).
  *
- * ## Shape (v2)
+ * ## Shape (v4)
  *
  * - The cache key is namespaced by cluster + genesis hash + program id
  *   (item 12): a devnet validator reset reuses the same cluster name and
@@ -22,6 +22,11 @@
  *   cached signature is still findable on chain; if not (same genesis hash,
  *   but the validator was reset without a fresh key, e.g. local dev),
  *   the cache is wiped and rebuilt from scratch.
+ * - Every cached entry carries a `seq`, used as a `(slot, seq)` ascending
+ *   sort tiebreaker for transactions sharing a slot (the worker's
+ *   `events-index.ts` derives it the same way, see "Remote-first sync"
+ *   below) -- without it, entries sharing a slot would sort by discovery
+ *   order instead of true on-chain order.
  * - There is no cap on cached signature count or on backfill pages (item
  *   13): a `backfillCursor` (the next `getSignaturesForAddress` `before` to
  *   fetch) is persisted across refreshes, and `complete` is only set once a
@@ -37,13 +42,63 @@
  * - The envelope's shape is validated before use (item 15): a malformed or
  *   foreign payload (wrong version, non-array fields) is discarded, not
  *   fed to the fold.
+ *
+ * ## Remote-first sync (worker-served event index)
+ *
+ * When `NEXT_PUBLIC_EVENTS_INDEX_URL` is set (the automation worker's base
+ * URL), a refresh first fetches that worker's pre-built, program-wide event
+ * index instead of paging the chain itself: the worker has already done the
+ * slow part (paging every signature since genesis and decoding every
+ * transaction) continuously server-side, so the browser can just download
+ * the result. The payload is validated (`programId`/`genesisHash` must
+ * match this browser's own connection, via the same namespacing as the
+ * cache key below) before any of its entries are merged in -- a mismatch
+ * (wrong deployment, stale worker) means the fetch is treated exactly like
+ * a failure and ignored.
+ *
+ * Only a remote payload that itself reports `complete: true` is ever
+ * merged in; an incomplete, unreachable, or mismatched response is ignored
+ * entirely (no partial merge) and the chain-based sync below runs exactly
+ * as if the remote fetch had never happened. This also decides which
+ * request is made: `GET /events?after=<newest cached signature>` only when
+ * this browser's *own* cache already reports `complete: true` (so a short
+ * delta response's `complete: true` -- meaning "the worker's full index is
+ * complete", not "this delta is the full history" -- can't be
+ * misinterpreted as covering gaps this cache doesn't have); otherwise (the
+ * local cache is incomplete, or empty) the request is `GET /events` with no
+ * `after`, so a `complete: true` response is guaranteed to be the worker's
+ * *entire* history and safe to adopt wholesale. The local cache is only
+ * ever marked `complete` here as a direct result of importing one of those
+ * full, complete remote payloads (or, as before, by the chain backfill
+ * itself reaching genesis).
+ *
+ * The existing chain-based forward sync below still runs afterward,
+ * unconditionally: it only ever pages from the (now possibly
+ * remote-advanced) newest known signature to the chain head, which is
+ * normally empty or one page, so it is cheap even when the remote fetch
+ * just did most of the work -- and it is what catches a transaction the
+ * worker hasn't indexed yet within its own 30s poll. The backfill loop
+ * (towards genesis, with its own cursor) is completely unaffected by the
+ * remote fetch one way or the other, so an ignored/partial remote payload
+ * can never bypass or corrupt it.
+ *
+ * Merging uses the same total order the worker uses (`(slot, seq)`
+ * ascending, see `CachedEntry.seq` above) and dedupes by signature, so a
+ * remote entry and a locally-fetched entry for the same signature can
+ * never both end up in the cache, and multiple transactions sharing a slot
+ * keep true on-chain order regardless of which source(s) discovered them.
  */
 
 import { PublicKey, type Connection } from "@solana/web3.js";
-import { parseEventsFromTransaction, type MeridianEvent } from "@meridian/sdk";
+import {
+  deserializeEventIndexPayload,
+  parseEventsFromTransaction,
+  type EventIndexEntry,
+  type MeridianEvent,
+} from "@meridian/sdk";
 
-const CACHE_KEY_PREFIX = "meridian:events:v3:";
-const CACHE_VERSION = 3;
+const CACHE_KEY_PREFIX = "meridian:events:v4:";
+const CACHE_VERSION = 4;
 const SIGNATURES_PAGE_SIZE = 1000;
 /** Per-refresh budget on backfill pages; progress persists via `backfillCursor`, so this never prevents eventually reaching `complete`. */
 const MAX_BACKFILL_PAGES_PER_REFRESH = 10;
@@ -51,6 +106,8 @@ const MAX_BACKFILL_PAGES_PER_REFRESH = 10;
 type CachedEntry = {
   signature: string;
   slot: number;
+  /** `(slot, seq)` ascending is this cache's total order; see module doc "Shape (v4)". */
+  seq: number;
   ts?: number;
   events: MeridianEvent[];
 };
@@ -170,7 +227,12 @@ function isValidEnvelopeShape(value: unknown): value is CacheEnvelope {
       return false;
     }
     const e = entry as Record<string, unknown>;
-    if (typeof e.signature !== "string" || typeof e.slot !== "number" || !Array.isArray(e.events)) {
+    if (
+      typeof e.signature !== "string" ||
+      typeof e.slot !== "number" ||
+      typeof e.seq !== "number" ||
+      !Array.isArray(e.events)
+    ) {
       return false;
     }
   }
@@ -271,12 +333,63 @@ export type RefreshResult = {
   complete: boolean;
 };
 
+/** `(slot, seq)` ascending -- the same total order the worker uses (see module doc "Shape (v4)"). */
 function sortedEntries(entriesBySignature: Map<string, CachedEntry>): CachedEntry[] {
-  return [...entriesBySignature.values()].sort((a, b) => a.slot - b.slot);
+  return [...entriesBySignature.values()].sort((a, b) => a.slot - b.slot || a.seq - b.seq);
 }
 
-/** Fetches and decodes one transaction's events; `null` on failure (kept for retry, item 14). */
-async function fetchEntry(connection: Connection, programId: PublicKey, signature: string): Promise<CachedEntry | null> {
+/**
+ * Fetches the worker's event index (`GET /events`, or `GET
+ * /events?after=<after>` when `after` is given), validates it against this
+ * browser's own `programId`/genesis hash, and returns its entries plus
+ * completeness -- or `null` on any failure (unset URL, network error, bad
+ * JSON, wrong shape, or a `programId`/genesis hash mismatch), so the caller
+ * can fall back to the chain replay exactly as if this function didn't
+ * exist.
+ */
+export async function fetchRemoteEvents(
+  connection: Connection,
+  programId: PublicKey,
+  after: string | undefined,
+): Promise<{ entries: EventIndexEntry[]; complete: boolean } | null> {
+  // Read lazily (not hoisted to a module-level constant): `NEXT_PUBLIC_*` is normally inlined by
+  // Next.js' build-time static replacement anyway, but reading it per-call also lets tests set
+  // `process.env` directly without needing to reload the module.
+  const eventsIndexUrl = process.env.NEXT_PUBLIC_EVENTS_INDEX_URL;
+  if (eventsIndexUrl === undefined || eventsIndexUrl === "") {
+    return null;
+  }
+  try {
+    const base = eventsIndexUrl.replace(/\/$/, "");
+    const url = after === undefined ? `${base}/events` : `${base}/events?after=${encodeURIComponent(after)}`;
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) {
+      return null;
+    }
+    const raw = await response.json();
+    const payload = deserializeEventIndexPayload(raw);
+
+    if (payload.programId !== programId.toBase58()) {
+      return null;
+    }
+    const genesisHash = await genesisHashFor(connection);
+    if (payload.genesisHash !== genesisHash) {
+      return null;
+    }
+
+    return { entries: payload.entries, complete: payload.complete };
+  } catch {
+    // Network error, non-JSON body, or a shape `deserializeEventIndexPayload`
+    // rejects (wrong version, corrupt entry, etc.): treated the same as the
+    // URL being unset.
+    return null;
+  }
+}
+
+type FetchedEntry = { signature: string; slot: number; ts?: number; events: MeridianEvent[] };
+
+/** Fetches and decodes one transaction's events; `null` on failure (kept for retry, item 14). `seq` is assigned by the caller (see "Shape (v4)"). */
+async function fetchEntry(connection: Connection, programId: PublicKey, signature: string): Promise<FetchedEntry | null> {
   try {
     const tx = await connection.getParsedTransaction(signature, { maxSupportedTransactionVersion: 0 });
     if (tx === null) {
@@ -345,12 +458,37 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
   }
 
   const retrySignatures = new Set(envelope.retrySignatures);
-  const pendingSignatures = new Set<string>();
+  // Discovery order matters for `seq` assignment (see module doc "Shape (v4)"): `forwardPending`
+  // is newest-of-new-first (reversed before processing, below) and `backfillPending` is
+  // newest-of-window-first (processed in that order directly).
+  const forwardPending: string[] = [];
+  const backfillPending: string[] = [];
+
+  // --- Remote-first: merge in the worker's pre-built event index, if configured. -------------
+  // Only requests `?after=<newest cached signature>` once this cache already reports `complete`
+  // -- a `complete: true` response to that delta request means the worker's *whole* index is
+  // complete, which combined with this cache's own completeness is enough to stay complete. If
+  // this cache is incomplete (or empty), the request is for the full index (no `after`) instead,
+  // so a `complete: true` response there is guaranteed to cover everything, not just a window
+  // past a cursor the worker and this cache may disagree about. Either way, an incomplete,
+  // unreachable, or mismatched response is ignored outright -- none of its entries are merged in
+  // -- so the chain-based sync below (including the backfill cursor) runs completely unaffected.
+  const localComplete = envelope.complete;
+  const priorNewestSignature = sortedEntries(entriesBySignature).at(-1)?.signature;
+  const remote = await fetchRemoteEvents(connection, programId, localComplete ? priorNewestSignature : undefined);
+  let remoteComplete = false;
+  if (remote !== null && remote.complete) {
+    for (const entry of remote.entries) {
+      entriesBySignature.set(entry.signature, entry);
+      retrySignatures.delete(entry.signature);
+    }
+    remoteComplete = true;
+  }
 
   // --- Forward sync: catch up to the chain head. ---------------------------
   const newestKnownSignature = sortedEntries(entriesBySignature).at(-1)?.signature;
   let backfillCursor = envelope.backfillCursor;
-  let complete = envelope.complete;
+  let complete = envelope.complete || remoteComplete;
 
   if (newestKnownSignature !== undefined) {
     // Known history exists: page newest-first until that signature is
@@ -368,7 +506,9 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
           reachedKnown = true;
           break;
         }
-        pendingSignatures.add(signature);
+        if (!entriesBySignature.has(signature) && !retrySignatures.has(signature)) {
+          forwardPending.push(signature);
+        }
       }
       before = batch[batch.length - 1]?.signature;
       if (batch.length < SIGNATURES_PAGE_SIZE) {
@@ -381,7 +521,9 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
     // on subsequent refreshes rather than all at once.
     const batch = await connection.getSignaturesForAddress(programId, { limit: SIGNATURES_PAGE_SIZE });
     for (const { signature } of batch) {
-      pendingSignatures.add(signature);
+      if (!entriesBySignature.has(signature) && !retrySignatures.has(signature)) {
+        forwardPending.push(signature);
+      }
     }
     if (batch.length < SIGNATURES_PAGE_SIZE) {
       complete = true;
@@ -401,7 +543,9 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
       break;
     }
     for (const { signature } of batch) {
-      pendingSignatures.add(signature);
+      if (!entriesBySignature.has(signature) && !retrySignatures.has(signature)) {
+        backfillPending.push(signature);
+      }
     }
     backfillCursor = batch[batch.length - 1]?.signature;
     if (batch.length < SIGNATURES_PAGE_SIZE) {
@@ -409,13 +553,49 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
     }
   }
 
-  // Retry signatures from a previous refresh that failed to fetch/decode.
-  for (const sig of retrySignatures) {
-    pendingSignatures.add(sig);
+  // --- Assign `seq` and fetch/decode every pending signature. ---------------
+  // `seq` only needs to be consistent as a same-slot tiebreaker (see module doc "Shape (v4)"), so
+  // it's fine to derive fresh ranges each refresh from whatever's already in the map (including
+  // anything the remote merge just added).
+  let nextSeq = 1;
+  let nextBackSeq = -1;
+  for (const entry of entriesBySignature.values()) {
+    if (entry.seq + 1 > nextSeq) nextSeq = entry.seq + 1;
+    if (entry.seq - 1 < nextBackSeq) nextBackSeq = entry.seq - 1;
   }
 
-  // --- Process every pending signature (new + retried). ---------------------
-  for (const signature of pendingSignatures) {
+  // Forward-discovered (and cold-start head page) signatures are newest-first; reverse so `seq`
+  // increases in true chronological order.
+  for (const signature of [...forwardPending].reverse()) {
+    const entry = await fetchEntry(connection, programId, signature);
+    await new Promise((resolve) => setTimeout(resolve, TRANSACTION_FETCH_SPACING_MS));
+    if (entry === null) {
+      retrySignatures.add(signature);
+      continue;
+    }
+    entriesBySignature.set(signature, { ...entry, seq: nextSeq });
+    nextSeq += 1;
+    retrySignatures.delete(signature);
+  }
+
+  // Backfill-discovered signatures are already newest-of-window-first; assign decreasing `seq`
+  // directly so older entries get smaller values.
+  for (const signature of backfillPending) {
+    const entry = await fetchEntry(connection, programId, signature);
+    await new Promise((resolve) => setTimeout(resolve, TRANSACTION_FETCH_SPACING_MS));
+    if (entry === null) {
+      retrySignatures.add(signature);
+      continue;
+    }
+    entriesBySignature.set(signature, { ...entry, seq: nextBackSeq });
+    nextBackSeq -= 1;
+    retrySignatures.delete(signature);
+  }
+
+  // Retry signatures from a previous refresh that failed to fetch/decode (item 14). Treated as
+  // newest-batch appends: their exact chronological position relative to any same-slot sibling
+  // discovered in a different refresh is not worth tracking across failed attempts.
+  for (const signature of [...retrySignatures]) {
     if (entriesBySignature.has(signature)) {
       retrySignatures.delete(signature);
       continue;
@@ -423,13 +603,12 @@ async function refreshEventCacheUncached(connection: Connection, programId: Publ
     const entry = await fetchEntry(connection, programId, signature);
     await new Promise((resolve) => setTimeout(resolve, TRANSACTION_FETCH_SPACING_MS));
     if (entry === null) {
-      // Fetch/decode failed: keep it for retry next refresh (item 14). The
-      // signature-paging cursors above have already moved past it -- there
-      // is nothing left to re-page, only the transaction fetch to retry.
-      retrySignatures.add(signature);
+      // Signature-paging cursors above have already moved past it -- there is nothing left to
+      // re-page, only the transaction fetch to retry next refresh.
       continue;
     }
-    entriesBySignature.set(signature, entry);
+    entriesBySignature.set(signature, { ...entry, seq: nextSeq });
+    nextSeq += 1;
     retrySignatures.delete(signature);
   }
 

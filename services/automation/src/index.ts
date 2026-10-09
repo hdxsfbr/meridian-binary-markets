@@ -28,8 +28,10 @@ import { runSettleJob, settlementStatus } from "./jobs/settle.js";
 import { isWithinPublishWindow, runPublisherJob, runPublisherTick } from "./jobs/publisher.js";
 import { runReclaimJob } from "./jobs/reclaim.js";
 import { startStatusServer } from "./status.js";
+import { EventIndex } from "./events-index.js";
 import { log, logError } from "./log.js";
 import { runPyth } from "./probe/pyth.js";
+import { PROGRAM_ID } from "@meridian/sdk";
 
 const ET_TIMEZONE = "America/New_York";
 
@@ -169,7 +171,19 @@ async function runStart(): Promise<void> {
   await assertGenesisHash(runtime.chain.connection, cfg.solanaCluster);
   await assertOracleProviderMatchesChain(runtime);
 
-  startStatusServer(cfg.automationStatusPort, settlementStatus, cfg.webOrigin);
+  const eventIndex = new EventIndex({
+    connection: runtime.chain.connection,
+    programId: PROGRAM_ID,
+    snapshotPath: cfg.eventIndexPath,
+    fetchSpacingMs: cfg.eventFetchSpacingMs,
+    pollIntervalMs: cfg.eventPollIntervalMs,
+  });
+  // Not awaited: the initial backfill can take minutes against program history, and the status
+  // server (including `/events`, which just reports whatever the index has indexed so far, with
+  // `complete: false` until this finishes) should be reachable immediately.
+  eventIndex.start().catch((err) => logError({ job: "events-index", step: "start", ok: false, error: (err as Error).message }));
+
+  startStatusServer(cfg.automationStatusPort, settlementStatus, cfg.webOrigin, eventIndex);
   log({ job: "index", step: "status_server", ok: true, error: `listening on :${cfg.automationStatusPort}` });
 
   schedule(

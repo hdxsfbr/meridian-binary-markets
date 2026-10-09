@@ -1,8 +1,7 @@
 # Deployment guide
 
-> **Draft status.** This is a Wave 6 draft, to be finalized in Wave 8 after the Wave 7 devnet
-> deployment run. The "Recorded addresses" table below is left empty on purpose — fill it in once
-> that run happens, and do not predict its contents here.
+> Current as of the 2026-10-08 devnet deployment; the "Recorded addresses" table below is the
+> source of truth for every live address.
 
 Everything in this guide runs inside the pinned dev container (`make dev`, `make shell`, or any
 `make` target that shells out to `docker compose run`). Nothing needs to be installed on the host
@@ -189,7 +188,7 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 | Program ID | `3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn` ([explorer](https://explorer.solana.com/address/3XQgqYNXPeZr5o2NUmnuPm9hk5mPrZpiEsFE62pjVkBn?cluster=devnet)) |
 | Program-data account / deploy slot | `BUuEp86cxiEjMEtEGtHgnv6P7KPqXLgmAjVxnYebRmUj`; first deploy slot 508626847; upgraded 2026-10-08 twice (close-time and crossing guards; one-to-seven listed tickers), 623,328 bytes, 3.167 SOL rent |
 | Upgrade authority (admin) | `3i2UN14eCEzLG7HvhgyWUFcN19zdbURj8s78QF6RBZPH` |
-| Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `pythReceiver` since 2026-10-08, tickers TSLA/QQQ/VOO, capacity 16, override delay 3600 s) |
+| Config PDA | `74KKVVK4kx3xcGng91ULZKzcwqX6mo1EDw7J1KmSMnQR` (provider `pythReceiver` since 2026-10-08, tickers AAPL/MSFT/GOOGL/AMZN/NVDA/META/TSLA since the same afternoon, capacity 16, override delay 3600 s) |
 | Publisher | `HDBdqW1XzfCNZXdexLKiVw95B5HUDd3sYp8tX9ijnKRa` |
 | USDC mint used | `4zMMC9srt5Ri5X14GAgXhaHii3GnPAEERYPJgZJDncDU` (Circle devnet USDC) |
 | First full lifecycle | trading day 20261011 (synthetic), AAPL ladder of 7 markets, settled at $335.00, maker +1.00 / taker −1.00 USDC, vault 0 |
@@ -341,7 +340,11 @@ Variables, set with `railway variable set --service <name>`:
 - **web:** `NEXT_PUBLIC_CLUSTER=devnet`, `NEXT_PUBLIC_RPC_URL`, `NEXT_PUBLIC_WS_URL` (a private
   devnet RPC; the public one rate-limits the browser), `NEXT_PUBLIC_PROGRAM_ID`,
   `NEXT_PUBLIC_USDC_MINT`, `NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS=200`,
-  `NEXT_PUBLIC_AUTOMATION_STATUS_URL=https://<automation domain>/status`, `PYTH_HERMES_URL`,
+  `NEXT_PUBLIC_AUTOMATION_STATUS_URL=https://<automation domain>/status`,
+  `NEXT_PUBLIC_EVENTS_INDEX_URL=https://<automation domain>` (the worker's base URL, no trailing
+  `/events` -- lets the browser fetch the worker's pre-built program event index instead of
+  replaying the whole chain itself for cost basis/History; omitted or unreachable falls back to
+  the full chain replay, as before this existed), `PYTH_HERMES_URL`,
   `PYTH_API_KEY` (server side only; it feeds `/api/prices`). The `NEXT_PUBLIC_*` values are baked
   in at image build time, so changing one needs a redeploy.
 - **automation:** `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL`, `SOLANA_WS_URL`,
@@ -349,8 +352,12 @@ Variables, set with `railway variable set --service <name>`:
   `services/automation/src/keys.ts`), `USDC_MINT`, `ORACLE_PROVIDER=pyth`, `PYTH_HERMES_URL`,
   `PYTH_API_KEY`, `PYTH_RECEIVER_PROGRAM`, `DEMO_SCALE=1`, `PORT=8787` and
   `AUTOMATION_STATUS_PORT=8787` (Railway does not define `PORT` for a Dockerfile service on its
-  own; a `${{PORT}}` reference resolves to an empty string), `WEB_ORIGIN=https://<web domain>`,
-  `ALERT_WEBHOOK_URL` (Slack).
+  own; a `${{PORT}}` reference resolves to an empty string), `WEB_ORIGIN=https://<web domain>`
+  (needed for both `/status` and `/events`'s CORS header), `ALERT_WEBHOOK_URL` (Slack),
+  `EVENT_INDEX_PATH` (defaults to `./data/event-index.json`; Railway's disk is ephemeral, so a
+  redeploy/restart just rebuilds the index from the chain again -- see `services/automation/src/
+  events-index.ts`), `EVENT_FETCH_SPACING_MS` (defaults to 200ms), `EVENT_POLL_INTERVAL_MS`
+  (defaults to 30000).
 
 The worker signs with the admin and publisher keys, so those live as Railway variables. That is
 acceptable for a devnet demo and is called out in `risks-and-limitations.md`; for anything with

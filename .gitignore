@@ -26,6 +26,9 @@ id.json
 keys/
 *-keypair.json
 
+# automation worker's event index snapshot (events-index.ts; rebuilt from the chain if missing)
+services/automation/data/
+
 # logs / tmp
 *.log
 .pnpm-debug.log*

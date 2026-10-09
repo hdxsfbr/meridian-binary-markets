@@ -22,6 +22,7 @@
   "imports": {
     "#book": "./src/book.ts",
     "#events": "./src/events.ts",
+    "#events-json": "./src/events-json.ts",
     "#idl": "./src/idl.ts",
     "#intent": "./src/intent.ts",
     "#pda": "./src/pda.ts",
