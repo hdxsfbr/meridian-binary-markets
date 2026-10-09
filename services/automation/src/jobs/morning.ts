@@ -137,52 +137,88 @@ export async function runMorningJob(deps: MorningJobDeps, opts: MorningJobOption
         const prevClose = await deps.provider.previousClose(ticker);
         const strikes = strikeLadder(prevClose);
 
-        for (const strike of strikes) {
-          const marketAddr = deps.chain.marketAddress(ticker, tradingDay, strike);
-          let market: PublicKey;
+        let createdCount = 0;
+        let existingCount = 0;
+        let skippedCount = 0;
 
-          const existing = await deps.chain.fetchMarket(marketAddr);
-          if (existing) {
-            market = marketAddr;
-            log({
-              job: "morning",
-              ticker,
-              market: market.toBase58(),
-              step: "create_market",
-              ok: true,
-              error: "market already exists (idempotent re-run); ensuring its book is finished",
-            });
-          } else {
-            try {
-              market = await retry(() => deps.chain.createMarket(ticker, strike, tradingDay, closeTs, capacity));
-              log({ job: "morning", ticker, market: market.toBase58(), step: "create_market", ok: true });
-            } catch (err) {
-              // Fix #9: an ambiguous transaction failure (e.g. a missed confirmation) does not
-              // necessarily mean the market wasn't actually created on chain. Re-fetch the PDA
-              // before concluding it's a real failure.
-              const refetched = await deps.chain.fetchMarket(marketAddr);
-              if (refetched) {
-                market = marketAddr;
-                log({
-                  job: "morning",
-                  ticker,
-                  market: market.toBase58(),
-                  step: "create_market",
-                  ok: true,
-                  error: "create_market transaction reported failure but the market exists on chain; proceeding",
-                });
-              } else {
-                throw err;
+        for (const strike of strikes) {
+          // Fix #12: a single strike's create_market failure (e.g. the strike key was reused by
+          // an earlier closed market whose SPL mint PDAs can't be closed and therefore can't be
+          // recreated) must not abort the rest of the ticker's strike ladder. Each strike is its
+          // own try/catch inside the ticker loop.
+          try {
+            const marketAddr = deps.chain.marketAddress(ticker, tradingDay, strike);
+            let market: PublicKey;
+
+            const existing = await deps.chain.fetchMarket(marketAddr);
+            if (existing) {
+              market = marketAddr;
+              existingCount += 1;
+              log({
+                job: "morning",
+                ticker,
+                market: market.toBase58(),
+                step: "create_market",
+                ok: true,
+                error: "market already exists (idempotent re-run); ensuring its book is finished",
+              });
+            } else {
+              try {
+                market = await retry(() => deps.chain.createMarket(ticker, strike, tradingDay, closeTs, capacity));
+                createdCount += 1;
+                log({ job: "morning", ticker, market: market.toBase58(), step: "create_market", ok: true });
+              } catch (err) {
+                // Fix #9: an ambiguous transaction failure (e.g. a missed confirmation) does not
+                // necessarily mean the market wasn't actually created on chain. Re-fetch the PDA
+                // before concluding it's a real failure.
+                const refetched = await deps.chain.fetchMarket(marketAddr);
+                if (refetched) {
+                  market = marketAddr;
+                  existingCount += 1;
+                  log({
+                    job: "morning",
+                    ticker,
+                    market: market.toBase58(),
+                    step: "create_market",
+                    ok: true,
+                    error: "create_market transaction reported failure but the market exists on chain; proceeding",
+                  });
+                } else {
+                  throw err;
+                }
               }
             }
-          }
 
-          // Fix #9: always call createBookUntilDone, including for a market that already
-          // existed -- create_book is itself idempotent/resumable, so this is never wasted work,
-          // and it is the only way an earlier run's unfinished book ever gets completed.
-          await retry(() => deps.chain.createBookUntilDone(market));
-          log({ job: "morning", ticker, market: market.toBase58(), step: "create_book", ok: true });
+            // Fix #9: always call createBookUntilDone, including for a market that already
+            // existed -- create_book is itself idempotent/resumable, so this is never wasted work,
+            // and it is the only way an earlier run's unfinished book ever gets completed.
+            await retry(() => deps.chain.createBookUntilDone(market));
+            log({ job: "morning", ticker, market: market.toBase58(), step: "create_book", ok: true });
+          } catch (err) {
+            skippedCount += 1;
+            const message = (err as Error).message ?? String(err);
+            const strikeDollars = (Number(strike) / 1_000_000).toFixed(2);
+            const alreadyInUse = message.includes("already in use");
+            logError({
+              job: "morning",
+              ticker,
+              step: "strike",
+              strike: strikeDollars,
+              ok: false,
+              error: alreadyInUse
+                ? "strike key was used by an earlier closed market (its token mints still exist); skipping this strike"
+                : message,
+            });
+          }
         }
+
+        log({
+          job: "morning",
+          ticker,
+          step: "ticker_summary",
+          ok: true,
+          error: `created=${createdCount} existing=${existingCount} skipped=${skippedCount}`,
+        });
       } catch (err) {
         const message = (err as Error).message ?? String(err);
         logError({ job: "morning", ticker, step: "ticker", ok: false, error: message });

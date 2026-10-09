@@ -212,21 +212,27 @@ async function runStart(): Promise<void> {
   // a single 09:25 kickoff that holds one long-running promise (and an internal sleep loop) for
   // the rest of the day. A mid-day restart, or one tick throwing, no longer disables publishing
   // for the rest of the day -- each tick is scheduled and isolated independently.
-  schedule(
-    "* * * * *",
-    () => {
-      const nowSeconds = Math.floor(Date.now() / 1000);
-      if (!isWithinPublishWindow(nowSeconds)) return;
-      runPublisherTick({
-        chain: runtime.chain,
-        provider: runtime.provider,
-        oracleProvider: cfg.oracleProvider,
-      }).catch((err) =>
-        logError({ job: "publisher", step: "cron_tick", ok: false, error: (err as Error).message }),
-      );
-    },
-    { timezone: ET_TIMEZONE },
-  );
+  // Fix #20: the publisher job only ever runs against the mock provider (runPublisherTick
+  // throws otherwise); scheduling the tick regardless of ORACLE_PROVIDER meant every minute
+  // logged a doomed-to-fail error under the pyth provider. Only register the cron when the
+  // provider is actually mock.
+  if (cfg.oracleProvider === "mock") {
+    schedule(
+      "* * * * *",
+      () => {
+        const nowSeconds = Math.floor(Date.now() / 1000);
+        if (!isWithinPublishWindow(nowSeconds)) return;
+        runPublisherTick({
+          chain: runtime.chain,
+          provider: runtime.provider,
+          oracleProvider: cfg.oracleProvider,
+        }).catch((err) =>
+          logError({ job: "publisher", step: "cron_tick", ok: false, error: (err as Error).message }),
+        );
+      },
+      { timezone: ET_TIMEZONE },
+    );
+  }
 
   schedule(
     "0 20 * * 1-5",
@@ -243,7 +249,11 @@ async function runStart(): Promise<void> {
     step: "cron",
     ok: true,
     error:
-      "morning 08:00, settle 16:00:30, publisher every minute gated 09:25-16:10, reclaim 20:00 (America/New_York)",
+      `morning 08:00, settle 16:00:30, ` +
+      (cfg.oracleProvider === "mock"
+        ? "publisher every minute gated 09:25-16:10"
+        : "publisher disabled (pyth provider)") +
+      `, reclaim 20:00 (America/New_York)`,
   });
 }
 

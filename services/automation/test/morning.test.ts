@@ -3,6 +3,7 @@ import { PublicKey } from "@solana/web3.js";
 import { strikeLadder, type MicroUsd, type Ticker } from "@meridian/sdk";
 import { runMorningJob, type MorningChain } from "../src/jobs/morning";
 import type { PriceProvider } from "../src/providers/PriceProvider";
+import * as logModule from "../src/log";
 
 const SEVEN_TICKERS: Ticker[] = ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA", "TSLA"];
 
@@ -257,6 +258,56 @@ describe("runMorningJob", () => {
     // Every strike's createMarket "failed" ambiguously but was actually on chain, so every
     // strike still gets its book created rather than the whole ticker being abandoned.
     expect(bookCalls.length).toBe(7);
+  });
+
+  it("fix #12: a single strike's createMarket 'already in use' failure doesn't abort the ticker", async () => {
+    const failingStrikeIndex = 2; // an arbitrary strike partway through the ladder
+    let strikeCallCount = 0;
+    const chain = buildChain({
+      async fetchConfig() {
+        return { tickers: [{ symbol: "META" as Ticker, enabled: true }], defaultBookCapacity: 128 };
+      },
+      async createMarket(ticker, strike, tradingDay, closeTs, capacity) {
+        const idx = strikeCallCount;
+        strikeCallCount += 1;
+        chain.calls.createMarket.push([ticker, strike, tradingDay, closeTs, capacity]);
+        if (idx === failingStrikeIndex) {
+          throw new Error("Allocate: account X already in use");
+        }
+        const addr = fakeMarketAddress(ticker, tradingDay, strike);
+        return addr;
+      },
+    });
+    const provider = fakeProvider({ META: 680_000_000n });
+
+    const expectedStrikes = strikeLadder(680_000_000n as MicroUsd);
+    expect(expectedStrikes.length).toBe(7);
+
+    const logSpy = vi.spyOn(logModule, "log");
+    const logErrorSpy = vi.spyOn(logModule, "logError");
+
+    await runMorningJob({ chain, provider, demoScale: false, retry: (fn) => fn() }, { day: 20261006 });
+
+    // Every strike was attempted (the failing one did not abort the loop), so createMarket
+    // was called once per strike in the ladder.
+    expect(chain.calls.createMarket.length).toBe(expectedStrikes.length);
+
+    // The failed strike was logged with the clearer "already in use" message, not the raw error.
+    const strikeFailureLogs = logErrorSpy.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.step === "strike" && event.ok === false);
+    expect(strikeFailureLogs.length).toBe(1);
+    expect(strikeFailureLogs[0].error).toContain("strike key was used by an earlier closed market");
+
+    // The ticker-level summary reflects 6 created and 1 skipped (the failed strike), 0 existing.
+    const summaryLogs = logSpy.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.step === "ticker_summary");
+    expect(summaryLogs.length).toBe(1);
+    expect(summaryLogs[0].error).toBe("created=6 existing=0 skipped=1");
+
+    logSpy.mockRestore();
+    logErrorSpy.mockRestore();
   });
 
   it("fix #10: exits without creating markets on a non-trading day, unless --force", async () => {

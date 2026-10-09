@@ -644,3 +644,26 @@ the morning), all testable only once per day at a real close. Time is short and 
 is not a PRD requirement.
 **Revisit:** After unattended settlement has run clean for a few days, if overnight trading becomes
 something worth showing. Estimated at about an hour plus tests.
+
+## 25. A closed market's key can never be reused, so test runs must never use a real trading day
+
+**Date:** 2026-10-09
+**Context:** The first unattended morning job created ladders for only four of seven tickers.
+AAPL, MSFT and GOOGL failed on `create_market` with the system program's "account already in
+use": a test run on the evening of 2026-10-07 had created markets for the real upcoming day
+2026-10-09 at the standard strikes, settled them, and reclaimed them. `close_market` reclaims the
+Market, Book and vault accounts, but SPL mint accounts cannot be closed, and the Yes/No mint PDAs
+are derived from the market key. A later `create_market` for the same (ticker, day, strike) finds
+no Market but collides on the mint. The job also aborted the whole ticker at the first collision,
+so strikes that would have succeeded were never tried.
+**Decision:** Three parts. (1) The morning job skips a colliding strike with a clear log line and
+continues; a summary line per ticker reports created/existing/skipped. (2) Synthetic test days used
+with `--day` must be dates that will never be real trading days for this deployment (a past date,
+or a weekend with `--force`); never a real future date. Recorded in `docs/deployment.md` and
+`docs/risks-and-limitations.md`. (3) The program is not changed: making `create_market` tolerate
+pre-existing mints would need `init_if_needed` on the mints plus authority checks, an upgrade in the
+middle of a trading day for a problem that only a misuse of the test flag can cause.
+**Today's recovery:** the three ladders were created by hand at the standard strikes shifted by
+$5 (AAPL 315–375, MSFT 485–575, GOOGL 325–385), with maker quotes at the money, before the close.
+**Also fixed:** the publisher cron tick logged an error every minute under the Pyth provider; it is
+now only scheduled when the provider is the test publisher.

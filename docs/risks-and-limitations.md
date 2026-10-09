@@ -151,3 +151,13 @@ for: nothing in this document, or anywhere else in this repository, asserts or i
 Meridian satisfies any securities, derivatives, commodities, gaming, or money-transmission
 regulation in any jurisdiction, or that it has been reviewed for such compliance. It is a devnet
 engineering submission with no real funds and no real users.
+
+## 11. A market key cannot be reused after reclaim
+
+Reclaiming a settled market frees its Market, Book and vault accounts but not its two SPL mints,
+which cannot be closed. Because the mint addresses derive from the market key, `create_market`
+for the same ticker, trading day and strike will fail forever after with "account already in use".
+In normal operation this never happens: each trading day has one set of keys. It bit the first
+unattended morning run (2026-10-09) because a test run two days earlier had used that real date as
+its synthetic day. Rule: synthetic test days must be dates that can never be real trading days for
+the deployment. The morning job now skips a colliding strike and continues (`DECISIONS.md` §25).

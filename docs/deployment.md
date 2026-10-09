@@ -260,6 +260,12 @@ localnet, and `init-config` creates a fresh 6-decimal test USDC mint with unlimi
 `USDC_MINT` is unset, rather than requiring Circle's devnet mint. `make dev` runs this path
 end-to-end against a freshly started `solana-test-validator` as its gate.
 
+> **Synthetic days:** when running `morning --day <YYYYMMDD> --close-in <s>` for a demo, pick a date
+> that will never be a real trading day for this deployment (a past date, or a weekend with
+> `--force`). A real future date burns that day's market keys for those strikes: reclaim frees the
+> Market account but not the mints, and `create_market` fails with "account already in use" when
+> the day arrives (`DECISIONS.md` §25).
+
 ## 5. Troubleshooting
 
 **A port is already bound on the host.** `WEB_PORT`, `RPC_PORT`, `WS_PORT`, and `STATUS_PORT` in
