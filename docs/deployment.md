@@ -195,6 +195,7 @@ Starts the automation service's cron schedule: morning markets at 08:00 ET, sett
 | Sample market (AAPL $330, traded) | `FxinHA2BdBaxZj5Pq6rtXvW23jnXQTxp5FJYMNJScrpM` |
 | Mock price account (AAPL) | `8xC1riDPLd1kDyVSjs8DLBZHY9VSLzncLmTW3mvgSfwP` |
 | First Pyth-settled day | 2026-10-08: the `settle` job (run at 16:00:40 ET) posted each ticker's Hermes closing update to the devnet receiver and settled all 46 listed markets by 16:00:52 ET, no override. Closes: AAPL 340.62, MSFT 523.00, GOOGL 348.42, AMZN 254.25, NVDA 230.65, META 721.17, TSLA 374.56. Sample settled market: `3M8tE45eg8RJJeTMm3vwVBYTcK7ADXdydtVErLWs1kes` (AAPL $330, Yes). The delisted QQQ/VOO ladders were override-settled at their Pyth closes after the one-hour delay. |
+| Second Pyth-settled day | 2026-10-09: the morning job ran unattended at 08:00 ET and created 25 markets for AMZN, META, NVDA and TSLA; AAPL, MSFT and GOOGL collided with mints left by an earlier test run on that date (`DECISIONS.md` §25) and were created by hand at strikes shifted $5 (22 markets). The settle job settled all 47 markets between 16:04:49 and 16:04:54 ET on its ninth attempt: devnet confirmations exceeded the worker's 30 s limit on the first eight. Closes: AAPL 336.25, MSFT 534.93, GOOGL 351.70, AMZN 262.55, NVDA 229.37, META 718.23, TSLA 382.68. No overrides. |
 | Public web app | `https://web-production-385a5.up.railway.app` (Railway; automation worker on the same project) |
 | Deploy date / cluster genesis hash | 2026-10-07 / `EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG` |
 

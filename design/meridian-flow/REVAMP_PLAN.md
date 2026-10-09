@@ -102,3 +102,13 @@ Positions, balances and trading do not wait on it. Options, cheapest first: rais
 private RPC (Helius allows 10 req/s, we use 5); have the automation worker keep the event index
 and serve it from its status server (`/events?wallet=…`) so the browser downloads one JSON instead
 of replaying the chain; or index by wallet. Not part of the restyle waves.
+
+## Polish list (2026-10-09, after the second settlement day)
+
+- Settled winning rows show "Collect $X" next to Redeem winning so a winner does not read as a loss
+  before redemption (the Buy No path books the sold Yes half against its $0.50 share, so the row
+  shows a small negative realized P&L until the $1.00-per-token redemption lands). Andre, 2026-10-09.
+- Markets cards: show only the at-the-money row by default with "N more strikes" expanding the
+  ladder (Kalshi-style collapse). Offered 2026-10-09, not yet approved.
+- Worker: raise the transaction confirmation timeout from 30 s to about 90 s (settlement on
+  2026-10-09 needed nine retries because devnet confirmations exceeded 30 s).

@@ -530,3 +530,24 @@ measured the cold build on devnet (612 transactions in about three minutes, once
 instead of in every browser). Codex found ten real problems, mostly about the completeness flag,
 retries and ordering within a slot; a second Sonnet pass fixed all ten with tests. I added the
 build-time variable to the web Dockerfile and set it on Railway.
+
+### 2026-10-09 — First unattended day, chart, toasts
+
+The morning job ran on its own and exposed a real limitation: three tickers' market keys for the
+day had been burned by a test run two nights earlier (reclaim frees the market but not its mints).
+I diagnosed it from the worker logs and the event index, recreated the three ladders by hand at
+strikes shifted $5 before the close, and had Sonnet make the job skip a colliding strike instead
+of abandoning the ticker (`DECISIONS.md` §25). My own scheduled check did not fire; the host cron
+log did. Settlement then needed nine retries because devnet confirmations ran past 30 s, and
+landed inside five minutes; noted as a timeout follow-up.
+
+Andre asked why the chart had no history. Pyth had retired its public history endpoint in August;
+I read the migration note and verified the keyed Pyth Pro History API against our key before
+building on it, per the "verify before recommending" rule. Sonnet built the cached server route
+and the client seed, then the TradingView Lightweight Charts swap Andre picked (`DECISIONS.md`
+§26). He also asked for a confirmation after placing an order; Sonnet built toasts, Codex caught
+that the toast reported the pre-send estimate instead of what executed, and a fix pass now reads
+the confirmed transaction's events. I tried the Circle faucet headlessly for the maker wallet and
+stopped at its captcha rather than work around it. SCALING.md, ARCHITECTURE.md and
+KEY_METRICS.md were written on request, the scaling analysis by me, the other two by Sonnet from
+numbers verified in the repo.
