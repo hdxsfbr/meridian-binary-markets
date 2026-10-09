@@ -244,7 +244,61 @@ export class PythReceiverProvider implements PriceProvider {
       return finnhub.previousClose as MicroUsd;
     }
   }
+
+  /**
+   * Live price for the `extend` job's ladder-extension check (jobs/extend.ts): the same
+   * Hermes "latest update" read `publish` posts on chain, but read-only here -- `extend`
+   * only needs the price, never a `PriceUpdateV2` account, so this never calls
+   * `postUpdate`/touches the chain.
+   *
+   * Review fix: unlike `publish` (which the on-chain `OracleStale`/`OracleTooOld` guards
+   * validate) and `previousClose` (which checks drift against the expected close), nothing
+   * downstream of this method ever validates the observation -- `extend`'s two-consecutive-
+   * tick edge detection would otherwise happily act on an ancient or wildly-uncertain
+   * reading. Validated here instead, before the price is ever returned: freshness (reusing
+   * `previousClose`'s own `PREVIOUS_CLOSE_TOLERANCE_SECS` tolerance -- the same provider,
+   * the same Hermes endpoint, the same "how old is too old" bound), a positive price, and
+   * confidence within `MAX_CONFIDENCE_BPS` of the price (mirroring `MockPythProvider`'s
+   * `CURRENT_PRICE_TOLERANCE_BPS`, so both `PriceProvider` implementations apply a
+   * comparably wide sanity bound). Throws a descriptive error rather than returning an
+   * invalid observation.
+   */
+  async currentPrice(ticker: Ticker): Promise<MicroUsd> {
+    const feedIdHex = await this.resolveFeedIdHex(ticker);
+    const update = await this.fetchLatest(feedIdHex, {
+      baseUrl: this.hermesBaseUrl,
+      apiKey: this.pythApiKey,
+    });
+    const { price, conf, expo, publishTime } = update.parsed;
+
+    const age = this.now() - publishTime;
+    if (age > PREVIOUS_CLOSE_TOLERANCE_SECS) {
+      throw new Error(
+        `PythReceiverProvider.currentPrice: ${ticker} Hermes publish_time ${publishTime} is ${age}s old, ` +
+          `exceeding the ${PREVIOUS_CLOSE_TOLERANCE_SECS}s staleness limit`,
+      );
+    }
+    if (price <= 0n) {
+      throw new Error(`PythReceiverProvider.currentPrice: ${ticker} Hermes price ${price} is not positive`);
+    }
+    // conf/price > MAX_CONFIDENCE_BPS/10_000  <=>  conf * 10_000 > price * MAX_CONFIDENCE_BPS
+    if (conf * 10_000n > price * MAX_CONFIDENCE_BPS) {
+      throw new Error(
+        `PythReceiverProvider.currentPrice: ${ticker} Hermes confidence ${conf} is more than ` +
+          `${MAX_CONFIDENCE_BPS}bps of price ${price}; refusing to use this observation`,
+      );
+    }
+
+    return normalizeToMicroUsd(price, expo);
+  }
 }
+
+/**
+ * Review fix: confidence-width sanity bound for `currentPrice`, mirroring
+ * `MockPythProvider`'s `CURRENT_PRICE_TOLERANCE_BPS` (10%) so both `PriceProvider`
+ * implementations apply a comparably wide bound against a wildly-uncertain reading.
+ */
+const MAX_CONFIDENCE_BPS = 1_000n;
 
 /** Fix #3: Hermes's historical observation must land within 5 minutes of the expected close. */
 const PREVIOUS_CLOSE_TOLERANCE_SECS = 5 * 60;

@@ -177,9 +177,18 @@ make jobs
 ```
 
 Starts the automation service's cron schedule: morning markets at 08:00 ET, settlement starting
-16:00:30 ET, the mock publisher ticking every 60 s from 09:25–16:10 ET, and rent reclamation at
-20:00 ET. The service refuses to start if `ORACLE_PROVIDER` disagrees with the on-chain
-`Config.oracle_provider`.
+16:00:30 ET, the mock publisher ticking every 60 s from 09:25–16:10 ET, the intraday `extend`
+ladder-extension job ticking every 5 min from 09:35–15:45 ET (DECISIONS.md §27), and rent
+reclamation at 20:00 ET. The service refuses to start if `ORACLE_PROVIDER` disagrees with the
+on-chain `Config.oracle_provider`.
+
+`extend` adds at most one strike at a time above or below a ticker's existing ladder for the
+day, once the live price has sat within $5 of that end for two consecutive, scheduled 5-minute
+ticks, up to 2 added strikes per ticker per trading day. It never removes a strike. The cap and
+streak are persisted to `EXTEND_STATE_PATH` (default `./data/extend-state.json`) after every
+tick, so a worker restart no longer silently re-opens the cap or forgets an in-progress streak.
+"Add strike" on the Admin page remains the manual path for anything this heuristic doesn't
+cover.
 
 ## 2. Recorded addresses (devnet, 2026-10-07)
 
@@ -340,7 +349,7 @@ and `.env` never leave the machine):
 | Service | Image | Start | Public |
 | --- | --- | --- | --- |
 | `web` | `deploy/web.Dockerfile` (`RAILWAY_DOCKERFILE_PATH`) | `next start` on `$PORT` | `https://web-production-385a5.up.railway.app` |
-| `automation` | `deploy/automation.Dockerfile` | `automation start` (cron: morning 08:00, settle 16:00:30, publisher, reclaim 20:00 ET) | status endpoint on `$PORT` at `/status` |
+| `automation` | `deploy/automation.Dockerfile` | `automation start` (cron: morning 08:00, settle 16:00:30, publisher, extend every 5 min 09:35-15:45, reclaim 20:00 ET) | status endpoint on `$PORT` at `/status` |
 
 Variables, set with `railway variable set --service <name>`:
 

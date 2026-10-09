@@ -28,4 +28,11 @@ export interface PriceProvider {
    * throw if a reliable previous close cannot be produced.
    */
   previousClose(ticker: Ticker): Promise<MicroUsd>;
+
+  /**
+   * Latest live price, for the intraday `extend` job's ladder-extension
+   * check (jobs/extend.ts). Does not touch the chain. Must throw if a
+   * reliable live price cannot be produced.
+   */
+  currentPrice(ticker: Ticker): Promise<MicroUsd>;
 }

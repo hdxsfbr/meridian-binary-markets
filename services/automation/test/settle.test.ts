@@ -45,6 +45,9 @@ function fakeProvider(publishImpl: () => Promise<{ priceAccount: PublicKey; publ
     async previousClose() {
       throw new Error("not used in settle job tests");
     },
+    async currentPrice() {
+      throw new Error("not used in settle job tests");
+    },
   };
 }
 

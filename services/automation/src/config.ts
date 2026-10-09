@@ -104,6 +104,11 @@ const rawConfigSchema = z.object({
   // rate-limit concern as the web cache's NEXT_PUBLIC_RPC_TX_FETCH_SPACING_MS), and the poll
   // interval for new signatures once the initial backfill completes.
   EVENT_INDEX_PATH: z.string().min(1).default("./data/event-index.json"),
+  // `extend` job (jobs/extend.ts, DECISIONS.md §27) cross-tick state (two-consecutive-tick
+  // streaks, the per-day creation cap, pending-book retries): persisted here so a worker
+  // restart -- or two manual `job extend --once` invocations minutes apart -- can resume
+  // in-progress state instead of silently starting over (review fix #9).
+  EXTEND_STATE_PATH: z.string().min(1).default("./data/extend-state.json"),
   EVENT_FETCH_SPACING_MS: z.preprocess(
     (v) => (typeof v === "string" && v.trim() === "" ? undefined : v),
     z.string().regex(/^\d+$/, "must be an integer").transform((v) => Number(v)).pipe(z.number().int().min(0)).default("200"),
@@ -137,6 +142,8 @@ export type AppConfig = {
   eventFetchSpacingMs: number;
   /** Poll interval for new program signatures once the event index's initial backfill completes. */
   eventPollIntervalMs: number;
+  /** Persisted cross-tick state file for the `extend` job (jobs/extend.ts, review fix #9). */
+  extendStatePath: string;
 };
 
 class ConfigError extends Error {}
@@ -207,5 +214,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     eventIndexPath: raw.EVENT_INDEX_PATH,
     eventFetchSpacingMs: raw.EVENT_FETCH_SPACING_MS,
     eventPollIntervalMs: raw.EVENT_POLL_INTERVAL_MS,
+    extendStatePath: raw.EXTEND_STATE_PATH,
   };
 }

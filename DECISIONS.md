@@ -687,3 +687,42 @@ theme variables so a light theme needs no chart changes. The hand-written SVG sp
 removed; nothing else used it.
 **Trade-off:** One more dependency (about 45 KB) and one more upstream call per ticker per minute
 at most. The library's attribution logo is kept, as its licence asks for a link to TradingView.
+
+## 27. An intraday `extend` job adds strikes when the price nears the ladder's edge
+
+**Date:** 2026-10-09
+**Context:** The morning job sizes each ticker's strike ladder once, at the open, from the
+previous close. A stock that runs hard intraday can trade through (or near) the top strike of
+its own ladder with no next-higher market to trade into, and the only fix was the admin's manual
+"Add strike" button on the Admin page. Andre wanted that covered automatically, without touching
+the morning job or weakening the "closed markets' keys can never be reused" rule (§25).
+**Decision:** A new `extend` job (`services/automation/src/jobs/extend.ts`, `runExtendTick`) ticks
+every 5 minutes, 09:35–15:45 ET, on trading days. For each enabled ticker that already has
+markets for today (a ticker with none is left alone -- morning still owns creation), it reads
+the live price (`PriceProvider.currentPrice`, new on the interface: Finnhub+Nasdaq cross-check
+for the mock provider, Hermes latest for Pyth) and compares it to the top/bottom strike of
+today's existing ladder. If the price is within $5 (half the $10 grid `strikeLadder` rounds to)
+of the top strike or above it, and that condition holds on two *consecutive* ticks, it adds one
+strike $10 above the top (mirror logic for the bottom); it never removes a strike. Creation
+reuses the day's existing `closeTs` (never recomputed) and morning's exact create-market/
+create-book/"already-in-use"-skip shape. Capped at 2 added strikes per ticker per trading day.
+The cap, the two-consecutive-*scheduled*-tick streak (keyed by trading day; a gap wider than
+1.5x the 5-minute interval, a day change, or a failed observation all reset it), and a
+pending-book retry set (a market whose book didn't finish is retried every tick, independently
+of the cap and of edge detection, and excluded from edge detection until it clears) are all
+persisted to `EXTEND_STATE_PATH` (default `./data/extend-state.json`) after every tick --
+loaded back on the next one, whether that's the next cron tick after a restart or a second
+manual `job extend --once` invocation minutes later. The per-day allowance is reserved before
+`createMarket` runs (not after the book finishes), so a market that spends rent always consumes
+its allowance even if its book fails; a genuinely failed `createMarket` (confirmed absent on
+re-fetch) releases the reservation instead. The cron tick runner also guards against overlapping
+ticks (an in-flight tick causes the next scheduled one to log and skip, released in `finally`).
+"Add strike" on the Admin page remains the manual path for anything this heuristic doesn't cover
+(e.g. a gap wider than one $10 step, or a ticker the operator wants extended ahead of the
+heuristic).
+**Trade-off:** None of the above eliminates the underlying heuristic's scope (still one $10 step
+at a time, still capped at 2/day, still never removing a strike) -- persisting the state only
+means a worker restart or a gap between manual `--once` runs no longer *silently* re-opens the
+cap or forgets an in-progress streak, at the cost of one more file (atomic temp-file-plus-rename,
+same pattern as `events-index.ts`'s snapshot) the worker's disk needs to survive a redeploy for;
+a lost state file just means the job starts the day's cap/streak over, same as before this fix.

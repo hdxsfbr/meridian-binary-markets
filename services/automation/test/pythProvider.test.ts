@@ -219,6 +219,70 @@ describe("PythReceiverProvider.previousClose", () => {
   });
 });
 
+describe("PythReceiverProvider.currentPrice (review fix: validates the Hermes observation)", () => {
+  const NOW = 1_759_900_300;
+
+  function providerWithFetchLatest(parsed: { price: bigint; conf: bigint; expo: number; publishTime: number }) {
+    const chain = mockChain(AAPL_FEED_HEX);
+    const fetchLatest = vi.fn().mockResolvedValue({ binary: Uint8Array.from([]), parsed });
+    return new PythReceiverProvider({
+      chain,
+      connection: dummyConnection(),
+      publisherKeypair: Keypair.generate(),
+      receiverProgramId: new PublicKey("rec5EKMGg6MxZYaMdyBfgwp4d5rB9T1VQH5pJv5LtFJ"),
+      hermesBaseUrl: "https://pyth.dourolabs.app/hermes",
+      pythApiKey: "test-key",
+      fetchLatest,
+      now: () => NOW,
+    });
+  }
+
+  it("returns the normalized price for a fresh, positive, tightly-confident observation", async () => {
+    const provider = providerWithFetchLatest({
+      price: 33_341_000_000n,
+      conf: 1_000_000n, // 0.3% of price -- well within the 10% bound
+      expo: -8,
+      publishTime: NOW - 10,
+    });
+
+    const result = await provider.currentPrice("AAPL");
+    expect(result).toBe(333_410_000n);
+  });
+
+  it("throws on a publish_time older than the staleness limit", async () => {
+    const provider = providerWithFetchLatest({
+      price: 33_341_000_000n,
+      conf: 1_000_000n,
+      expo: -8,
+      publishTime: NOW - 10_000, // far beyond the 5-minute tolerance
+    });
+
+    await expect(provider.currentPrice("AAPL")).rejects.toThrow(/staleness limit/);
+  });
+
+  it("throws on a non-positive price", async () => {
+    const provider = providerWithFetchLatest({
+      price: 0n,
+      conf: 1_000_000n,
+      expo: -8,
+      publishTime: NOW - 10,
+    });
+
+    await expect(provider.currentPrice("AAPL")).rejects.toThrow(/not positive/);
+  });
+
+  it("throws when the confidence is wider than the configured bps limit", async () => {
+    const provider = providerWithFetchLatest({
+      price: 33_341_000_000n,
+      conf: 20_000_000_000n, // 60% of price -- far outside the 10% bound
+      expo: -8,
+      publishTime: NOW - 10,
+    });
+
+    await expect(provider.currentPrice("AAPL")).rejects.toThrow(/confidence/);
+  });
+});
+
 describe("sendTransactionsInOrder", () => {
   function fakeTx(): VersionedTransaction {
     return { sign: vi.fn() } as unknown as VersionedTransaction;

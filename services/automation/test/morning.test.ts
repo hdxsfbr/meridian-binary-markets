@@ -63,6 +63,9 @@ function fakeProvider(prevCloseByTicker: Record<string, bigint | Error>): PriceP
     async publish() {
       throw new Error("not used in morning job tests");
     },
+    async currentPrice() {
+      throw new Error("not used in morning job tests");
+    },
   };
 }
 

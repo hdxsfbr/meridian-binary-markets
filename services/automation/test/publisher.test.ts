@@ -20,6 +20,7 @@ describe("publisher job", () => {
     const provider: PriceProvider = {
       publish: vi.fn(),
       previousClose: vi.fn(),
+      currentPrice: vi.fn(),
     } as unknown as PriceProvider;
 
     await expect(
@@ -36,7 +37,7 @@ describe("publisher job", () => {
       { symbol: "NVDA" as Ticker, enabled: false },
     ]);
     const publish = vi.fn().mockResolvedValue({ priceAccount: PRICE_ACCOUNT, publishTime: 1_759_780_900 });
-    const provider: PriceProvider = { publish, previousClose: vi.fn() };
+    const provider: PriceProvider = { publish, previousClose: vi.fn(), currentPrice: vi.fn() };
 
     await runPublisherTick({ chain, provider, oracleProvider: "mock" });
 
@@ -55,7 +56,7 @@ describe("publisher job", () => {
       if (ticker === "META") throw new Error("finnhub source outage");
       return { priceAccount: PRICE_ACCOUNT, publishTime: 1_759_780_900 };
     });
-    const provider: PriceProvider = { publish, previousClose: vi.fn() };
+    const provider: PriceProvider = { publish, previousClose: vi.fn(), currentPrice: vi.fn() };
 
     await expect(runPublisherTick({ chain, provider, oracleProvider: "mock" })).resolves.toBeUndefined();
 

@@ -64,6 +64,15 @@ const MOCK_EXPO = -6;
  */
 const PREVIOUS_CLOSE_TOLERANCE_BPS = 1_000n;
 
+/**
+ * Cross-check tolerance for `currentPrice`: 10% == 1_000 basis points, same bound as
+ * `previousClose` -- Finnhub's `c` and Nasdaq's latest trade are both genuinely "current"
+ * readings here (unlike `previousClose`'s Finnhub-`pc`-vs-Nasdaq-latest comparison), so in
+ * practice they should usually agree far more tightly than this; the wide bound only guards
+ * against a wildly wrong reading from either source.
+ */
+const CURRENT_PRICE_TOLERANCE_BPS = 1_000n;
+
 /** Fail closed if the source observation backing a publish is older than this, in seconds. */
 const STALE_SOURCE_SECS = 300;
 
@@ -184,5 +193,44 @@ export class MockPythProvider implements PriceProvider {
     }
 
     return pc as MicroUsd;
+  }
+
+  /**
+   * Live price for the `extend` job's ladder-extension check (jobs/extend.ts). Same
+   * dual-source cross-check shape as `publish`/`previousClose`: Finnhub's `c` is the
+   * canonical reading, Nasdaq's latest trade is the sanity bound.
+   *
+   * Review fix: `publish` never trusts an old source observation under a fresh-looking
+   * wall-clock time (its own `STALE_SOURCE_SECS` check); this method previously skipped
+   * that check entirely, so two *agreeing* but stale quotes passed the cross-check above
+   * and could trigger an extension. Applies the same freshness policy here: the earlier of
+   * the two sources' own observation times (never `now()`), checked against the same
+   * `STALE_SOURCE_SECS` bound `publish` uses.
+   */
+  async currentPrice(ticker: Ticker): Promise<MicroUsd> {
+    const [finnhub, nasdaq] = await Promise.all([
+      this.fetchFinnhub(ticker, this.finnhubApiKey),
+      this.fetchNasdaq(ticker),
+    ]);
+
+    const current = finnhub.current.priceMicro;
+    const disagreement = absDiff(current, nasdaq.priceMicro);
+    if (disagreement * 10_000n > current * CURRENT_PRICE_TOLERANCE_BPS) {
+      throw new Error(
+        `MockPythProvider.currentPrice: ${ticker} Finnhub current price (${current}) and Nasdaq price ` +
+          `(${nasdaq.priceMicro}) disagree by more than 10%`,
+      );
+    }
+
+    const observedAt = Math.min(finnhub.tradeTime, nasdaq.observedAt);
+    const age = this.now() - observedAt;
+    if (age > STALE_SOURCE_SECS) {
+      throw new Error(
+        `MockPythProvider.currentPrice: ${ticker} source observation (observedAt=${observedAt}) is ` +
+          `${age}s old, which exceeds the ${STALE_SOURCE_SECS}s staleness threshold`,
+      );
+    }
+
+    return current as MicroUsd;
   }
 }

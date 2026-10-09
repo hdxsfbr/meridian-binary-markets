@@ -2,13 +2,17 @@
  * Automation service entry point (contracts/automation.md, tasks.md T046).
  *
  * Three modes:
- *   `job <morning|settle|publisher|reclaim> [flags]` -- runs one job to completion
- *      and exits. The CLI entry points contract (contracts/automation.md).
+ *   `job <morning|settle|publisher|reclaim|extend> [flags]` -- runs one job to
+ *      completion and exits. The CLI entry points contract (contracts/automation.md).
+ *      `job extend --once [--force]` runs a single ladder-extension tick now
+ *      (DECISIONS.md §27); `--force` bypasses the 09:35-15:45 ET window/trading-day
+ *      gate, for manual testing on devnet outside that window.
  *   `start` -- registers the cron schedule (America/New_York) for morning
- *      (08:00), settle (16:00:30) and publisher (kicked off at 09:25, runs its
- *      own internal 60 s loop until the window closes), and starts the status
- *      HTTP server. Refuses to start if `ORACLE_PROVIDER` disagrees with the
- *      on-chain `Config.oracle_provider`.
+ *      (08:00), settle (16:00:30), publisher (kicked off at 09:25, runs its
+ *      own internal 60 s loop until the window closes), extend (every 5 minutes,
+ *      gated to 09:35-15:45 ET inside the tick, DECISIONS.md §27), and starts
+ *      the status HTTP server. Refuses to start if `ORACLE_PROVIDER` disagrees
+ *      with the on-chain `Config.oracle_provider`.
  *   `probe <pyth> [flags]` -- the Pyth token-day probe (research.md R5, tasks.md
  *      T090); never touches the cron/job machinery above, does not require
  *      `ORACLE_PROVIDER=pyth` to be set.
@@ -27,6 +31,7 @@ import { runMorningJob } from "./jobs/morning.js";
 import { runSettleJob, settlementStatus } from "./jobs/settle.js";
 import { isWithinPublishWindow, runPublisherJob, runPublisherTick } from "./jobs/publisher.js";
 import { runReclaimJob } from "./jobs/reclaim.js";
+import { loadExtendState, saveExtendState, runExtendTick, createGuardedExtendTick } from "./jobs/extend.js";
 import { startStatusServer } from "./status.js";
 import { EventIndex } from "./events-index.js";
 import { log, logError } from "./log.js";
@@ -159,8 +164,27 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
       );
       return;
     }
+    case "extend": {
+      // `job extend --once [--force]`: a single tick now, for manual devnet testing
+      // (contracts/automation.md's dry-run-safety shape). `--force` ignores the
+      // 09:35-15:45 ET window/trading-day gate; without it this can legitimately do
+      // nothing outside that window, same as `publisher --once` outside its window.
+      // Review fix #9: state is loaded from/saved to EXTEND_STATE_PATH (not a fresh
+      // `createExtendState()` every invocation) so two manual invocations five minutes
+      // apart accumulate the same two-consecutive-tick streak a live cron tick would.
+      const state = await loadExtendState(cfg.extendStatePath);
+      try {
+        await runExtendTick(
+          { chain: runtime.chain, provider: runtime.provider, demoScale: cfg.demoScale, state },
+          { day, force: flagBoolean(flags, "force") },
+        );
+      } finally {
+        await saveExtendState(cfg.extendStatePath, state);
+      }
+      return;
+    }
     default:
-      throw new Error(`unknown job "${name}"; expected morning, settle, publisher, or reclaim`);
+      throw new Error(`unknown job "${name}"; expected morning, settle, publisher, reclaim, or extend`);
   }
 }
 
@@ -244,6 +268,29 @@ async function runStart(): Promise<void> {
     { timezone: ET_TIMEZONE },
   );
 
+  // DECISIONS.md §27: a 5-minute tick, every weekday, for the whole day -- the window gate
+  // (09:35-15:45 ET on trading days) lives inside `runExtendTick` itself (not here), the same
+  // way `job extend --once --force` bypasses it for manual testing. `extendState` is loaded
+  // once here (review fix #9: from EXTEND_STATE_PATH, not a fresh `createExtendState()`) and
+  // threaded into every tick, and saved back after each one, so a worker restart no longer
+  // resets the two-consecutive-tick streaks or the per-day creation cap.
+  const extendState = await loadExtendState(cfg.extendStatePath);
+  // Review fix #5: `createGuardedExtendTick`'s in-flight guard (released in `finally`) means
+  // a slow tick (slow RPC calls, a book retry loop) can never overlap with the next scheduled
+  // tick -- overlapping ticks would share `extendState` with no synchronization, which could
+  // double-spend the per-day cap. Review fix #9: `extendState` is saved back after every tick.
+  const extendTick = createGuardedExtendTick(
+    () => ({ chain: runtime.chain, provider: runtime.provider, demoScale: cfg.demoScale, state: extendState }),
+    {
+      onSettled: () => {
+        saveExtendState(cfg.extendStatePath, extendState).catch((err) =>
+          logError({ job: "extend", step: "state_save", ok: false, error: (err as Error).message }),
+        );
+      },
+    },
+  );
+  schedule("*/5 * * * 1-5", extendTick, { timezone: ET_TIMEZONE });
+
   log({
     job: "index",
     step: "cron",
@@ -253,7 +300,7 @@ async function runStart(): Promise<void> {
       (cfg.oracleProvider === "mock"
         ? "publisher every minute gated 09:25-16:10"
         : "publisher disabled (pyth provider)") +
-      `, reclaim 20:00 (America/New_York)`,
+      `, reclaim 20:00, extend every 5 min 09:35-15:45 (America/New_York)`,
   });
 }
 
@@ -262,7 +309,7 @@ async function main(): Promise<void> {
 
   if (cmd === "job") {
     if (!sub) {
-      throw new Error("usage: job <morning|settle|publisher|reclaim> [flags]");
+      throw new Error("usage: job <morning|settle|publisher|reclaim|extend> [flags]");
     }
     await dispatchJob(sub, parseFlags(rest));
     return;
@@ -294,7 +341,7 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    "usage: automation job <morning|settle|publisher|reclaim> [flags] | automation start | " +
+    "usage: automation job <morning|settle|publisher|reclaim|extend> [flags] | automation start | " +
       "automation probe pyth [flags] | automation dry-run",
   );
   process.exitCode = 1;
