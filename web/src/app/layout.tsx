@@ -3,6 +3,7 @@ import { Inter, IBM_Plex_Mono } from "next/font/google";
 import "./globals.css";
 import { WalletProviders } from "@/lib/wallet";
 import { AppDataProvider } from "@/hooks/AppDataProvider";
+import { ToastProvider } from "@/components/ui/Toast";
 import { Nav } from "@/components/Nav";
 
 const inter = Inter({
@@ -35,8 +36,10 @@ export default function RootLayout({
       <body className="bg-bg text-text">
         <WalletProviders>
           <AppDataProvider>
-            <Nav />
-            <main className="min-h-screen">{children}</main>
+            <ToastProvider>
+              <Nav />
+              <main className="min-h-screen">{children}</main>
+            </ToastProvider>
           </AppDataProvider>
         </WalletProviders>
       </body>

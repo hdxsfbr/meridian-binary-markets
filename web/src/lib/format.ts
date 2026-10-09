@@ -28,6 +28,20 @@ export function formatSignedUsd(micro: bigint): string {
   return micro > 0n ? `+${formatUsd(micro)}` : formatUsd(micro);
 }
 
+/**
+ * The muted "Collect $X" label shown beside the Portfolio page's "Redeem
+ * winning" button: what pressing it will pay out right now, so a settled
+ * winning position doesn't read as a loss from its realized P&L alone (the
+ * Buy No path books the sold Yes half at a small realized loss; redemption
+ * still pays $1.00 per winning token). `payoutAvailableMicro` already
+ * covers both a one-sided winning balance and any matched-pair portion of
+ * it, so this is a straight format, not a recompute. `null` when there is
+ * nothing to redeem, mirroring the button's own render condition.
+ */
+export function collectLabel(canRedeemWinning: boolean, payoutAvailableMicro: bigint): string | null {
+  return canRedeemWinning ? `Collect ${formatUsd(payoutAvailableMicro)}` : null;
+}
+
 /** Formats a Yes/No order-book price (micro-USDC per token) the same way as `formatUsd`. */
 export function formatPrice(micro: bigint): string {
   return formatUsd(micro);

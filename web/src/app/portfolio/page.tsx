@@ -10,7 +10,7 @@ import { useCallback, useEffect, useState } from "react";
 import { PublicKey } from "@solana/web3.js";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useSendTransaction } from "../../lib/wallet-send";
-import { PlaceOrderSide, TimeInForce } from "@meridian/sdk";
+import { ONE_USDC, PlaceOrderSide, TimeInForce } from "@meridian/sdk";
 import { associatedTokenAddress } from "@/lib/ata";
 import { formatSignedUsd, formatUsd } from "@/lib/format";
 import { todayTradingDay } from "@/lib/markets";
@@ -25,6 +25,8 @@ import {
 } from "@/lib/redeem-tx";
 import { chunk, planRedeemAll, redeemableMicro, REDEEM_ALL_CHUNK_SIZE } from "@/lib/redeem-all";
 import { fetchUsdcMint, mapSendError, placeOrder, sendTx, type BuildCtx } from "@/lib/tx";
+import { redeemAllCollectedToastTitle, redeemCollectedToastTitle } from "@/lib/trade-copy";
+import { useToast } from "@/components/ui/Toast";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
 import { restingTotalsByMarket, type MyOrderRow } from "@/lib/maker-view";
 import type { QuoteSide } from "@/components/MakerQuoteForm";
@@ -74,6 +76,7 @@ export default function PortfolioPage() {
     publicKey ?? null,
   );
   const myOrders = useMyOrders(publicKey ?? null);
+  const { notify } = useToast();
 
   const [usdcMint, setUsdcMint] = useState<PublicKey | null>(null);
   const [usdcBalanceMicro, setUsdcBalanceMicro] = useState<bigint | null>(null);
@@ -159,13 +162,14 @@ export default function PortfolioPage() {
         await redeemPair(program, connection, sendTransaction, publicKey, toRedeemMarket(row), usdcMint, row.pairsHeld);
         setBalanceTick((n) => n + 1);
         refresh();
+        notify({ title: redeemCollectedToastTitle(row.pairsHeld * ONE_USDC, row.ticker, row.strike), tone: "success" });
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Redeeming pair did not go through. Please try again.");
       } finally {
         setRedeemingKey(null);
       }
     },
-    [publicKey, usdcMint, program, connection, sendTransaction, refresh],
+    [publicKey, usdcMint, program, connection, sendTransaction, refresh, notify],
   );
 
   const handleSubmitQuote = useCallback(
@@ -206,13 +210,14 @@ export default function PortfolioPage() {
         await redeemWinning(program, connection, sendTransaction, publicKey, toRedeemMarket(row), usdcMint, row.winningSide, qty);
         setBalanceTick((n) => n + 1);
         refresh();
+        notify({ title: redeemCollectedToastTitle(qty * ONE_USDC, row.ticker, row.strike), tone: "success" });
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Redeeming winning tokens did not go through. Please try again.");
       } finally {
         setRedeemingKey(null);
       }
     },
-    [publicKey, usdcMint, program, connection, sendTransaction, refresh],
+    [publicKey, usdcMint, program, connection, sendTransaction, refresh, notify],
   );
 
   /**
@@ -271,6 +276,14 @@ export default function PortfolioPage() {
       }
       setRedeemAllProgress(null);
     }
+    if (confirmedChunks > 0) {
+      // Reflects only what actually went through: the chunks that confirmed
+      // before any failure, never the full plan if a later chunk dropped.
+      const confirmedItems = chunks.slice(0, confirmedChunks).flat();
+      const amountMicro = confirmedItems.reduce((sum, item) => sum + item.qty * ONE_USDC, 0n);
+      const marketCount = new Set(confirmedItems.map((item) => item.marketKey)).size;
+      notify({ title: redeemAllCollectedToastTitle(amountMicro, marketCount), tone: "success" });
+    }
     if (failure) {
       setActionError(
         confirmedChunks > 0
@@ -278,7 +291,7 @@ export default function PortfolioPage() {
           : `Redeeming did not go through: ${failure.message}`,
       );
     }
-  }, [publicKey, usdcMint, program, connection, sendTransaction, rows, refresh]);
+  }, [publicKey, usdcMint, program, connection, sendTransaction, rows, refresh, notify]);
 
   /** One busy flag for every redeem/mint action on the page (Wave R4 review item 4): while any of them is in flight, the others are disabled, even though each keeps its own "Minting…"/"Redeeming…" label. */
   const busy = minting || redeemingKey !== null || redeemAllProgress !== null;

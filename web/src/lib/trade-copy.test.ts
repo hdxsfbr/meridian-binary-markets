@@ -23,13 +23,41 @@ import {
   closeButtonLabel,
   estimateLabel,
   guidanceCopy,
+  limitOrderToastDetail,
+  limitOrderToastTitle,
   lockedUntilFilledLabel,
+  marketOrderToastTitle,
+  NOTHING_TRADED,
+  ORDER_CONFIRMED_FALLBACK,
   programErrorCopy,
+  quotesCancelledToastTitle,
+  quotesPlacedToastTitle,
+  redeemAllCollectedToastTitle,
+  redeemCollectedToastTitle,
   settledOutcomeCopy,
+  stillOpenFragment,
   winIfRightLabel,
 } from "./trade-copy";
 
-const FORBIDDEN_WORDS = ["mock", "provider", "pyth", "simulated", "todo", "stub", "placeholder", "coming soon"];
+const FORBIDDEN_WORDS = [
+  "mock",
+  "provider",
+  "pyth",
+  "simulated",
+  "todo",
+  "stub",
+  "placeholder",
+  "coming soon",
+  "resting",
+  "fill",
+  "filled",
+  "escrow",
+  "devnet",
+  "rpc",
+  "pda",
+  "ata",
+  "signature",
+];
 
 function allStaticStrings(): string[] {
   return [
@@ -51,6 +79,8 @@ function allStaticStrings(): string[] {
     SENDING,
     CANCEL,
     CANCELLING,
+    NOTHING_TRADED,
+    ORDER_CONFIRMED_FALLBACK,
   ];
 }
 
@@ -75,6 +105,21 @@ function allDynamicStrings(): string[] {
     settledOutcomeCopy("no", 1_234_560n),
     closeButtonLabel("closeNoFirst"),
     closeButtonLabel("closeYesFirst"),
+    marketOrderToastTitle("buyYes", "AAPL", 345_000_000n, 2n, 1_100_000n),
+    marketOrderToastTitle("sellNo", "AAPL", 345_000_000n, 2n, 900_000n),
+    limitOrderToastTitle("buyYes", "AAPL", 345_000_000n, 2n, 550_000n),
+    limitOrderToastDetail("buyYes", 1_100_000n, 2n),
+    limitOrderToastDetail("sellYes", 0n, 2n),
+    quotesPlacedToastTitle("AAPL", 345_000_000n, [
+      { side: "ask", priceMicro: 550_000n, qty: 2n },
+      { side: "bid", priceMicro: 450_000n, qty: 2n },
+    ]),
+    quotesCancelledToastTitle(1),
+    quotesCancelledToastTitle(3),
+    redeemCollectedToastTitle(2_000_000n, "AAPL", 345_000_000n),
+    redeemAllCollectedToastTitle(5_000_000n, 3),
+    stillOpenFragment("buyYes", 1n, 550_000n),
+    stillOpenFragment("sellNo", 3n, 450_000n),
   ];
 }
 
@@ -203,5 +248,72 @@ describe("closeButtonLabel", () => {
   it("offers Sell No when Buy Yes is gated, and Sell Yes when Buy No is gated", () => {
     expect(closeButtonLabel("closeNoFirst")).toBe(ACTION_LABEL.sellNo);
     expect(closeButtonLabel("closeYesFirst")).toBe(ACTION_LABEL.sellYes);
+  });
+});
+
+describe("marketOrderToastTitle", () => {
+  it("reports a buy as 'Bought N Yes/No on TICKER $strike for $amount'", () => {
+    expect(marketOrderToastTitle("buyYes", "AAPL", 345_000_000n, 2n, 1_100_000n)).toBe("Bought 2 Yes on AAPL $345 for $1.10");
+  });
+
+  it("reports a sell as 'Sold N Yes/No on TICKER $strike for $amount'", () => {
+    expect(marketOrderToastTitle("sellNo", "AAPL", 345_000_000n, 2n, 900_000n)).toBe("Sold 2 No on AAPL $345 for $0.90");
+  });
+
+  it("uses the matched quantity given, not any other figure, and never signs the amount", () => {
+    expect(marketOrderToastTitle("sellYes", "AAPL", 345_000_000n, 2n, -900_000n)).toBe("Sold 2 Yes on AAPL $345 for $0.90");
+  });
+});
+
+describe("limitOrderToastTitle / limitOrderToastDetail", () => {
+  it("reports a resting limit order as 'Order open: buy/sell N Yes/No at $price on TICKER $strike'", () => {
+    expect(limitOrderToastTitle("buyYes", "AAPL", 345_000_000n, 2n, 550_000n)).toBe("Order open: buy 2 Yes at $0.55 on AAPL $345");
+    expect(limitOrderToastTitle("sellNo", "AAPL", 345_000_000n, 1n, 450_000n)).toBe("Order open: sell 1 No at $0.45 on AAPL $345");
+  });
+
+  it("reports the reserved USDC amount as 'Reserved $amount until it trades' for a buy/sell-No limit order", () => {
+    expect(limitOrderToastDetail("buyYes", 1_100_000n, 2n)).toBe("Reserved $1.10 until it trades");
+    expect(limitOrderToastDetail("buyNo", 2_000_000n, 2n)).toBe("Reserved $2.00 until it trades");
+    expect(limitOrderToastDetail("sellNo", 900_000n, 1n)).toBe("Reserved $0.90 until it trades");
+  });
+
+  it("reports the reserved Yes quantity for a Sell Yes limit order, never a dollar figure", () => {
+    expect(limitOrderToastDetail("sellYes", 0n, 2n)).toBe("Reserved 2 Yes until it trades");
+  });
+});
+
+describe("quotesPlacedToastTitle", () => {
+  it("lists every quote placed on one market in order, bid as 'buy' and ask as 'sell'", () => {
+    expect(
+      quotesPlacedToastTitle("AAPL", 345_000_000n, [
+        { side: "ask", priceMicro: 550_000n, qty: 2n },
+        { side: "bid", priceMicro: 450_000n, qty: 2n },
+      ]),
+    ).toBe("Quotes placed on AAPL $345: sell 2 at $0.55, buy 2 at $0.45");
+  });
+});
+
+describe("quotesCancelledToastTitle", () => {
+  it("pluralizes 'quote' except for exactly one", () => {
+    expect(quotesCancelledToastTitle(1)).toBe("Cancelled 1 quote");
+    expect(quotesCancelledToastTitle(3)).toBe("Cancelled 3 quotes");
+  });
+});
+
+describe("redeemCollectedToastTitle / redeemAllCollectedToastTitle", () => {
+  it("reports a single redeem as 'Collected $amount from TICKER $strike'", () => {
+    expect(redeemCollectedToastTitle(2_000_000n, "AAPL", 345_000_000n)).toBe("Collected $2.00 from AAPL $345");
+  });
+
+  it("reports Redeem all as 'Collected $amount across N markets', singular for exactly one", () => {
+    expect(redeemAllCollectedToastTitle(5_000_000n, 3)).toBe("Collected $5.00 across 3 markets");
+    expect(redeemAllCollectedToastTitle(1_000_000n, 1)).toBe("Collected $1.00 across 1 market");
+  });
+});
+
+describe("stillOpenFragment", () => {
+  it("reports the unmatched remainder of a limit order that also traded: 'N Yes/No still open at $price'", () => {
+    expect(stillOpenFragment("buyYes", 1n, 550_000n)).toBe("1 Yes still open at $0.55");
+    expect(stillOpenFragment("sellNo", 3n, 450_000n)).toBe("3 No still open at $0.45");
   });
 });

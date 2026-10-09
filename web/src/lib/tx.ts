@@ -32,6 +32,7 @@ import {
   type Connection,
   type TransactionInstruction,
   type TransactionSignature,
+  type VersionedTransactionResponse,
 } from "@solana/web3.js";
 import { BN, type Program } from "@anchor-lang/core";
 import { bookPda, configPda, noMintPda, usdcEscrowPda, vaultPda, yesEscrowPda, yesMintPda } from "@meridian/sdk";
@@ -401,6 +402,40 @@ export async function sendTx(
     throw new Error(`Transaction failed on-chain: ${JSON.stringify(confirmation.value.err)}`);
   }
   return signature;
+}
+
+/** Spacing between `getTransaction` retries in `fetchConfirmedTransaction`, below. */
+const CONFIRMED_TX_RETRY_SPACING_MS = 1_000;
+
+/** Retries in `fetchConfirmedTransaction`, below, before giving up and returning `null`. */
+const CONFIRMED_TX_MAX_RETRIES = 5;
+
+/**
+ * Fetches the full confirmed transaction for a signature `sendTx` has
+ * already waited to land (via `confirmTransaction`), so its events can be
+ * decoded for a toast that reports what actually executed rather than a
+ * pre-send estimate. `confirmTransaction` resolving is not quite the same
+ * moment as this transaction being fetchable from *this* RPC endpoint --
+ * there can be a brief propagation lag -- so a `null` result is retried a
+ * few times, 1s apart, before this gives up and returns `null` for the
+ * caller to fall back to a generic acknowledgement.
+ */
+export async function fetchConfirmedTransaction(
+  connection: Connection,
+  signature: TransactionSignature,
+  maxRetries: number = CONFIRMED_TX_MAX_RETRIES,
+  retrySpacingMs: number = CONFIRMED_TX_RETRY_SPACING_MS,
+): Promise<VersionedTransactionResponse | null> {
+  for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+    const tx = await connection.getTransaction(signature, { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+    if (tx !== null) {
+      return tx;
+    }
+    if (attempt < maxRetries) {
+      await new Promise((resolve) => setTimeout(resolve, retrySpacingMs));
+    }
+  }
+  return null;
 }
 
 /** Known on-chain error names this file maps to user-facing copy (see `trade-copy.ts`). */

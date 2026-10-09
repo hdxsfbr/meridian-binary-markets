@@ -8,7 +8,7 @@
  */
 
 import type { Action, GuidanceErrorCode } from "@meridian/sdk";
-import { formatUsd } from "./format";
+import { formatStrike, formatUsd } from "./format";
 
 export const CONNECT_WALLET = "Connect a wallet to trade.";
 export const TRADING_PAUSED = "Trading is paused";
@@ -134,3 +134,96 @@ export function settledOutcomeCopy(outcome: "yes" | "no", settlementPriceMicro: 
 export function closeButtonLabel(code: "closeNoFirst" | "closeYesFirst"): string {
   return code === "closeNoFirst" ? ACTION_LABEL.sellNo : ACTION_LABEL.sellYes;
 }
+
+/*
+ * ---------------------------------------------------------------------
+ * Toast copy (Andre's complaint: nothing confirms a successful order
+ * except finding it later on /portfolio). The trade-panel toast strings
+ * (`marketOrderToastTitle`, `limitOrderToastTitle`, `limitOrderToastDetail`,
+ * `stillOpenFragment`, `NOTHING_TRADED`) are fed by `trade-result.ts`'s
+ * confirmed, event-derived numbers, never a pre-send estimate; the rest are
+ * built from the same numbers the maker form/portfolio page already
+ * compute for their own inline copy. Never a transaction signature, an
+ * RPC/program term, or a fill/resting/escrow word (see trade-copy.test.ts).
+ * ---------------------------------------------------------------------
+ */
+
+const QUOTE_VERB: Record<Action, "Bought" | "Sold"> = {
+  buyYes: "Bought",
+  buyNo: "Bought",
+  sellYes: "Sold",
+  sellNo: "Sold",
+};
+
+const QUOTE_SIDE: Record<Action, "Yes" | "No"> = {
+  buyYes: "Yes",
+  buyNo: "No",
+  sellYes: "Yes",
+  sellNo: "No",
+};
+
+/** "Bought 2 Yes on AAPL $345 for $1.10" / "Sold 2 No on AAPL $345 for $0.90" -- what a confirmed transaction actually executed (`trade-result.ts`'s `executedQty`/`amountMicro`), never a pre-send estimate. */
+export function marketOrderToastTitle(action: Action, ticker: string, strikeMicro: bigint, matchedQty: bigint, amountMicro: bigint): string {
+  const amount = amountMicro < 0n ? -amountMicro : amountMicro;
+  return `${QUOTE_VERB[action]} ${matchedQty.toString()} ${QUOTE_SIDE[action]} on ${ticker} ${formatStrike(strikeMicro)} for ${formatUsd(amount)}`;
+}
+
+/** "Order open: buy 2 Yes at $0.55 on AAPL $345" -- the quantity a confirmed limit order actually left resting on the book (`trade-result.ts`'s `open.qty`), which can be less than what was requested if part of it traded immediately. */
+export function limitOrderToastTitle(action: Action, ticker: string, strikeMicro: bigint, qty: bigint, priceMicro: bigint): string {
+  const verb = action === "buyYes" || action === "buyNo" ? "buy" : "sell";
+  return `Order open: ${verb} ${qty.toString()} ${QUOTE_SIDE[action]} at ${formatUsd(priceMicro)} on ${ticker} ${formatStrike(strikeMicro)}`;
+}
+
+/**
+ * "Reserved $1.10 until it trades" -- the limit order toast's detail
+ * line, for the quantity actually still open (never the originally
+ * requested quantity if part of it already traded). A resting Buy
+ * Yes/Buy No (or the Sell No bid that rests toward a later pair
+ * redemption) locks USDC up front, so `amountMicro` is a dollar figure; a
+ * resting Sell Yes locks the Yes contracts themselves (there is no dollar
+ * escrow to name), so it reports `qty` instead.
+ */
+export function limitOrderToastDetail(action: Action, amountMicro: bigint, qty: bigint): string {
+  if (action === "sellYes") {
+    return `Reserved ${qty.toString()} Yes until it trades`;
+  }
+  return `Reserved ${formatUsd(amountMicro)} until it trades`;
+}
+
+/** A market-path transaction that executed nothing (e.g. the liquidity it was about to take was gone by the time it landed); the user's funds/tokens were refunded in the same transaction. */
+export const NOTHING_TRADED = "Nothing traded; your order was undone";
+
+/** Shown when the confirmed transaction's own result couldn't be read back in time; the trade itself already landed. */
+export const ORDER_CONFIRMED_FALLBACK = "Order confirmed. See the result in Portfolio.";
+
+/** "1 Yes still open at $0.55" -- the unmatched remainder of a limit order that also traded some quantity in the same transaction. */
+export function stillOpenFragment(action: Action, qty: bigint, priceMicro: bigint): string {
+  return `${qty.toString()} ${QUOTE_SIDE[action]} still open at ${formatUsd(priceMicro)}`;
+}
+
+export type PlacedQuote = { side: "bid" | "ask"; priceMicro: bigint; qty: bigint };
+
+/** "Quotes placed on AAPL $345: sell 2 at $0.55, buy 2 at $0.45" -- every quote that actually posted in one submit, for one market. */
+export function quotesPlacedToastTitle(ticker: string, strikeMicro: bigint, quotes: readonly PlacedQuote[]): string {
+  const parts = quotes.map((q) => `${q.side === "bid" ? "buy" : "sell"} ${q.qty.toString()} at ${formatUsd(q.priceMicro)}`);
+  return `Quotes placed on ${ticker} ${formatStrike(strikeMicro)}: ${parts.join(", ")}`;
+}
+
+export const QUOTE_CANCELLED = "Quote cancelled";
+
+/** "Cancelled N quotes" (singular "quote" for N=1), for "Cancel all on this market". */
+export function quotesCancelledToastTitle(count: number): string {
+  return `Cancelled ${count.toString()} quote${count === 1 ? "" : "s"}`;
+}
+
+/** "Collected $2.00 from AAPL $345" -- a single redeem (winning or pair). */
+export function redeemCollectedToastTitle(amountMicro: bigint, ticker: string, strikeMicro: bigint): string {
+  return `Collected ${formatUsd(amountMicro)} from ${ticker} ${formatStrike(strikeMicro)}`;
+}
+
+/** "Collected $5.00 across 3 markets" -- "Redeem all", reflecting only what actually went through. */
+export function redeemAllCollectedToastTitle(amountMicro: bigint, marketCount: number): string {
+  return `Collected ${formatUsd(amountMicro)} across ${marketCount.toString()} market${marketCount === 1 ? "" : "s"}`;
+}
+
+export const VIEW_IN_PORTFOLIO = "View in Portfolio";

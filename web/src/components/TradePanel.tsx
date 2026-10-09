@@ -8,11 +8,12 @@
  * transaction per click via `@/lib/tx`'s builders.
  */
 
-import { useMemo, useState } from "react";
+import { useContext, useMemo, useState } from "react";
 import Link from "next/link";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useSendTransaction } from "../lib/wallet-send";
 import {
+  ONE_USDC,
   type Action,
   type Book as SdkBook,
   type Intent,
@@ -20,16 +21,21 @@ import {
   type Kind,
   MAX_FILLS,
   describeTransientState,
+  parseEventsFromTransaction,
   plannedFills,
   toInstructionPlan,
 } from "@meridian/sdk";
 import type { ConfigSnapshot } from "@/hooks/useConfig";
 import type { MarketAccount } from "@/hooks/useMarkets";
+import { AppDataContext } from "@/hooks/app-data-context";
 import { useBook } from "@/hooks/useBook";
 import { usePosition } from "@/hooks/usePosition";
 import { useProgram } from "@/hooks/useProgram";
+import { PROGRAM_ID } from "@/lib/rpc";
 import { EmptyState } from "@/components/ui/EmptyState";
-import { fetchUsdcMint, mapSendError, planToInstruction, sendTx, type BuildCtx } from "@/lib/tx";
+import { useToast } from "@/components/ui/Toast";
+import { fetchConfirmedTransaction, fetchUsdcMint, mapSendError, planToInstruction, sendTx, type BuildCtx } from "@/lib/tx";
+import { computeTradeResult, tradeResultToast } from "@/lib/trade-result";
 import {
   ACTION_LABEL,
   CHECKING_POSITION,
@@ -37,6 +43,7 @@ import {
   KIND_LABEL,
   MINTED_PAIR,
   NO_HELD_YES_RESTING,
+  ORDER_CONFIRMED_FALLBACK,
   REDEEM_IN_PORTFOLIO,
   SENDING,
   SETTLEMENT_PENDING,
@@ -48,6 +55,7 @@ import {
   NO_NO_TO_SELL,
   HOLDINGS_LABEL,
   lockedUntilFilledLabel,
+  VIEW_IN_PORTFOLIO,
   winIfRightLabel,
 } from "@/lib/trade-copy";
 
@@ -70,21 +78,49 @@ const SWEEP_WORST_BID_PRICE = 999_999n;
 const SWEEP_WORST_ASK_PRICE = 1n;
 
 /**
- * The quantity a Buy Yes/Buy No would actually execute right now: the full
- * requested quantity for a limit order (it rests for the remainder rather
- * than failing), or the quantity the book can actually match for a market
- * order, walked best-first up to the planner's `MAX_FILLS` cap -- the same
- * walk `toInstructionPlan` performs internally, replayed here against the
- * panel's own book snapshot since the plan's `Estimate` doesn't expose the
- * matched quantity itself.
+ * The same worst-acceptable-price boundary `toInstructionPlan` (`intent.ts`)
+ * uses for this action/price: the user's own `priceInput` when one is set
+ * (meaningful for a limit order, but also whatever `priceInput` was left
+ * over from a Limit->Market toggle, since `Intent.price` is passed through
+ * unconditionally -- see `intent.ts`'s buyYes/sellYes/buyNo/sellNo `market`
+ * branches), or the sweep-the-whole-book default otherwise. Getting this
+ * wrong (e.g. always sweeping) is exactly how a stale `priceInput` made the
+ * preview below claim a wider match than the plan it's previewing would
+ * actually take (review item: "Switching Limit -> Market preserves
+ * priceInput, which the planner respects").
  */
-function matchedBuyQty(action: "buyYes" | "buyNo", kind: Kind, qty: bigint, book: SdkBook): bigint {
+function intentPriceBoundary(action: Action, price: bigint | undefined): bigint {
+  switch (action) {
+    case "buyYes":
+      return price ?? SWEEP_WORST_BID_PRICE;
+    case "sellYes":
+      return price ?? SWEEP_WORST_ASK_PRICE;
+    case "buyNo":
+      return price !== undefined ? ONE_USDC - price : SWEEP_WORST_ASK_PRICE;
+    case "sellNo":
+      return price !== undefined ? ONE_USDC - price : SWEEP_WORST_BID_PRICE;
+  }
+}
+
+/**
+ * The quantity any of the four actions would actually execute right now,
+ * for the panel's own preview line only (the "You win $Y if right" label --
+ * the confirmation toast uses `trade-result.ts`'s event-derived numbers
+ * instead, never this pre-send replay): the full requested quantity for a
+ * limit order (it rests for the remainder rather than failing), or the
+ * quantity the book can actually match for a market order, walked
+ * best-first up to the planner's `MAX_FILLS` cap against `priceBoundary`
+ * (see `intentPriceBoundary` above) -- the same walk `toInstructionPlan`
+ * performs internally, replayed here against the panel's own book snapshot
+ * since the plan's `Estimate` doesn't expose the matched quantity itself --
+ * only a fill *count*.
+ */
+function matchedQty(action: Action, kind: Kind, qty: bigint, book: SdkBook, priceBoundary: bigint): bigint {
   if (kind === "limit") {
     return qty;
   }
-  const side = action === "buyYes" ? "bid" : "ask";
-  const worstPrice = action === "buyYes" ? SWEEP_WORST_BID_PRICE : SWEEP_WORST_ASK_PRICE;
-  const { fills } = plannedFills(book, side, worstPrice, qty, MAX_FILLS);
+  const side = action === "buyYes" || action === "sellNo" ? "bid" : "ask";
+  const { fills } = plannedFills(book, side, priceBoundary, qty, MAX_FILLS);
   return fills.reduce((sum, f) => sum + f.qty, 0n);
 }
 
@@ -121,6 +157,8 @@ export function TradePanel({ market, config }: TradePanelProps) {
   const { connection } = useConnection();
   const { publicKey } = useWallet();
   const sendTransaction = useSendTransaction();
+  const { notify } = useToast();
+  const appData = useContext(AppDataContext);
 
   const book = useBook(market.pubkey);
   const position = usePosition(market.pubkey, publicKey ?? undefined);
@@ -181,9 +219,29 @@ export function TradePanel({ market, config }: TradePanelProps) {
       const usdcMint = await fetchUsdcMint(program);
       const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint };
       const ix = await planToInstruction(ctx, plan);
-      await sendTx(connection, sendTransaction, [ix], publicKey);
+      const signature = await sendTx(connection, sendTransaction, [ix], publicKey);
       setQtyInput("1");
       setPriceInput("");
+
+      // Confirmation feedback (Andre's complaint: nothing confirms a
+      // successful order; you only find out on Portfolio). `sendTx` only
+      // resolves once the transaction is confirmed, but the confirmed
+      // transaction itself (and its events) can briefly not yet be
+      // fetchable from this RPC endpoint -- retry a few times before
+      // falling back to a generic acknowledgement. Never reuse the
+      // pre-send `plan.estimate`/`matchedQty` preview for this: a
+      // confirmed transaction can execute less than that preview
+      // predicted, or nothing at all (review item).
+      const tx = await fetchConfirmedTransaction(connection, signature);
+      if (tx !== null) {
+        const events = parseEventsFromTransaction(tx, PROGRAM_ID);
+        const result = computeTradeResult(events, market.pubkey, publicKey, action);
+        const toast = tradeResultToast(result, action, market.ticker, market.strike);
+        notify({ ...toast, href: "/portfolio", linkLabel: VIEW_IN_PORTFOLIO });
+      } else {
+        notify({ title: ORDER_CONFIRMED_FALLBACK, href: "/portfolio", linkLabel: VIEW_IN_PORTFOLIO, tone: "success" });
+      }
+      appData?.positions.refresh();
     } catch (error) {
       setLastError(mapSendError(error));
     } finally {
@@ -363,8 +421,8 @@ export function TradePanel({ market, config }: TradePanelProps) {
               } else {
                 estimate = estimateLabel(plan.estimate.cost);
                 if (isBuy && qty !== undefined && sdkBook !== null) {
-                  const matchedQty = matchedBuyQty(action as "buyYes" | "buyNo", kind, qty, sdkBook);
-                  winLabel = winIfRightLabel(matchedQty, qty);
+                  const previewQty = matchedQty(action, kind, qty, sdkBook, intentPriceBoundary(action, price));
+                  winLabel = winIfRightLabel(previewQty, qty);
                 }
               }
             }

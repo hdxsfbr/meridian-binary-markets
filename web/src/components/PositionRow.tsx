@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { formatStrike, formatTradingDay, formatUsd } from "@/lib/format";
+import { collectLabel, formatStrike, formatTradingDay, formatUsd } from "@/lib/format";
 import type { PositionRowData } from "@/lib/positions-view";
 import { Card } from "@/components/ui/Card";
 
@@ -102,7 +102,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
       ) : null}
 
       {row.canRedeemWinning && onRedeemWinning ? (
-        <div>
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={onRedeemWinning}
@@ -111,6 +111,7 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
           >
             {redeemingWinning ? "Redeeming…" : "Redeem winning"}
           </button>
+          <span className="num text-sm text-text-muted">{collectLabel(row.canRedeemWinning, row.payoutAvailableMicro)}</span>
         </div>
       ) : null}
 

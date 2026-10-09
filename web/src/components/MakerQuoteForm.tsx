@@ -13,6 +13,8 @@ import { useState } from "react";
 import type { Book } from "@meridian/sdk";
 import { formatStrike, formatUsd, marketOptionLabel, defaultMarketKey } from "@/lib/format";
 import type { MarketLike } from "@/lib/positions-view";
+import { useToast } from "@/components/ui/Toast";
+import { quotesPlacedToastTitle, type PlacedQuote } from "@/lib/trade-copy";
 
 export type QuoteSide = "bid" | "ask";
 
@@ -129,6 +131,7 @@ export function MakerQuoteForm({
   const [formError, setFormError] = useState<string | null>(null);
   const [queue, setQueue] = useState<QueuedQuote[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const { notify } = useToast();
 
   const selected = openMarkets.find((m) => m.pubkey.toBase58() === marketKey) ?? openMarkets[0];
   const priceMicro = parsePriceMicro(priceInput);
@@ -186,6 +189,11 @@ export function MakerQuoteForm({
 
   async function submitQueue() {
     setSubmitting(true);
+    // One toast per market once the whole submit finishes, listing every
+    // quote that actually posted on it (never the ones that errored) --
+    // grouped here rather than per-quote so placing several quotes on the
+    // same strike in one submit doesn't fire a toast per row.
+    const placedByMarket = new Map<string, { market: MarketLike; quotes: PlacedQuote[] }>();
     for (const item of queue) {
       if (item.status === "done") {
         continue;
@@ -194,12 +202,19 @@ export function MakerQuoteForm({
       try {
         await onSubmitQuote(item.market, item.side, item.priceMicro, item.qty);
         setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: "done" } : q)));
+        const key = item.market.pubkey.toBase58();
+        const entry = placedByMarket.get(key) ?? { market: item.market, quotes: [] };
+        entry.quotes.push({ side: item.side, priceMicro: item.priceMicro, qty: item.qty });
+        placedByMarket.set(key, entry);
       } catch (err) {
         const message = err instanceof Error ? err.message : "This quote did not go through.";
         setQueue((prev) => prev.map((q) => (q.id === item.id ? { ...q, status: "error", error: message } : q)));
       }
     }
     setSubmitting(false);
+    for (const { market, quotes } of placedByMarket.values()) {
+      notify({ title: quotesPlacedToastTitle(market.ticker, market.strike, quotes), tone: "success" });
+    }
   }
 
   const hasPending = queue.some((q) => q.status === "queued" || q.status === "error");

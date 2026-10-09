@@ -18,7 +18,7 @@ import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { bookPda, buildPositions, decodeBook, summarize, tickerFromBytes, type Position, type PositionSummary } from "@meridian/sdk";
 import { TOKEN_PROGRAM_ID } from "@/lib/ata";
-import { refreshEventCacheDetailed } from "@/lib/events-cache";
+import { refreshEventCacheDetailed, requestFreshEventCacheSync } from "@/lib/events-cache";
 import {
   buildPositionRows,
   countFillsByMarket,
@@ -209,8 +209,12 @@ export function usePositionsPolling(wallet: PublicKey | null, skip = false): Use
   /** False until the event history has been synced at least once for the current wallet. */
   const [historyLoaded, setHistoryLoaded] = useState(false);
   const generationRef = useRef(0);
+  /** True while `load` is actually running; used by `runLoad` to coalesce an overlapping request rather than starting a second concurrent one. */
+  const loadInFlightRef = useRef(false);
+  /** Set by `runLoad` when a load is requested while one is already running; drained (and re-run exactly once) when the running one finishes. `fresh` is sticky: if any coalesced request asked for a fresh history sync, the one run that serves all of them is fresh too. */
+  const pendingLoadRef = useRef<{ fresh: boolean } | null>(null);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { fresh?: boolean }) => {
     const generation = ++generationRef.current;
     // No wallet: nothing to show and nothing to fetch. Reset to empty and
     // return before any RPC call or event-cache work starts -- a
@@ -234,8 +238,13 @@ export function usePositionsPolling(wallet: PublicKey | null, skip = false): Use
       // Start the (slow, paced) event sync but do not wait for it: on-chain
       // balances render first, so the Positions list appears within a couple
       // of RPC round-trips; cost basis and realized P&L fill in when the
-      // history sync finishes.
-      const eventsPromise = refreshEventCacheDetailed(connection, PROGRAM_ID);
+      // history sync finishes. A `fresh` request (the post-trade `refresh()`
+      // below) asks for a sync that starts no earlier than this call, never
+      // one that was already in flight before the just-confirmed trade
+      // landed and so can't yet know about it.
+      const eventsPromise = opts?.fresh
+        ? requestFreshEventCacheSync(connection, PROGRAM_ID)
+        : refreshEventCacheDetailed(connection, PROGRAM_ID);
       const rawMarkets = (await accountClient(program, "market").all()) as Array<{ publicKey: PublicKey; account: RawMarket }>;
       if (generationRef.current !== generation) {
         return; // a newer load superseded this one
@@ -288,6 +297,36 @@ export function usePositionsPolling(wallet: PublicKey | null, skip = false): Use
     }
   }, [program, wallet]);
 
+  /**
+   * Coalescing entry point for every caller of `load` (the mount effect,
+   * the 30s interval, and the exposed `refresh()`): a request that arrives
+   * while one is already running is never started as a second concurrent
+   * `load()` (which would itself start a second, overlapping event-cache
+   * sync/inventory fetch) -- it's recorded as pending and run exactly once,
+   * right after the current one finishes. Multiple requests that arrive
+   * during that wait collapse into that same single follow-up run; if any
+   * of them asked for a fresh history sync (`fresh: true`), the follow-up
+   * run is fresh too.
+   */
+  const runLoad = useCallback(
+    (opts?: { fresh?: boolean }) => {
+      if (loadInFlightRef.current) {
+        pendingLoadRef.current = { fresh: (pendingLoadRef.current?.fresh ?? false) || (opts?.fresh ?? false) };
+        return;
+      }
+      loadInFlightRef.current = true;
+      void load(opts).finally(() => {
+        loadInFlightRef.current = false;
+        const pending = pendingLoadRef.current;
+        if (pending !== null) {
+          pendingLoadRef.current = null;
+          runLoad(pending);
+        }
+      });
+    },
+    [load],
+  );
+
   useEffect(() => {
     if (skip) {
       return;
@@ -309,10 +348,26 @@ export function usePositionsPolling(wallet: PublicKey | null, skip = false): Use
       return;
     }
     setLoading(true);
-    void load();
-    const interval = setInterval(() => void load(), REFRESH_INTERVAL_MS);
+    runLoad();
+    const interval = setInterval(() => runLoad(), REFRESH_INTERVAL_MS);
     return () => clearInterval(interval);
-  }, [load, skip, wallet]);
+  }, [runLoad, skip, wallet]);
 
-  return { rows, summary, loading, error, fillsCountByMarket, markets, historyComplete, historyLoaded, historyError, refresh: () => void load() };
+  // Every caller of `refresh()` (the trade panel, portfolio redeem/cancel
+  // flows) calls it right after confirming an on-chain action, so it always
+  // asks for a *fresh* history sync -- one that can't have started (and
+  // thus paged the chain head) before that action landed -- never just
+  // whatever sync happened to already be in flight.
+  return {
+    rows,
+    summary,
+    loading,
+    error,
+    fillsCountByMarket,
+    markets,
+    historyComplete,
+    historyLoaded,
+    historyError,
+    refresh: () => runLoad({ fresh: true }),
+  };
 }

@@ -426,6 +426,15 @@ const TRANSACTION_FETCH_SPACING_MS = Number(process.env.NEXT_PUBLIC_RPC_TX_FETCH
 /** In-flight refresh per cache key: several hooks refresh at once on page load and must share one sync. */
 const inFlight = new Map<string, Promise<RefreshResult>>();
 
+/**
+ * Coalesced "run one fresh pass after whatever's currently running" per
+ * cache key, for `requestFreshEventCacheSync` below. Keyed separately from
+ * `inFlight` so several callers asking for a fresh pass while one is
+ * already queued all share that same upcoming pass, rather than each
+ * queuing (and the chain RPC-ing) its own.
+ */
+const pendingFresh = new Map<string, Promise<RefreshResult>>();
+
 export async function refreshEventCacheDetailed(connection: Connection, programId: PublicKey): Promise<RefreshResult> {
   const key = await cacheKeyFor(connection, programId);
   const existing = inFlight.get(key);
@@ -436,6 +445,40 @@ export async function refreshEventCacheDetailed(connection: Connection, programI
     inFlight.delete(key);
   });
   inFlight.set(key, run);
+  return run;
+}
+
+/**
+ * Like `refreshEventCacheDetailed`, but guarantees the result reflects a
+ * sync that *started* no earlier than this call -- never a sync that was
+ * already in flight before it (which may have paged the chain head before
+ * a transaction this caller just confirmed had even landed, see
+ * `usePositions.ts`'s post-trade `refresh()`). If nothing is in flight,
+ * this is exactly `refreshEventCacheDetailed`. If a sync is already
+ * running, this waits for it to finish and then runs exactly one more pass
+ * -- never two concurrent passes, and never more than one extra pass no
+ * matter how many callers ask for a fresh one while the wait is in
+ * progress (they all share this same promise).
+ */
+export async function requestFreshEventCacheSync(connection: Connection, programId: PublicKey): Promise<RefreshResult> {
+  const key = await cacheKeyFor(connection, programId);
+  const existingPending = pendingFresh.get(key);
+  if (existingPending !== undefined) {
+    return existingPending;
+  }
+  const currentRun = inFlight.get(key);
+  const run = (async () => {
+    if (currentRun !== undefined) {
+      await currentRun.catch(() => {
+        // The in-flight pass this call is waiting out failed on its own
+        // terms; the fresh pass below still runs regardless.
+      });
+    }
+    return refreshEventCacheDetailed(connection, programId);
+  })().finally(() => {
+    pendingFresh.delete(key);
+  });
+  pendingFresh.set(key, run);
   return run;
 }
 

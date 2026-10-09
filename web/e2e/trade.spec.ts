@@ -122,6 +122,11 @@ test.describe("trade", () => {
     await page.getByRole("button", { name: "Buy No", exact: true }).click();
     await expect(qtyInput).toHaveValue("1", { timeout: 20_000 });
 
+    // Confirmation toast (Andre's complaint: nothing confirms a successful
+    // order). The market Buy No above fills, so the toast reports it as
+    // bought, not a raw transaction detail.
+    await expect(page.getByRole("status").filter({ hasText: "Bought" })).toBeVisible({ timeout: 20_000 });
+
     // Position-gating proof the wallet now holds only No (FR-015): Buy Yes
     // is replaced by "Close your No position first" rather than a live
     // button -- but the panel only computes a per-action plan (gating

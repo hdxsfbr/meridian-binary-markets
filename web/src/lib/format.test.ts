@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectLabel,
   countdownLabel,
   formatCountdown,
   formatPrice,
@@ -48,6 +49,18 @@ describe("formatSignedUsd", () => {
 
   it("has no sign at zero", () => {
     expect(formatSignedUsd(0n)).toBe("$0.00");
+  });
+});
+
+describe("collectLabel", () => {
+  it("shows what redeeming would pay out right now, so a settled winner doesn't read as a loss before redemption", () => {
+    // A winning position whose Buy No path booked a small realized loss
+    // (the sold Yes half) still pays $1.00 per winning token on redemption.
+    expect(collectLabel(true, 2_000_000n)).toBe("Collect $2.00");
+  });
+
+  it("is null when there is nothing to redeem, mirroring the button's own render condition", () => {
+    expect(collectLabel(false, 0n)).toBeNull();
   });
 });
 

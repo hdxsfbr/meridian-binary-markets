@@ -26,6 +26,8 @@ import { bookPda, decodeBook, type Book } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { buildMyOrderRows, type MyOrderRow } from "@/lib/maker-view";
 import { cancelOrder, fetchUsdcMint, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
+import { useToast } from "@/components/ui/Toast";
+import { QUOTE_CANCELLED, quotesCancelledToastTitle } from "@/lib/trade-copy";
 import { useAllMarkets, type MarketAccount } from "./useMarkets";
 import { useProgram } from "./useProgram";
 
@@ -66,6 +68,7 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
   const { connection } = useConnection();
   const sendTransaction = useSendTransaction();
   const { markets } = useAllMarkets();
+  const { notify } = useToast();
   const [books, setBooks] = useState<Map<string, Book | null>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
@@ -181,13 +184,14 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
         const ix = await cancelOrder(ctx, { orderId: row.orderId });
         await sendTx(connection, sendTransaction, [ix], wallet);
         await load();
+        notify({ title: QUOTE_CANCELLED, tone: "success" });
       } catch (err) {
         setLastError(mapSendError(err));
       } finally {
         setCancelling(null);
       }
     },
-    [wallet, program, connection, sendTransaction, load],
+    [wallet, program, connection, sendTransaction, load, notify],
   );
 
   const cancelAllOnMarket = useCallback(
@@ -225,8 +229,11 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
       } finally {
         setCancelling(null);
       }
+      if (cancelledCount > 0) {
+        notify({ title: quotesCancelledToastTitle(cancelledCount), tone: "success" });
+      }
     },
-    [wallet, rows, program, connection, sendTransaction, load],
+    [wallet, rows, program, connection, sendTransaction, load, notify],
   );
 
   return {

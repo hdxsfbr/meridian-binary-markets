@@ -1,7 +1,7 @@
-import { Keypair, PublicKey } from "@solana/web3.js";
-import { describe, expect, it } from "vitest";
+import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
+import { describe, expect, it, vi } from "vitest";
 import { associatedTokenAddress } from "./ata";
-import { makerAccountsFor } from "./tx";
+import { fetchConfirmedTransaction, makerAccountsFor } from "./tx";
 
 const usdcMint = Keypair.generate().publicKey;
 const yesMint = Keypair.generate().publicKey;
@@ -52,5 +52,62 @@ describe("makerAccountsFor", () => {
 
   it("returns an empty list for zero makers", () => {
     expect(makerAccountsFor([], "bidTaker", mints)).toEqual([]);
+  });
+});
+
+describe("fetchConfirmedTransaction", () => {
+  function fakeTx(): { fake: true } {
+    return { fake: true };
+  }
+
+  it("returns the transaction immediately once getTransaction finds it", async () => {
+    const getTransaction = vi.fn().mockResolvedValue(fakeTx());
+    const connection = { getTransaction } as unknown as Connection;
+    const result = await fetchConfirmedTransaction(connection, "sig", 5, 0);
+    expect(result).toEqual(fakeTx());
+    expect(getTransaction).toHaveBeenCalledTimes(1);
+    expect(getTransaction).toHaveBeenCalledWith("sig", { commitment: "confirmed", maxSupportedTransactionVersion: 0 });
+  });
+
+  it("retries on null up to maxRetries, then returns the transaction if a later attempt finds it", async () => {
+    const getTransaction = vi
+      .fn()
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(fakeTx());
+    const connection = { getTransaction } as unknown as Connection;
+    const result = await fetchConfirmedTransaction(connection, "sig", 5, 0);
+    expect(result).toEqual(fakeTx());
+    expect(getTransaction).toHaveBeenCalledTimes(3);
+  });
+
+  it("gives up and returns null after exhausting maxRetries, never calling getTransaction more than maxRetries + 1 times", async () => {
+    const getTransaction = vi.fn().mockResolvedValue(null);
+    const connection = { getTransaction } as unknown as Connection;
+    const result = await fetchConfirmedTransaction(connection, "sig", 2, 0);
+    expect(result).toBeNull();
+    expect(getTransaction).toHaveBeenCalledTimes(3); // the initial attempt + 2 retries
+  });
+
+  it("spaces retries by the given delay rather than retrying immediately", async () => {
+    vi.useFakeTimers();
+    try {
+      const getTransaction = vi.fn().mockResolvedValueOnce(null).mockResolvedValueOnce(fakeTx());
+      const connection = { getTransaction } as unknown as Connection;
+      const promise = fetchConfirmedTransaction(connection, "sig", 5, 1_000);
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(getTransaction).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(999);
+      expect(getTransaction).toHaveBeenCalledTimes(1);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(getTransaction).toHaveBeenCalledTimes(2);
+
+      expect(await promise).toEqual(fakeTx());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

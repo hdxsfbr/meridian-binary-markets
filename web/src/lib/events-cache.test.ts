@@ -7,7 +7,7 @@ import {
   type EventIndexPayload,
   type MintedData,
 } from "@meridian/sdk";
-import { fetchRemoteEvents, refreshEventCacheDetailed } from "./events-cache";
+import { fetchRemoteEvents, refreshEventCacheDetailed, requestFreshEventCacheSync } from "./events-cache";
 
 const GENESIS_HASH = "EtWTRABZaYq6iMfeYKouRu166VU2xqa1wcaWoxPkrZBG";
 const SIGNATURE = "5TestSignature11111111111111111111111111111111111111111111111";
@@ -214,5 +214,72 @@ describe("refreshEventCacheDetailed (remote-first merge)", () => {
 
     const result = await refreshEventCacheDetailed(connection, programId);
     expect(result.events.map((e) => (e.data as MintedData).qty)).toEqual([1n, 2n, 3n]);
+  });
+});
+
+describe("requestFreshEventCacheSync", () => {
+  const programId = pk(9);
+
+  beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_EVENTS_INDEX_URL", "");
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("runs immediately when nothing is in flight", async () => {
+    const result = await requestFreshEventCacheSync(emptyChainConnection(), programId);
+    expect(result.complete).toBe(true);
+  });
+
+  it("waits out an in-flight refresh and then runs exactly one more pass, coalescing every caller that asked for a fresh one during the wait into that same pass (no duplicated RPC calls)", async () => {
+    let callCount = 0;
+    let releaseGate: () => void = () => {};
+    const gate = new Promise<void>((resolve) => {
+      releaseGate = resolve;
+    });
+    let signalFirstCallStarted: () => void = () => {};
+    const firstCallStarted = new Promise<void>((resolve) => {
+      signalFirstCallStarted = resolve;
+    });
+
+    const connection = {
+      getGenesisHash: async () => GENESIS_HASH,
+      getSignatureStatuses: async (sigs: string[]) => ({ value: sigs.map(() => ({})) }),
+      getSignaturesForAddress: async () => {
+        callCount += 1;
+        if (callCount === 1) {
+          // Block the first (already in-flight) refresh's only RPC call until the test
+          // explicitly releases it, so the two `requestFreshEventCacheSync` calls below are
+          // guaranteed to observe it still running. `signalFirstCallStarted` tells the test
+          // exactly when that blocking point is reached -- several awaits (cache-key lookup,
+          // the remote-first fetch attempt) happen before this call, so racing ahead of it would
+          // ask for a fresh sync before there's anything in flight to wait out.
+          signalFirstCallStarted();
+          await gate;
+        }
+        return [];
+      },
+      getParsedTransaction: async () => null,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any as Connection;
+
+    const firstRun = refreshEventCacheDetailed(connection, programId);
+    await firstCallStarted;
+
+    // Two callers ask for a fresh sync while the first run is still blocked on its RPC call --
+    // both must share the exact same upcoming pass, not each queue (and eventually RPC) their own
+    // (proven below by both resolving to the identical result object, and by `callCount`).
+    const freshA = requestFreshEventCacheSync(connection, programId);
+    const freshB = requestFreshEventCacheSync(connection, programId);
+
+    releaseGate();
+    await firstRun;
+    const [resultA, resultB] = await Promise.all([freshA, freshB]);
+    expect(resultA).toBe(resultB);
+    // One RPC call for the already-in-flight run this call waited out, one for the fresh pass
+    // that ran strictly after it -- never a third call for the second coalesced caller.
+    expect(callCount).toBe(2);
   });
 });
