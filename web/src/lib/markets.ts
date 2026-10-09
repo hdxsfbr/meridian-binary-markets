@@ -112,29 +112,106 @@ export function todayTradingDay(now: number | Date = Date.now(), zone: string = 
 }
 
 /**
- * Unix seconds for 16:00:00 `zone`-local time (America/New_York by default)
- * on `day` (`YYYYMMDD`), DST-aware (R9). `day` is decomposed with no implied
- * UTC offset; the actual offset is read from `Intl` for the calendar day in
- * question, which is safe here because the US DST transition happens at
- * 02:00 local time, far from 16:00.
+ * Unix seconds for `hour:minute:00` `zone`-local time on `day` (`YYYYMMDD`),
+ * DST-aware (R9). `day` is decomposed with no implied UTC offset; the
+ * actual offset is read from `Intl` for the calendar day in question,
+ * which is safe for both the 16:00 close and the 09:30 open since the US
+ * DST transition happens at 02:00 local time, far from either.
  */
-export function closeTsForDay(day: number, zone: string = DEFAULT_ZONE): number {
+function tsForWallClockOnDay(day: number, hour: number, minute: number, zone: string): number {
   const year = Math.floor(day / 10_000);
   const month = Math.floor((day % 10_000) / 100);
   const date = day % 100;
 
-  const naiveUtcMs = Date.UTC(year, month - 1, date, 16, 0, 0);
+  const naiveUtcMs = Date.UTC(year, month - 1, date, hour, minute, 0);
   const offsetMin = offsetMinutesAt(naiveUtcMs, zone);
   const targetMs = naiveUtcMs - offsetMin * 60_000;
 
   // Re-derive the offset at the corrected instant; if it differs (only
   // possible immediately around a DST transition, which never coincides
-  // with 16:00 local under US rules), recompute once more against the
-  // confirmed offset.
+  // with 16:00/09:30 local under US rules), recompute once more against
+  // the confirmed offset.
   const confirmedOffsetMin = offsetMinutesAt(targetMs, zone);
   const finalMs = confirmedOffsetMin === offsetMin ? targetMs : naiveUtcMs - confirmedOffsetMin * 60_000;
 
   return Math.floor(finalMs / 1000);
+}
+
+/**
+ * Unix seconds for 16:00:00 `zone`-local time (America/New_York by default)
+ * on `day` (`YYYYMMDD`), DST-aware (R9).
+ */
+export function closeTsForDay(day: number, zone: string = DEFAULT_ZONE): number {
+  return tsForWallClockOnDay(day, 16, 0, zone);
+}
+
+/**
+ * Unix seconds for 09:30:00 `zone`-local time (America/New_York by default)
+ * on `day` (`YYYYMMDD`), DST-aware (R9) -- the regular session open, used by
+ * the price-history backfill to pick a from-timestamp.
+ */
+export function openTsForDay(day: number, zone: string = DEFAULT_ZONE): number {
+  return tsForWallClockOnDay(day, 9, 30, zone);
+}
+
+/** True when `day` (`YYYYMMDD`) falls on a Saturday or Sunday, by plain calendar date (no timezone, no holiday calendar). */
+function isWeekendDay(day: number): boolean {
+  const year = Math.floor(day / 10_000);
+  const month = Math.floor((day % 10_000) / 100);
+  const date = day % 100;
+  const dow = new Date(Date.UTC(year, month - 1, date)).getUTCDay();
+  return dow === 0 || dow === 6;
+}
+
+/** The calendar day (`YYYYMMDD`) immediately before `day`, by plain calendar date. */
+function previousCalendarDay(day: number): number {
+  const year = Math.floor(day / 10_000);
+  const month = Math.floor((day % 10_000) / 100);
+  const date = day % 100;
+  const prev = new Date(Date.UTC(year, month - 1, date - 1));
+  return prev.getUTCFullYear() * 10_000 + (prev.getUTCMonth() + 1) * 100 + prev.getUTCDate();
+}
+
+/**
+ * The trading day (`YYYYMMDD`) whose regular session the price-history
+ * backfill should show: today's trading day in `zone`, unless that falls
+ * on a weekend or before today's 09:30 open, in which case the most recent
+ * weekday before it (no NYSE holiday calendar; a holiday just shows its
+ * own empty/closed session, same as today's markets UI does elsewhere).
+ */
+export function currentSessionDay(now: number | Date = Date.now(), zone: string = DEFAULT_ZONE): number {
+  const ms = now instanceof Date ? now.getTime() : now;
+  let day = todayTradingDay(ms, zone);
+  while (isWeekendDay(day)) {
+    day = previousCalendarDay(day);
+  }
+  if (ms < openTsForDay(day, zone) * 1_000) {
+    day = previousCalendarDay(day);
+    while (isWeekendDay(day)) {
+      day = previousCalendarDay(day);
+    }
+  }
+  return day;
+}
+
+/**
+ * The `[from, to]` Unix-second window (and its trading day) for the
+ * price-history backfill: `currentSessionDay`'s 09:30 ET open through
+ * either now (today's still-open session) or that day's 16:00 ET close
+ * (a past session, so its tail is capped rather than running off into
+ * whatever gap -- a weekend, a holiday -- separates it from `now`).
+ */
+export function currentSessionWindow(
+  now: number | Date = Date.now(),
+  zone: string = DEFAULT_ZONE,
+): { day: number; from: number; to: number } {
+  const ms = now instanceof Date ? now.getTime() : now;
+  const nowSeconds = Math.floor(ms / 1_000);
+  const day = currentSessionDay(ms, zone);
+  const from = openTsForDay(day, zone);
+  const isToday = day === todayTradingDay(ms, zone);
+  const to = isToday ? Math.max(from, nowSeconds) : closeTsForDay(day, zone);
+  return { day, from, to };
 }
 
 /**

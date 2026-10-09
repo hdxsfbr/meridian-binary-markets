@@ -4,8 +4,11 @@
  * Small session sparkline of the live price under the Trade page's header
  * (REVAMP_PLAN.md Wave R3, decision 2), with the selected strike as a
  * dotted horizontal line. Data comes from `usePriceHistory` (a client-side
- * ring buffer sampled from the already-polled price feed, persisted to
- * `sessionStorage`) -- this component itself makes no network call.
+ * ring buffer sampled from the already-polled price feed and seeded once
+ * per session from the server's intraday backfill, persisted to
+ * `sessionStorage`) -- this component itself makes no network call; the
+ * `loading` prop just reflects whether that hook's seed fetch is still in
+ * flight, for the empty-state copy below.
  */
 
 import { useRef, useState } from "react";
@@ -17,6 +20,8 @@ export type SparklineProps = {
   points: readonly PricePoint[];
   strikeMicro?: bigint;
   height?: number;
+  /** True while the session backfill fetch is in flight and `points` doesn't have enough samples to draw yet. */
+  loading?: boolean;
 };
 
 const VIEWBOX_WIDTH = 600;
@@ -25,7 +30,7 @@ function formatTime(ts: number): string {
   return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 }
 
-export function Sparkline({ ticker, points, strikeMicro, height = 96 }: SparklineProps) {
+export function Sparkline({ ticker, points, strikeMicro, height = 96, loading = false }: SparklineProps) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
 
@@ -35,7 +40,7 @@ export function Sparkline({ ticker, points, strikeMicro, height = 96 }: Sparklin
         className="flex items-center justify-center rounded-md border border-border bg-surface text-sm text-text-muted"
         style={{ height }}
       >
-        Collecting price history…
+        {loading ? "Loading price history…" : "No price history yet"}
       </div>
     );
   }

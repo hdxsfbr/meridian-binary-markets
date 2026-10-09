@@ -2,11 +2,14 @@ import { describe, expect, it } from "vitest";
 import {
   closeTsForDay,
   countOpen,
+  currentSessionDay,
+  currentSessionWindow,
   earliestCloseTs,
   formatCloseTimeEt,
   groupByTicker,
   isCountdownUrgent,
   nearestStrikes,
+  openTsForDay,
   tickerLifecycle,
   todayTradingDay,
 } from "./markets";
@@ -129,6 +132,69 @@ describe("closeTsForDay", () => {
     }).format(decemberMs);
     expect(julyLocal).toBe("16:00");
     expect(decemberLocal).toBe("16:00");
+  });
+});
+
+describe("openTsForDay", () => {
+  it("is 13:30 UTC for a July trading day (09:30 EDT, UTC-4)", () => {
+    const expected = Date.UTC(2025, 6, 15, 13, 30, 0) / 1000;
+    expect(openTsForDay(20250715, "America/New_York")).toBe(expected);
+  });
+
+  it("is 14:30 UTC for a December trading day (09:30 EST, UTC-5)", () => {
+    const expected = Date.UTC(2025, 11, 15, 14, 30, 0) / 1000;
+    expect(openTsForDay(20251215, "America/New_York")).toBe(expected);
+  });
+});
+
+describe("currentSessionDay", () => {
+  // 2025-07-15 is a Tuesday, 2025-07-19/20 a Saturday/Sunday, 2025-07-21 a Monday (verified).
+  it("is today's trading day during the regular session", () => {
+    const noonEdt = Date.UTC(2025, 6, 15, 16, 0, 0); // 12:00 ET
+    expect(currentSessionDay(noonEdt, "America/New_York")).toBe(20250715);
+  });
+
+  it("is still today's trading day right at today's own open", () => {
+    const openMs = openTsForDay(20250715, "America/New_York") * 1_000;
+    expect(currentSessionDay(openMs, "America/New_York")).toBe(20250715);
+  });
+
+  it("backs up to Friday before a Saturday", () => {
+    const saturdayNoon = Date.UTC(2025, 6, 19, 16, 0, 0);
+    expect(currentSessionDay(saturdayNoon, "America/New_York")).toBe(20250718);
+  });
+
+  it("backs up to Friday before a Sunday", () => {
+    const sundayNoon = Date.UTC(2025, 6, 20, 16, 0, 0);
+    expect(currentSessionDay(sundayNoon, "America/New_York")).toBe(20250718);
+  });
+
+  it("backs up over the weekend to Friday when it's before Monday's open", () => {
+    const mondayEarly = Date.UTC(2025, 6, 21, 8, 0, 0); // 04:00 ET, well before 09:30
+    expect(currentSessionDay(mondayEarly, "America/New_York")).toBe(20250718);
+  });
+
+  it("stays on a weekday when it's before that day's own open (no weekend in between)", () => {
+    const tuesdayEarly = Date.UTC(2025, 6, 15, 8, 0, 0); // 04:00 ET
+    expect(currentSessionDay(tuesdayEarly, "America/New_York")).toBe(20250714);
+  });
+});
+
+describe("currentSessionWindow", () => {
+  it("runs from today's open to now during today's regular session", () => {
+    const noonEdt = Date.UTC(2025, 6, 15, 16, 0, 0); // 12:00 ET
+    const window = currentSessionWindow(noonEdt, "America/New_York");
+    expect(window.day).toBe(20250715);
+    expect(window.from).toBe(openTsForDay(20250715, "America/New_York"));
+    expect(window.to).toBe(Math.floor(noonEdt / 1_000));
+  });
+
+  it("runs from open to close for a past session (e.g. the weekend fallback)", () => {
+    const saturdayNoon = Date.UTC(2025, 6, 19, 16, 0, 0);
+    const window = currentSessionWindow(saturdayNoon, "America/New_York");
+    expect(window.day).toBe(20250718);
+    expect(window.from).toBe(openTsForDay(20250718, "America/New_York"));
+    expect(window.to).toBe(closeTsForDay(20250718, "America/New_York"));
   });
 });
 

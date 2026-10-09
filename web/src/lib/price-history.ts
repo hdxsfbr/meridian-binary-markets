@@ -5,18 +5,32 @@
  * prices the app already fetched -- it never makes a new RPC/HTTP call of
  * its own.
  *
+ * `usePriceHistory` additionally seeds this buffer once per ticker per
+ * session from `/api/price-history` (the server-side intraday backfill),
+ * via `mergeSeed` below -- the one place this module's buffer gains points
+ * it didn't observe itself from a live sample.
+ *
  * Pure except for the sessionStorage read/write used to persist a buffer
- * across a reload within the same tab session; both are wrapped so this
- * module is safe to import under Vitest (no `window`) and from the server
- * (SSR), where the in-memory buffer alone is used.
+ * (and the seed fetch's timestamp) across a reload within the same tab
+ * session; both are wrapped so this module is safe to import under Vitest
+ * (no `window`) and from the server (SSR), where the in-memory buffer
+ * alone is used.
  */
+
+import { mergeByTimestamp, type RemotePoint } from "./price-history-remote";
 
 export type PricePoint = { priceMicro: bigint; ts: number };
 
-/** Kept points per ticker; old points drop off the front once this is exceeded. */
-export const MAX_POINTS = 240;
+/**
+ * Kept points per ticker; old points drop off the front once this is
+ * exceeded. Sized to comfortably hold a full regular session backfilled
+ * at 1-minute resolution (390 minutes, 09:30-16:00 ET) plus room for live
+ * samples appended after the seed.
+ */
+export const MAX_POINTS = 420;
 
 const STORAGE_PREFIX = "meridian:price-history:";
+const SEED_STORAGE_PREFIX = "meridian:price-history-seeded-at:";
 
 type SerializedPoint = [string, number];
 
@@ -115,9 +129,76 @@ export function getHistory(ticker: string): readonly PricePoint[] {
   return bufferFor(ticker).slice();
 }
 
+/**
+ * Merges a `/api/price-history` seed series into `ticker`'s buffer: parses
+ * each point's micro-USD decimal string to a `bigint`, merges with the
+ * existing buffer by timestamp (`price-history-remote.ts`'s
+ * `mergeByTimestamp`, so a live sample at the same second as a backfilled
+ * bar wins), sorts ascending, and caps at `MAX_POINTS` by dropping the
+ * oldest. Persists and returns the resulting buffer, same as `push`.
+ */
+export function mergeSeed(ticker: string, remote: readonly RemotePoint[]): readonly PricePoint[] {
+  const existing = bufferFor(ticker);
+  const remoteParsed: PricePoint[] = remote.map((p) => ({ priceMicro: BigInt(p.priceMicro), ts: p.ts }));
+  const merged = mergeByTimestamp(existing, remoteParsed);
+  const capped = merged.length > MAX_POINTS ? merged.slice(merged.length - MAX_POINTS) : merged;
+  buffers.set(ticker, capped);
+  persist(ticker, capped);
+  return capped;
+}
+
+function seedStorageKey(ticker: string): string {
+  return `${SEED_STORAGE_PREFIX}${ticker}`;
+}
+
+/** In-memory seed timestamps, keyed by ticker -- same in-memory-first pattern as `buffers`, so this also works under Vitest (no `window`) and SSR. */
+const seedTimestamps = new Map<string, number>();
+
+/** When `ticker`'s `/api/price-history` seed last completed (ms epoch) this tab session, or `undefined` if never. */
+export function getSeedAt(ticker: string): number | undefined {
+  const cached = seedTimestamps.get(ticker);
+  if (cached !== undefined) {
+    return cached;
+  }
+  try {
+    const storage = trySessionStorage();
+    if (storage === undefined) {
+      return undefined;
+    }
+    const raw = storage.getItem(seedStorageKey(ticker));
+    if (raw === null) {
+      return undefined;
+    }
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) {
+      return undefined;
+    }
+    seedTimestamps.set(ticker, parsed);
+    return parsed;
+  } catch {
+    return undefined;
+  }
+}
+
+/** Records that `ticker`'s seed completed at `at` (ms epoch), so navigating back within the TTL skips a refetch. */
+export function setSeedAt(ticker: string, at: number): void {
+  seedTimestamps.set(ticker, at);
+  try {
+    const storage = trySessionStorage();
+    if (storage === undefined) {
+      return;
+    }
+    storage.setItem(seedStorageKey(ticker), String(at));
+  } catch {
+    // sessionStorage full/unavailable; the in-memory value above still
+    // works for the rest of this page's session.
+  }
+}
+
 /** Test-only: clears every in-memory and session-persisted buffer. */
 export function _resetAllForTest(): void {
   buffers.clear();
+  seedTimestamps.clear();
   try {
     const storage = trySessionStorage();
     if (storage === undefined) {
@@ -126,7 +207,7 @@ export function _resetAllForTest(): void {
     const keys: string[] = [];
     for (let i = 0; i < storage.length; i += 1) {
       const key = storage.key(i);
-      if (key !== null && key.startsWith(STORAGE_PREFIX)) {
+      if (key !== null && (key.startsWith(STORAGE_PREFIX) || key.startsWith(SEED_STORAGE_PREFIX))) {
         keys.push(key);
       }
     }

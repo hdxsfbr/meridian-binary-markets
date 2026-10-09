@@ -7,8 +7,8 @@
  * read-only key mount). Responses are cached for a few seconds per id set.
  */
 
-import { readFileSync } from "node:fs";
 import { hermesToDisplayPrices, type DisplayPrice } from "@/lib/hermes-prices";
+import { pythApiKey } from "@/lib/pyth-key";
 
 export const dynamic = "force-dynamic";
 
@@ -16,18 +16,6 @@ const HERMES_URL = process.env.PYTH_HERMES_URL ?? "https://pyth.dourolabs.app/he
 const CACHE_TTL_MS = 5_000;
 const MAX_IDS = 16;
 const cache = new Map<string, { at: number; body: Record<string, DisplayPrice> }>();
-
-function apiKey(): string | undefined {
-  const fromEnv = process.env.PYTH_API_KEY?.trim();
-  if (fromEnv) return fromEnv;
-  const keyFile = process.env.PYTH_API_KEY_FILE ?? "/run/keys/pyth_api_key";
-  try {
-    // Runtime-only read of a mounted secret; the bundler must not trace it.
-    return readFileSync(/* turbopackIgnore: true */ keyFile, "utf8").trim() || undefined;
-  } catch {
-    return undefined;
-  }
-}
 
 export async function GET(request: Request): Promise<Response> {
   const url = new URL(request.url);
@@ -38,7 +26,7 @@ export async function GET(request: Request): Promise<Response> {
   if (ids.length === 0 || ids.length > MAX_IDS) {
     return Response.json({ error: "ids: 1 to 16 feed ids as 64-char hex" }, { status: 400 });
   }
-  const key = apiKey();
+  const key = pythApiKey();
   if (key === undefined) {
     return Response.json({ error: "price source not configured" }, { status: 503 });
   }

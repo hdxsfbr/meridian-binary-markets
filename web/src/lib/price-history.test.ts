@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { MAX_POINTS, _resetAllForTest, getHistory, push } from "./price-history";
+import { MAX_POINTS, _resetAllForTest, getHistory, getSeedAt, mergeSeed, push, setSeedAt } from "./price-history";
 
 describe("price-history", () => {
   beforeEach(() => {
@@ -87,6 +87,60 @@ describe("price-history", () => {
     const snapshot = getHistory("AAPL") as PricePointMutable[];
     snapshot.push({ priceMicro: 999n, ts: 999 });
     expect(getHistory("AAPL")).toHaveLength(1);
+  });
+
+  describe("mergeSeed", () => {
+    it("merges a remote seed into an empty buffer, sorted ascending", () => {
+      const result = mergeSeed("AAPL", [
+        { ts: 200, priceMicro: "340000000" },
+        { ts: 100, priceMicro: "339000000" },
+      ]);
+      expect(result).toEqual([
+        { priceMicro: 339_000_000n, ts: 100 },
+        { priceMicro: 340_000_000n, ts: 200 },
+      ]);
+      expect(getHistory("AAPL")).toEqual(result);
+    });
+
+    it("merges a remote seed with existing live samples, deduping by ts (overlay wins)", () => {
+      push("AAPL", 1n, 100);
+      push("AAPL", 2n, 300);
+      const result = mergeSeed("AAPL", [
+        { ts: 100, priceMicro: "99" },
+        { ts: 200, priceMicro: "5" },
+      ]);
+      expect(result).toEqual([
+        { priceMicro: 99n, ts: 100 },
+        { priceMicro: 5n, ts: 200 },
+        { priceMicro: 2n, ts: 300 },
+      ]);
+    });
+
+    it("caps the merged result at MAX_POINTS, dropping the oldest", () => {
+      const remote = Array.from({ length: MAX_POINTS + 10 }, (_, i) => ({ ts: i, priceMicro: String(i) }));
+      const result = mergeSeed("AAPL", remote);
+      expect(result).toHaveLength(MAX_POINTS);
+      expect(result[0].ts).toBe(10);
+      expect(result[result.length - 1].ts).toBe(MAX_POINTS + 9);
+    });
+  });
+
+  describe("seed timestamp", () => {
+    it("is undefined until set", () => {
+      expect(getSeedAt("AAPL")).toBeUndefined();
+    });
+
+    it("round-trips through setSeedAt/getSeedAt", () => {
+      setSeedAt("AAPL", 12_345);
+      expect(getSeedAt("AAPL")).toBe(12_345);
+    });
+
+    it("is tracked separately per ticker", () => {
+      setSeedAt("AAPL", 1);
+      setSeedAt("MSFT", 2);
+      expect(getSeedAt("AAPL")).toBe(1);
+      expect(getSeedAt("MSFT")).toBe(2);
+    });
   });
 });
 

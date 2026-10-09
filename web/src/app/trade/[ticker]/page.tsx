@@ -79,7 +79,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
 
   const book = useBook(selected?.pubkey);
   const position = usePosition(selected?.pubkey, publicKey ?? undefined);
-  const priceHistory = usePriceHistory(ticker as Ticker);
+  const { points: priceHistory, seeding: priceHistorySeeding } = usePriceHistory(ticker as Ticker);
 
   // Falls back to the selected market's own close time when today has no
   // open market left (e.g. every strike already settled): the header chip
@@ -146,7 +146,12 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
             <div>
               <h2 className="font-semibold">Price history</h2>
               <div className="mt-2">
-                <Sparkline ticker={ticker} points={priceHistory} strikeMicro={selected?.strike} />
+                <Sparkline
+                  ticker={ticker}
+                  points={priceHistory}
+                  strikeMicro={selected?.strike}
+                  loading={priceHistorySeeding}
+                />
               </div>
             </div>
 
