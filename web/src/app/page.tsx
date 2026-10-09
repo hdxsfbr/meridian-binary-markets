@@ -14,6 +14,7 @@ import { PayoffLine } from "@/components/PayoffLine";
 import { usePrices } from "@/hooks/usePrices";
 import { useConfig } from "@/hooks/useConfig";
 import { Card } from "@/components/ui/Card";
+import { TickerMark } from "@/components/TickerMark";
 
 /** Illustrative Yes price (65 cents) for the payoff-line example on the landing page. */
 const EXAMPLE_YES_PRICE_MICRO = 650_000n;
@@ -43,10 +44,15 @@ export default function Home() {
       <h2 className="mt-10 text-xl font-semibold">Last prices</h2>
       <div className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-4">
         {tickers.map((ticker) => (
-          <Card key={ticker} className="p-3">
-            <div className="font-semibold">{ticker}</div>
-            <div className="num">{prices[ticker] ? formatUsd(prices[ticker]!.priceMicro) : "—"}</div>
-          </Card>
+          <Link key={ticker} href={`/trade/${ticker}`} className="block">
+            <Card className="p-3 transition hover:border-indigo/60">
+              <div className="flex items-center gap-2 font-semibold">
+                <TickerMark ticker={ticker} size={24} />
+                {ticker}
+              </div>
+              <div className="num mt-1">{prices[ticker] ? formatUsd(prices[ticker]!.priceMicro) : "—"}</div>
+            </Card>
+          </Link>
         ))}
       </div>
 
