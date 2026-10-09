@@ -667,3 +667,23 @@ middle of a trading day for a problem that only a misuse of the test flag can ca
 $5 (AAPL 315–375, MSFT 485–575, GOOGL 325–385), with maker quotes at the money, before the close.
 **Also fixed:** the publisher cron tick logged an error every minute under the Pyth provider; it is
 now only scheduled when the provider is the test publisher.
+
+## 26. Trade page chart: Pyth Pro History API backfill rendered with TradingView Lightweight Charts
+
+**Date:** 2026-10-09
+**Context:** The wave R3 sparkline sampled the live price poll into a session buffer, so a fresh
+tab started empty and grew one point per 15 s. Andre asked why the chart had no history and
+refreshed slowly. Pyth retired its public Benchmarks TradingView endpoints on 2026-08-26; the
+replacement Pyth Pro History API (`https://pyth.dourolabs.app/v1/{channel}/history`, TradingView
+UDF shape, Bearer key) was verified with our existing key to return one-minute candles for every
+listed equity.
+**Decision:** A server route (`/api/price-history`) fetches the current session's one-minute
+closes with the key kept server-side, caches per ticker for 60 s with request coalescing, and
+degrades to the last cached series on upstream failure. The browser seeds its session buffer from
+it once per ticker and keeps appending live samples. The Trade page renders it with
+`lightweight-charts` 5.x (Apache-2.0, canvas, built for price series): area series, dashed strike
+price line, crosshair readout, autoscale that always includes the strike, colours read from the
+theme variables so a light theme needs no chart changes. The hand-written SVG sparkline was
+removed; nothing else used it.
+**Trade-off:** One more dependency (about 45 KB) and one more upstream call per ticker per minute
+at most. The library's attribution logo is kept, as its licence asks for a link to TradingView.

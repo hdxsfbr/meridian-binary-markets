@@ -9,6 +9,7 @@
  */
 
 import { use, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useSendTransaction } from "../../../lib/wallet-send";
@@ -26,13 +27,20 @@ import { BookView } from "@/components/BookView";
 import { Countdown } from "@/components/Countdown";
 import { OrderList } from "@/components/OrderList";
 import { PayoffLine } from "@/components/PayoffLine";
-import { Sparkline } from "@/components/Sparkline";
 import { StrikeList } from "@/components/StrikeList";
 import { TradePanel } from "@/components/TradePanel";
 import type { BookLevel, Perspective } from "@/lib/book-perspective";
 import type { Order, Ticker } from "@meridian/sdk";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { InlineError } from "@/components/ui/InlineError";
+
+// The charting library is browser-only (canvas), so it's loaded with
+// `ssr: false` -- the production build should carry no top-level
+// `window` reference from it.
+const PriceChart = dynamic(() => import("@/components/PriceChart").then((m) => m.PriceChart), {
+  ssr: false,
+  loading: () => <Skeleton className="h-[220px] w-full" />,
+});
 
 /** `Order[]` (book.ts, carries `owner`/`id`/`seq`) to `BookLevel[]` (`price`/`qty`) for `BookView`. */
 function toBookLevels(orders: Order[]): BookLevel[] {
@@ -146,7 +154,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
             <div>
               <h2 className="font-semibold">Price history</h2>
               <div className="mt-2">
-                <Sparkline
+                <PriceChart
                   ticker={ticker}
                   points={priceHistory}
                   strikeMicro={selected?.strike}
