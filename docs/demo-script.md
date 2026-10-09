@@ -1,6 +1,5 @@
 # Demo script
 
-> **Draft status.** This is a Wave 6 draft, to be finalized in Wave 8 after a rehearsal run.
 > Timings are estimates; the whole walkthrough is designed to fit under 10 minutes of *finished*
 > footage, though — see Part 3 below — one segment can only be recorded at a specific time of day.
 

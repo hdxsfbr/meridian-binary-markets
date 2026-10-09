@@ -1,9 +1,7 @@
 # Architecture
 
-> **Draft status.** This is a Wave 6 draft, to be finalized in Wave 8. Technical detail here is
-> accurate against the design in `specs/001-binary-outcome-markets/` as of this wave; anything
-> specific to the Wave 7 devnet run (addresses, transaction signatures) is covered in
-> `docs/deployment.md`, not here.
+> Technical detail here matches the program as deployed on devnet (2026-10-08); addresses and
+> transaction signatures live in `docs/deployment.md`, not here.
 
 This document explains how Meridian is built: the on-chain accounts and instructions, the
 one-book order-book mechanic, the oracle provider interface and its guards, the settlement

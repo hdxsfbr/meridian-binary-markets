@@ -1,7 +1,7 @@
 # Risks and limitations
 
-> **Draft status.** This is a Wave 6 draft, to be finalized in Wave 8. It states the honest
-> limitations of the system as built, so a reviewer does not have to discover them.
+> This note states the honest limitations of the system as built and deployed on devnet, so a
+> reviewer does not have to discover them.
 
 **This note makes no regulatory or compliance claims of any kind.** It is a technical account of
 what this devnet build does and does not guarantee. It is not a legal opinion, not a statement of
