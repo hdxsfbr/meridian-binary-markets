@@ -30,7 +30,7 @@ daily schedule (create markets before the open, settle shortly after the close) 
 frontend lets a trader connect a wallet and trade. The one architectural idea worth understanding
 before touching the code is the **"one book, two perspectives"** model: each strike has a single
 order book (Yes vs USDC), and "Buy No" / "Sell No" are just the Yes book read from the other side.
-See `docs/architecture.md` for the full explanation, and `docs/ONBOARDING.md` if you are new to
+See `ARCHITECTURE.md` for the full explanation, and `docs/ONBOARDING.md` if you are new to
 either trading systems or Solana.
 
 ## Scope
@@ -49,7 +49,7 @@ The central architectural idea: each strike has **exactly one order book** — t
 against USDC. Because Yes + No = $1.00, selling a Yes is economically identical to buying a No, so
 no separate No book is needed. Buy Yes and Sell No are the same side of the book; Buy No and Sell
 Yes are the other. The frontend presents four plain actions and translates intent into the correct
-book operation. Details and worked examples: `docs/architecture.md`.
+book operation. Details and worked examples: `ARCHITECTURE.md`.
 
 ## Daily lifecycle (ET)
 
@@ -59,7 +59,7 @@ book operation. Details and worked examples: `docs/architecture.md`.
 | Contracts and order books created | 8:30 AM |
 | Markets visible, minting enabled | 9:00 AM |
 | Trading open | 9:30 AM to 4:00 PM |
-| Settlement | 16:00–16:05 PM (see `docs/architecture.md` for why the window is exactly that) |
+| Settlement | 16:00–16:05 PM (see `ARCHITECTURE.md` for why the window is exactly that) |
 | Redemption | from settlement, indefinitely |
 
 ## Targets
@@ -161,7 +161,7 @@ Copy `.env.example` to `.env` and fill in secrets; `.env` is gitignored and neve
 - **Oracle** — `ORACLE_PROVIDER` (`mock` | `pyth`) must agree with the on-chain `Config`; the
   service refuses to start on a mismatch. `PYTH_HERMES_URL`, `PYTH_API_KEY`, and
   `PYTH_RECEIVER_PROGRAM` configure the real Pyth path; `FINNHUB_API_KEY` feeds the mock provider's
-  two-source price check. See `docs/architecture.md` and `docs/risks-and-limitations.md` for what
+  two-source price check. See `ARCHITECTURE.md` and `docs/risks-and-limitations.md` for what
   "mock" means here and why it is not a shortcut around the guards.
 - **Alerting and status** — `ALERT_WEBHOOK_URL` (settlement-retry alerts),
   `AUTOMATION_STATUS_PORT`/`WEB_ORIGIN` (the automation service's status endpoint).
@@ -194,9 +194,9 @@ Copy `.env.example` to `.env` and fill in secrets; `.env` is gitignored and neve
 | Automation | `pnpm --filter automation run test` | job logic, CLI flag parsing, calendar/holiday handling, providers |
 | Scripts | `pnpm --filter @meridian/scripts run test` | deploy/init-config/airdrop/lifecycle helpers |
 
-As of this wave: 261 Rust program tests, 108 SDK tests, 107 web tests, 108 automation tests (107
-passing, 1 skipped), and 60 scripts tests — all passing, verified by running each package's test
-command directly.
+As of 2026-10-09: 270 Rust program tests, 116 SDK tests, 260 web tests, 161 automation tests
+(plus 1 skipped), and 62 scripts tests, all passing, verified by running each package's test
+command in the dev container. `KEY_METRICS.md` keeps these numbers with the commands to refresh them.
 
 ## Project layout
 
@@ -217,7 +217,10 @@ docs/                   This documentation set
 | --- | --- |
 | [`/docs`](https://web-production-385a5.up.railway.app/docs) (in the app) | Trader-facing docs: seven pages explaining the UI in plain language, no implementation vocabulary |
 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
-| [`docs/architecture.md`](docs/architecture.md) | Accounts, instructions, the one-book mechanic, oracle guards, rent lifecycle, automation schedule, frontend data flow |
+| [`ARCHITECTURE.md`](ARCHITECTURE.md) | Accounts, instructions, the one-book mechanic, oracle guards, automation, frontend data flow, deployment topology, trust assumptions |
+| [`KEY_METRICS.md`](KEY_METRICS.md) | The brief's impact metrics with evidence, test counts, program and rent figures, operational and frontend metrics, each with a refresh command |
+| [`SCALING.md`](SCALING.md) | What breaks at 10, 100, 1,000, 10,000 and 100,000 users, and the design and infrastructure changes each step needs |
+| [`docs/prd-compliance.md`](docs/prd-compliance.md) | Requirement-by-requirement check against the PRD with evidence and the open gaps |
 | [`docs/deployment.md`](docs/deployment.md) | Devnet deploy, step by step, with troubleshooting |
 | [`docs/risks-and-limitations.md`](docs/risks-and-limitations.md) | Honest limitations of the current build; no regulatory or compliance claims |
 | [`docs/demo-script.md`](docs/demo-script.md) | The demo video walkthrough: create → mint → trade → settle → redeem |
