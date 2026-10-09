@@ -1,5 +1,6 @@
 import { formatUsd } from "@/lib/format";
 import type { HistoryEntry } from "@/hooks/useHistory";
+import { TickerMark } from "@/components/TickerMark";
 
 export type HistoryRowProps = {
   entry: HistoryEntry;
@@ -17,9 +18,12 @@ export function HistoryRow({ entry }: HistoryRowProps) {
   return (
     <div className="flex items-center justify-between gap-4 border-b border-border py-3">
       <div className="flex min-w-0 flex-col gap-0.5">
-        <span className="truncate">
-          {entry.label}
-          {entry.market !== undefined ? <span className="ml-2 text-text-muted">· {entry.market}</span> : null}
+        <span className="flex items-center gap-2 truncate">
+          {entry.ticker !== undefined ? <TickerMark ticker={entry.ticker} size={20} /> : null}
+          <span className="truncate">
+            {entry.label}
+            {entry.market !== undefined ? <span className="ml-2 text-text-muted">· {entry.market}</span> : null}
+          </span>
         </span>
         <span className="text-sm text-text-muted">{formatTime(entry.ts)}</span>
       </div>

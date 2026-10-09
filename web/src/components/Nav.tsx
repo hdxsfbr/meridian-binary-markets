@@ -7,6 +7,7 @@ import { useConfig } from "@/hooks/useConfig";
 import { usePrices } from "@/hooks/usePrices";
 import { useRedeemable } from "@/hooks/useRedeemable";
 import { formatUsd } from "@/lib/format";
+import { TickerMark } from "@/components/TickerMark";
 
 // The wallet button's label depends on wallet state that only exists in the
 // browser (detected extensions, autoconnect), so it is rendered client-side
@@ -82,6 +83,7 @@ export function Nav() {
                   tabIndex={copy === 1 ? -1 : undefined}
                   className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted hover:text-text"
                 >
+                  <TickerMark ticker={ticker} size={16} />
                   <span className="font-medium">{ticker}</span>
                   <span className="num">{prices[ticker]?.priceMicro !== undefined ? formatUsd(prices[ticker]!.priceMicro) : "—"}</span>
                 </Link>

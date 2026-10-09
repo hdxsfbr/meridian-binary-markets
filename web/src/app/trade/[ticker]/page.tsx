@@ -33,6 +33,7 @@ import type { BookLevel, Perspective } from "@/lib/book-perspective";
 import type { Order, Ticker } from "@meridian/sdk";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { InlineError } from "@/components/ui/InlineError";
+import { TickerMark } from "@/components/TickerMark";
 
 // The charting library is browser-only (canvas), so it's loaded with
 // `ssr: false` -- the production build should carry no top-level
@@ -121,7 +122,10 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
     <div className="mx-auto max-w-[1440px] px-6 py-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-wrap items-baseline gap-3">
-          <h1 className="text-2xl font-semibold">{ticker}</h1>
+          <h1 className="flex items-center gap-2 text-2xl font-semibold">
+            <TickerMark ticker={ticker} size={32} />
+            {ticker}
+          </h1>
           {lastPrice !== undefined ? <span className="num text-lg font-normal text-text-muted">{formatUsd(lastPrice)}</span> : null}
           {selected !== null ? (
             <span className="num rounded-full border border-border bg-surface-raised px-3 py-1 text-sm text-text-muted">

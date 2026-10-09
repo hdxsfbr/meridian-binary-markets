@@ -4,6 +4,7 @@ import { countdownLabel, formatPrice, formatStrike, formatUsd, impliedProbabilit
 import { countOpen, isCountdownUrgent, nearestStrikes, tickerLifecycle } from "@/lib/markets";
 import { representativeYesPrice } from "@/lib/book-quote";
 import type { MarketAccount } from "@/hooks/useMarkets";
+import { TickerMark } from "./TickerMark";
 
 export type TickerCardProps = {
   ticker: Ticker;
@@ -39,7 +40,10 @@ export function TickerCard({ ticker, priceMicro, markets, books, now }: TickerCa
     >
       <Link href={`/trade/${ticker}`} className="block focus-visible:outline-none">
         <div className="flex items-baseline justify-between">
-          <span className="text-lg font-semibold">{ticker}</span>
+          <span className="flex items-center gap-2">
+            <TickerMark ticker={ticker} size={28} />
+            <span className="text-lg font-semibold">{ticker}</span>
+          </span>
           <span className="num text-lg">{priceMicro !== undefined ? formatUsd(priceMicro) : "—"}</span>
         </div>
 

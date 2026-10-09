@@ -3,6 +3,7 @@ import type { Ticker } from "@meridian/sdk";
 import { formatStrike, formatUsd } from "@/lib/format";
 import { nearestStrikes } from "@/lib/markets";
 import type { MarketAccount } from "@/hooks/useMarkets";
+import { TickerMark } from "./TickerMark";
 
 export type SettledTickerCardProps = {
   ticker: Ticker;
@@ -29,6 +30,7 @@ export function SettledTickerCard({ ticker, markets }: SettledTickerCardProps) {
       data-testid={`ticker-card-${ticker}-settled`}
     >
       <span className="flex items-center gap-2">
+        <TickerMark ticker={ticker} size={20} />
         <span className="font-semibold">{ticker}</span>
         <span className="num text-text-muted">{closePrice !== undefined ? formatUsd(closePrice) : "—"}</span>
       </span>

@@ -5,7 +5,7 @@
  */
 
 import type { PublicKey } from "@solana/web3.js";
-import { ONE_USDC, Side, type MeridianEvent } from "@meridian/sdk";
+import { ONE_USDC, Side, type MeridianEvent, type Ticker } from "@meridian/sdk";
 import { formatStrike, formatTradingDay } from "./format";
 
 export type HistoryKind = "mint" | "fill" | "order" | "cancel" | "settlement" | "redemption";
@@ -18,6 +18,8 @@ export type HistoryEntry = {
   label: string;
   /** "AAPL $330 · 2026-10-08", when the market is known from a `MarketCreated` event in the stream. */
   market?: string;
+  /** The market's ticker alone, when known -- lets the row show the ticker's logo mark next to `market`. */
+  ticker?: Ticker;
   /** Micro-USD/USDC, when the event carries a dollar amount. */
   amountMicro?: bigint;
   /**
@@ -100,6 +102,7 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
   const orderSides = new Map<string, Side>();
   const txs = new Map<string, TxForWallet>();
   const marketLabels = new Map<string, string>();
+  const marketTickers = new Map<string, Ticker>();
   const txFor = (event: MeridianEvent): TxForWallet => {
     let tx = txs.get(event.signature);
     if (tx === undefined) {
@@ -179,6 +182,7 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
       case "MarketCreated": {
         const d = event.data;
         marketLabels.set(d.market.toBase58(), `${d.ticker} ${formatStrike(d.strike)} · ${formatTradingDay(d.tradingDay)}`);
+        marketTickers.set(d.market.toBase58(), d.ticker);
         break;
       }
       case "Paused":
@@ -196,6 +200,7 @@ export function buildHistoryEntries(events: readonly MeridianEvent[], wallet: Pu
       kind,
       label,
       market: marketKey !== undefined ? marketLabels.get(marketKey) : undefined,
+      ticker: marketKey !== undefined ? marketTickers.get(marketKey) : undefined,
       amountMicro: amount?.amountMicro,
       yesQty: amount?.yesQty,
       explorerUrl: explorerUrl(tx.signature),

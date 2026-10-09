@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { collectLabel, formatStrike, formatTradingDay, formatUsd } from "@/lib/format";
 import type { PositionRowData } from "@/lib/positions-view";
 import { Card } from "@/components/ui/Card";
+import { TickerMark } from "@/components/TickerMark";
 
 export type PositionRowProps = {
   row: PositionRowData;
@@ -60,7 +61,8 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
   return (
     <Card className="flex flex-col gap-3 p-4">
       <div className="flex items-baseline justify-between">
-        <span className="font-semibold">
+        <span className="flex items-center gap-2 font-semibold">
+          <TickerMark ticker={row.ticker} size={20} />
           {row.ticker} {formatStrike(row.strike)}
           {row.tradingDay !== undefined ? <span className="ml-2 font-normal text-text-muted">· {formatTradingDay(row.tradingDay)}</span> : null}
         </span>

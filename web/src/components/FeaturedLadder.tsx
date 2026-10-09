@@ -5,6 +5,7 @@ import { nearestStrikes } from "@/lib/markets";
 import { representativeYesQuote } from "@/lib/book-quote";
 import type { MarketAccount } from "@/hooks/useMarkets";
 import { Card } from "./ui/Card";
+import { TickerMark } from "./TickerMark";
 
 export type FeaturedLadderProps = {
   ticker: Ticker;
@@ -24,7 +25,10 @@ export function FeaturedLadder({ ticker, markets, books, priceMicro }: FeaturedL
       <div className="flex items-baseline justify-between">
         <div>
           <p className="text-sm text-text-muted">Featured</p>
-          <h2 className="text-xl font-semibold">{ticker}</h2>
+          <h2 className="flex items-center gap-2 text-xl font-semibold">
+            <TickerMark ticker={ticker} size={28} />
+            {ticker}
+          </h2>
         </div>
         <Link href={`/trade/${ticker}`} className="text-sm font-medium text-cyan underline-offset-2 hover:underline">
           Trade
