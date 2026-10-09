@@ -43,8 +43,10 @@ Three pieces, one program:
   contract state, the collateral vault, minting, redemption, the order book and matching engine,
   and settlement. Enforced here because this is the only layer a malicious client cannot bypass.
 - **`web/`** (Next.js/TypeScript) — wallet connection, order book display from both perspectives,
-  the four trade buttons, portfolio and P&L, admin page. Translates user intent into transactions
-  and derives state from events; holds nothing authoritative.
+  the four trade buttons, portfolio and P&L, a trader-facing Docs tab, and an admin page. Six
+  pages in all (Markets, Trade, Portfolio, History, Docs, Admin), dark theme, with a ticker tape
+  in the nav. Translates user intent into transactions and derives state from events; holds
+  nothing authoritative.
 - **`services/automation`** (Node.js) — the scheduler: creates markets each morning, publishes a
   signed closing price, triggers settlement each afternoon, reclaims rent at night. Cannot move
   user funds; the one real power it holds is that its publisher key is on the on-chain allowlist,
@@ -232,7 +234,7 @@ There is no backend database and no indexer. Two data sources, both read directl
   `WinningRedeemed`, `Settled`, and related events. The web app reconstructs a connected wallet's
   positions and realized P&L entirely from that event stream (via `getSignaturesForAddress` plus
   log parsing), with no server-side state. The History page is this same event stream, rendered
-  as a list.
+  as a list grouped by day.
 
 This keeps the frontend non-custodial in the same sense the program is: there is nothing it knows
 that a wallet owner couldn't reconstruct themselves from public on-chain data.

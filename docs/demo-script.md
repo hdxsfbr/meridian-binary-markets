@@ -37,7 +37,9 @@ real 4:00 PM ET close.
 - Two funded devnet wallets, connected in the browser ahead of time for Part 2: the **taker**
   wallet (the one narrating the trade) and a **maker** wallet that will mint and quote before the
   taker trades. Both need devnet SOL and devnet USDC (`faucet.circle.com`).
-- `NEXT_PUBLIC_PROGRAM_ID` in `.env` pointed at the deployed program; `make web` running.
+- `NEXT_PUBLIC_PROGRAM_ID` in `.env` pointed at the deployed program; `make web` running. The same
+  UI (pointed at devnet) is also live at `https://web-production-385a5.up.railway.app`, if you'd
+  rather record against that instead of a local `make web`.
 - Run every terminal command below inside the dev container (`make shell`, or prefix with
   `docker compose run --rm dev bash -c '...'`) — see `docs/deployment.md` §1.1.
 
@@ -78,11 +80,10 @@ only matters if the demo happens to be recorded on a weekend or holiday.)
 A freshly created book has no resting orders, so before the taker can trade, a second wallet
 mints and quotes:
 
-1. **Connect the maker wallet.** On the Trade page for one ticker, pick a strike. **Mint** a few
-   pairs ("depositing USDC, receiving an equal number of Yes and No tokens — this is the only way
-   new tokens enter the system"), then post a resting **bid** and a resting **ask** on the Yes
-   book from the Maker panel ("two-sided liquidity — anyone can now buy or sell Yes against these
-   resting orders").
+1. **Connect the maker wallet.** On the Portfolio page, open **Your quotes** and pick a strike.
+   **Mint pair** a few times ("depositing USDC, receiving an equal number of Yes and No tokens —
+   this is the only way new tokens enter the system"), then submit a bid quote and an ask quote on
+   the Yes book ("two-sided liquidity — anyone can now buy or sell Yes against these open quotes").
 2. **Switch to the taker wallet.** "Here are the listed tickers, each showing live prices and how
    many active contracts exist right now." Click into the same ticker, same strike. "The order
    book shows both perspectives — Yes against USDC on one side, and the equivalent No price
@@ -119,18 +120,20 @@ guessing — a wrong settlement can't be undone, so the system would rather be l
 
 1. **Portfolio page** (refresh or wait for the live update). "Settlement is in — this position
    paid out, this one didn't, and the total resolves to exactly one dollar per pair either way."
-   Click **Redeem** on the winning position, confirm the wallet approval. "The payout comes
-   straight from the program's on-chain vault back into my wallet — I held my own keys the whole
-   time, but the program itself was holding this USDC while the position was open."
-2. **History page.** "Every fill and every redemption is right here, read straight from the
-   on-chain event log — there's no separate database behind this view." (This page reads a
-   wallet's own event history regardless of which trading day a market belongs to, so it would
-   show Part 1's synthetic-day redemptions too, for the wallets that ran that script.)
+   Click **Redeem winning** on the winning position, confirm the wallet approval. "The payout
+   comes straight from the program's on-chain vault back into my wallet — I held my own keys the
+   whole time, but the program itself was holding this USDC while the position was open."
+2. **History page.** "Every trade and every redemption is right here, grouped by day, read
+   straight from the on-chain event log — there's no separate database behind this view." (This
+   page reads a wallet's own event history regardless of which trading day a market belongs to,
+   so it would show Part 1's synthetic-day redemptions too, for the wallets that ran that script.)
 
 ## Closing line
 
 "That's the full lifecycle — create, mint, trade, settle, redeem — reproducible by anyone with
-Docker and a devnet wallet, using the exact scripts in `docs/deployment.md`."
+Docker and a devnet wallet, using the exact scripts in `docs/deployment.md`. The app's own Docs
+tab, at `/docs`, walks a trader through all of this in plain language if you want the detail
+without the terminal."
 
 ## Reference: exact commands used in this script
 

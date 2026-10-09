@@ -547,6 +547,8 @@ one is a bug by definition, not a trade-off to discuss.
 
 | Path | What it is |
 |---|---|
+| [`https://web-production-385a5.up.railway.app`](https://web-production-385a5.up.railway.app) | The app itself, deployed against devnet — click around before reading further |
+| [`https://web-production-385a5.up.railway.app/docs`](https://web-production-385a5.up.railway.app/docs) | The in-app Docs tab: seven trader-facing pages explaining the UI in plain language (not this document — that's for engineers) |
 | [`PRD.md`](PRD.md) | Requirements FR-1…FR-12. **Start here** — the authoritative statement of what we're building |
 | [`Gauntlet-Project-Meridian.pdf`](Gauntlet-Project-Meridian.pdf) | The partner's original brief |
 | [`../.specify/memory/constitution.md`](../.specify/memory/constitution.md) | Engineering principles — the rules above, with rationale |

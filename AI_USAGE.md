@@ -518,3 +518,9 @@ the program source settles it (the price may be published up to the configured o
 close), so the new label stands. The other, light-mode cyan text at 1.8:1, was a one-line token
 fix I applied myself. The Docs wave's first public deploy also shipped without the Docs pages
 because the upload ignore list matched any folder named docs; anchored and redeployed.
+
+Night: two Sonnet agents in parallel. One audited every PRD requirement against the code and tests
+into `docs/prd-compliance.md` (real gaps: no demo video yet; a handful of invariants covered only
+structurally, not by a named test). The other brought README and the operator docs in line with the
+revamped UI; it also caught a false README claim that no browser test suite existed. I fixed the
+stale README status banner and the deployment table's ticker list by hand.

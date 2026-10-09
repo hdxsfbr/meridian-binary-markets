@@ -2,9 +2,12 @@
 
 Binary stock outcome markets on Solana. Gauntlet AI partner project for Peak6.
 
-> **Status: Wave 6 draft.** This README, and the docs it links to under `docs/`, are being
-> finalized in Wave 8 after the Wave 7 devnet deployment run. Anything that depends on that run
-> (program ID, market addresses, live screenshots) is marked "to be filled after deployment."
+Live on devnet: https://web-production-385a5.up.railway.app
+
+> **Status: deployed on devnet (2026-10-08).** The program, automation worker and web app run
+> against Solana devnet with Pyth prices for the seven PRD tickers; the first unattended
+> settlement ran on 2026-10-08. Addresses are in `docs/deployment.md`; a requirement-by-requirement
+> check against the PRD is in `docs/prd-compliance.md`.
 
 ## What Meridian is
 
@@ -187,7 +190,7 @@ Copy `.env.example` to `.env` and fill in secrets; `.env` is gitignored and neve
 | --- | --- | --- |
 | Program (Rust/litesvm) | `make test-program` | mint/redeem invariant, oracle guards, settlement, override delay, pause, order book matching, trade paths |
 | SDK | `pnpm --filter @meridian/sdk run test` | PDA derivation, Book decoding, strike ladder, intent-to-instruction translation |
-| Web | `make test-web` | Vitest translation-layer tests (no browser/Playwright suite exists yet — planned for Wave 7) |
+| Web | `make test-web` | Vitest translation-layer tests, plus Playwright browser flows (trade, portfolio, admin) against a fresh local validator |
 | Automation | `pnpm --filter automation run test` | job logic, CLI flag parsing, calendar/holiday handling, providers |
 | Scripts | `pnpm --filter @meridian/scripts run test` | deploy/init-config/airdrop/lifecycle helpers |
 
@@ -201,9 +204,9 @@ command directly.
 programs/meridian/     Rust/Anchor program: accounts, instructions, oracle guards, order book
 packages/sdk/           Shared TypeScript: IDL client, PDAs, Book decoder, strike ladder, intent translation
 services/automation/    Node.js scheduler: morning/settle/publisher/reclaim jobs, CLI, oracle providers
-web/                    Next.js app: Landing, Markets, Trade, Portfolio, History, Admin
+web/                    Next.js app: Landing, Markets, Trade, Portfolio, History, Docs, Admin
 scripts/                Operational scripts: deploy, init-config, lifecycle, airdrop, rent-estimate
-tests/                  Integration test suite (local validator, tests/integration/lifecycle.test.ts) — no browser/Playwright suite yet (Wave 7)
+tests/                  Integration test suite (local validator, tests/integration/lifecycle.test.ts); browser/Playwright specs live under web/e2e/ instead
 specs/001-binary-outcome-markets/  spec-kit artifacts: plan, research, data-model, quickstart, contracts, tasks
 docs/                   This documentation set
 ```
@@ -212,6 +215,7 @@ docs/                   This documentation set
 
 | Document | Purpose |
 | --- | --- |
+| [`/docs`](https://web-production-385a5.up.railway.app/docs) (in the app) | Trader-facing docs: seven pages explaining the UI in plain language, no implementation vocabulary |
 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
 | [`docs/architecture.md`](docs/architecture.md) | Accounts, instructions, the one-book mechanic, oracle guards, rent lifecycle, automation schedule, frontend data flow |
 | [`docs/deployment.md`](docs/deployment.md) | Devnet deploy, step by step, with troubleshooting |

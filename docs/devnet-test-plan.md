@@ -30,21 +30,21 @@ positions there (reachable at `/trade/AAPL`) but are no longer listed.
 | # | Case | Steps | Expect |
 | --- | --- | --- | --- |
 | T1 | Browse | Markets page | TSLA, QQQ and VOO each show their open contracts, a live last price, and a countdown to 4:00 PM ET. |
-| T2 | Pick a strike | Trade → TSLA → click the highlighted at-the-money strike | Yes $0.60 / No $0.40, implied probability 60%; payoff line "You pay $0.60. You win $1.00 if TSLA closes at or above $<strike>." |
+| T2 | Pick a strike | Trade → TSLA → click the highlighted at-the-money strike | Yes $0.60 / No $0.40, Chance 60%; payoff line "You pay $0.60. You win $1.00 if TSLA closes at or above $<strike>." |
 | T3 | Buy Yes at market | Market, quantity 1, Buy Yes, approve in wallet | Holdings "1 Yes · 0 No". USDC down $0.60 on Portfolio. Book ask qty drops to 4. |
 | T4 | Opposite side is gated | With Yes held, look at Buy No | Buy No is greyed with "Close your Yes position first"; Sell Yes sits directly below it. Holding a minted pair gates nothing: either leg can be sold. |
 | T5 | Sell Yes at market | Sell Yes, quantity 1 | Fills against the $0.40 bid. Holdings back to 0 · 0; USDC up $0.40. |
 | T6 | Buy No at market | Market, quantity 1, Buy No | Holdings "0 Yes · 1 No". Cost shown as $0.60 (No price = $1 − $0.40 bid). |
 | T7 | Sell No at market | Sell No, quantity 1 | Fills against the $0.60 ask. Holdings 0 · 0. |
-| T8 | Limit order rests | Limit, Buy Yes, price 0.50, quantity 1 | "Your open orders" lists it, Side "Buy Yes", $0.50 locked. Book shows a new bid. |
+| T8 | Limit order rests | Limit, Buy Yes, price 0.50, quantity 1 | Portfolio → Your quotes → Open quotes lists it, Side "Buy Yes", $0.50 reserved. Book shows a new bid. |
 | T9 | Cancel | Cancel the resting order | Row disappears; USDC refunded in full. |
 | T10 | Self-match refused | With your own Yes bid resting at 0.50, place a market or limit Buy No at 0.55 (or a limit Buy Yes at 0.70 while your own ask rests) | Refused with a message about matching your own order, before the wallet opens. A No limit that would trade immediately runs as a market order, so the book is never left crossed. |
-| T11 | Mint a pair | Portfolio → Market maker → pick AAPL $330 → Pairs to mint 2 → Mint pair | USDC down $2.00; position row shows "Minted pair: 2"; both Yes and No 2. |
-| T12 | Quote both sides | Market maker → Quote resting orders: AAPL $330, Offer to sell Yes at 0.65, qty 1 → Add to queue → Submit | Appears under Resting orders with 1 Yes locked. |
-| T13 | Cancel all | "Cancel all on this market" | Resting orders empty; Yes back in holdings. |
+| T11 | Mint a pair | Portfolio → Your quotes → pick AAPL $330 → Pairs to mint 2 → Mint pair | USDC down $2.00; position row shows "Pairs — qty 2"; both Yes and No 2. |
+| T12 | Quote both sides | Your quotes → AAPL $330, Offer to sell Yes at 0.65, qty 1 → Add to queue → Submit | Appears under Open quotes with 1 Yes reserved. |
+| T13 | Cancel all | "Cancel all on this market" | Open quotes empty; Yes back in holdings. |
 | T14 | Redeem a pair | Portfolio → Redeem pair on the AAPL $330 row | USDC up $1.00 per pair; pair count drops. |
 | T15 | History | History page | One row per action above, newest first, each with a "View" explorer link that opens on devnet. |
-| T16 | Closed market | Open a ladder whose close time has passed (yesterday's AAPL after 10:00 AM ET Oct 8) | Trade panel says settlement is pending; Market/Limit hidden. Portfolio's Market maker no longer lists it. |
+| T16 | Closed market | Open a ladder whose close time has passed (yesterday's AAPL after 10:00 AM ET Oct 8) | Trade panel says settlement is pending; Market/Limit hidden. Portfolio's Your quotes no longer lists it. |
 
 ## Operator cases (admin wallet only)
 
