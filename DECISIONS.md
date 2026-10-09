@@ -627,3 +627,20 @@ transient RPC error during startup delays rather than permanently stops the inde
 cache only ever trusts a remote payload that itself reports `complete: true`, and only requests
 `?after=<signature>` once its own local cache already reports complete -- otherwise it requests
 the full index -- so a partial/incomplete response can never be mistaken for full coverage.
+
+## 24. Next-day markets are created by the morning job, not chained onto settlement
+
+**Date:** 2026-10-08
+**Context:** The settle job already holds each ticker's closing price at 4:00 PM ET, so tomorrow's
+strike ladders could be created minutes after settlement instead of at 8:00 AM. That would give
+overnight trading and a site that is never empty between the close and the next morning. The PRD
+(§4, §5.3) describes an 8:00 AM morning job that reads the previous close and creates the day's
+markets; it says nothing about after-hours trading, and trading starts at the 9:30 AM open.
+**Decision (Andre):** Punt. Keep the two-job schedule as is. The morning job would still be needed
+as the fallback, so the change adds a second code path to the job that must not fail at the close,
+plus next-trading-day calendar logic, duplicate-ladder checks between the two paths, and a
+price-source mismatch (on-chain settlement price in the evening versus Pyth's republished close in
+the morning), all testable only once per day at a real close. Time is short and after-hours trading
+is not a PRD requirement.
+**Revisit:** After unattended settlement has run clean for a few days, if overnight trading becomes
+something worth showing. Estimated at about an hour plus tests.
