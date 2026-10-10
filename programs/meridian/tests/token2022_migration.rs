@@ -84,12 +84,24 @@ fn create_market_mint_metadata_matches_ticker_strike_side_and_date() {
     let yes_meta = read_token_metadata(&env, market.yes_mint);
     assert_eq!(yes_meta.name, "AAPL \u{2265} $150 Yes Oct 7");
     assert_eq!(yes_meta.symbol, "MERIDIAN");
-    assert_eq!(yes_meta.uri, "");
+    assert_eq!(
+        yes_meta.uri,
+        format!(
+            "https://web-production-385a5.up.railway.app/api/token/{}.json",
+            market.yes_mint
+        )
+    );
 
     let no_meta = read_token_metadata(&env, market.no_mint);
     assert_eq!(no_meta.name, "AAPL \u{2265} $150 No Oct 7");
     assert_eq!(no_meta.symbol, "MERIDIAN");
-    assert_eq!(no_meta.uri, "");
+    assert_eq!(
+        no_meta.uri,
+        format!(
+            "https://web-production-385a5.up.railway.app/api/token/{}.json",
+            market.no_mint
+        )
+    );
 }
 
 /// Measures `create_market`'s compute units now that it creates two Token-2022 mints

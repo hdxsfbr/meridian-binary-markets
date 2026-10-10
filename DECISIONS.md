@@ -840,3 +840,34 @@ list view, and Andre wanted a holder to see where a token came from. New mints a
 and every Meridian token's symbol is `MERIDIAN`, so a wallet row reads "AAPL ≥ $337 Yes Oct 10 /
 1 MERIDIAN". The year is implied by the market. Only mints created after this upgrade carry the
 new form.
+
+**Update, 2026-10-10 (logo via the metadata `uri`):** the `uri` field `init_token_metadata`
+writes (empty until now) is `"<TOKEN_METADATA_BASE_URI>/<mint pubkey>.json"`, where
+`TOKEN_METADATA_BASE_URI` (`programs/meridian/src/instructions/create_market.rs`,
+`"https://web-production-385a5.up.railway.app/api/token"`) is a `pub const` so it is visible
+everywhere this file is read, with a doc comment spelling out the caveat below. The new route
+`web/src/app/api/token/[mint]/route.ts` serves the standard token metadata JSON a wallet fetches
+from that `uri`: it reads the mint on chain (server-side RPC, preferring `SOLANA_RPC_URL` over
+`NEXT_PUBLIC_RPC_URL`), decodes the on-mint `TokenMetadata` TLV extension via a new hand-rolled
+parser (`parseTokenMetadataExtension` in `packages/sdk/src/token.ts` -- no `@solana/spl-token`
+dependency exists in this app, and adding one wasn't needed for three fields), and returns
+`name`/`symbol` from chain plus a fixed `image` (`/brand/token-logo.png`, a 512x512 PNG rendered
+from `web/public/brand/favicon.svg` -- the square app-icon mark, not `logo-mark.svg`'s wide
+wordmark -- via ImageMagick's `magick` CLI in the dev container; no `sharp` install was needed),
+a templated `description`, and an `external_url` pointed at `/trade/<ticker>` when the ticker
+can be recovered from the on-chain `name` (the mint-name fallback that drops the ticker entirely
+falls back to the home page instead). Unknown mints, non-Token-2022 mints, and Token-2022 mints
+with no `TokenMetadata` extension all return a 404 JSON body.
+**The stable-URL caveat:** the `uri` is written once, at mint-creation time, into an immutable
+field as far as this program is concerned today -- there is no `update_mint_uri` instruction yet.
+That means `TOKEN_METADATA_BASE_URI` must stay valid for as long as any mint minted with it is
+still on chain (effectively forever, absent a cleanup instruction): changing the constant only
+changes what *future* mints point at, leaving every already-minted token's `uri` pointing at the
+old value. If the hosting domain/path ever needs to move, the fix is a new `update_mint_uri`
+instruction that CPIs `token_metadata_update_field` with the market PDA as update authority
+(not built now) plus a one-time job to call it for every existing mint -- not a config change.
+**Cost:** `create_market`'s compute units rose from 93,309 to 109,927 (program-measured via
+litesvm) -- the extra realloc/rent top-up and TLV write for a longer `uri` string, well within
+budget -- and the compiled binary grew from 732,672 to 734,400 bytes (+1,728 bytes, ~0.2%) for
+the new constant/formatting code. `cargo test -p meridian --tests` stays green (now asserting the
+exact expected `uri` string in the existing metadata test rather than `""`).

@@ -147,6 +147,25 @@ pub(crate) fn mint_symbol(_ticker: &[u8; 8], _is_yes: bool) -> String {
     "MERIDIAN".to_string()
 }
 
+/// Base URL for a Yes/No mint's on-chain metadata `uri`: the full address served is
+/// `"<TOKEN_METADATA_BASE_URI>/<mint pubkey>.json"` (see `mint_metadata_uri` below),
+/// handled by `web/src/app/api/token/[mint]/route.ts`. This must stay a stable URL for
+/// as long as any mint created with it exists on chain -- the `uri` is written once,
+/// at `init_token_metadata` time, and there is no instruction yet that can change it
+/// afterward. If the hosting URL ever needs to move (new domain, path change), that
+/// requires a new `update_mint_uri` instruction (not built yet) that CPIs
+/// `token_metadata_update_field` with the market PDA as update authority -- changing
+/// this constant alone would only affect mints created after the change, leaving every
+/// already-minted token pointed at the old URL.
+pub const TOKEN_METADATA_BASE_URI: &str = "https://web-production-385a5.up.railway.app/api/token";
+
+/// Builds a Yes/No mint's on-chain `uri` metadata field: `"<TOKEN_METADATA_BASE_URI>/
+/// <mint pubkey>.json"`. Always well under the 200-byte budget this module reserves for
+/// it (base is 55 bytes, a base58 pubkey is at most 44 bytes, `.json` is 5 bytes).
+fn mint_metadata_uri(mint: &Pubkey) -> String {
+    format!("{TOKEN_METADATA_BASE_URI}/{mint}.json")
+}
+
 /// Reallocs `mint_ai` to fit `TokenMetadata(name, symbol, uri)` on top of whatever space
 /// the declarative `extensions::...` constraints already allocated for `MetadataPointer`/
 /// `MintCloseAuthority`, topping up rent-exempt lamports from `payer` first, then CPIs
@@ -313,7 +332,7 @@ fn create_or_add_strike(
         signer_seeds,
         mint_name(&ticker, strike, trading_day, true),
         mint_symbol(&ticker, true),
-        String::new(),
+        mint_metadata_uri(&yes_mint_key),
     )?;
 
     init_token_metadata(
@@ -327,7 +346,7 @@ fn create_or_add_strike(
         signer_seeds,
         mint_name(&ticker, strike, trading_day, false),
         mint_symbol(&ticker, false),
-        String::new(),
+        mint_metadata_uri(&no_mint_key),
     )?;
 
     emit!(MarketCreated {

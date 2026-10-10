@@ -436,7 +436,10 @@ Variables, set with `railway variable set --service <name>`:
   replaying the whole chain itself for cost basis/History; omitted or unreachable falls back to
   the full chain replay, as before this existed), `PYTH_HERMES_URL`,
   `PYTH_API_KEY` (server side only; it feeds `/api/prices`). The `NEXT_PUBLIC_*` values are baked
-  in at image build time, so changing one needs a redeploy.
+  in at image build time, so changing one needs a redeploy. `SOLANA_RPC_URL` (server side only,
+  optional): if set, `/api/token/[mint]` prefers it over `NEXT_PUBLIC_RPC_URL` for its on-chain
+  mint lookup, the same private-RPC-over-public-endpoint preference `services/automation` uses --
+  omit it and the route falls back to `NEXT_PUBLIC_RPC_URL`.
 - **automation:** `SOLANA_CLUSTER=devnet`, `SOLANA_RPC_URL`, `SOLANA_WS_URL`,
   `ADMIN_KEYPAIR_JSON`, `PUBLISHER_KEYPAIR_JSON` (the keypair files' JSON byte arrays; see
   `services/automation/src/keys.ts`), `USDC_MINT`, `ORACLE_PROVIDER=pyth`, `PYTH_HERMES_URL`,
@@ -456,3 +459,15 @@ real funds the signer would move to a KMS-backed or hardware-held key.
 Railway's log viewer did not surface the worker's one-line JSON startup error on first deploy
 (a missing `DEMO_SCALE`); building the image locally and running it with the same variables showed
 it immediately. Keep that as the first debugging step for a worker that restarts in a loop.
+
+**Yes/No mint logos (`/api/token/[mint]`, DECISIONS.md §29's 2026-10-10 logo update):** every
+Yes/No mint's on-chain `uri` points at `https://web-production-385a5.up.railway.app/api/token/
+<mint>.json` -- the `web` service's own public domain, hardcoded into the program as
+`TOKEN_METADATA_BASE_URI` (`programs/meridian/src/instructions/create_market.rs`). That means
+the `web` domain above cannot change without a program change: there is no `update_mint_uri`
+instruction yet, so every mint already created still points at whatever domain was baked in at
+the time it was minted. Changing `web`'s public domain on Railway (a custom domain, a Railway
+project rename, moving to a different service) silently breaks the logo for every mint minted
+before the change, with no error surfaced anywhere -- a wallet just shows no image. Before doing
+either, build the `update_mint_uri` instruction described in DECISIONS.md §29 and a one-time job
+to call it for every existing mint.
