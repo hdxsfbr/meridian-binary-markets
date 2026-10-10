@@ -1,0 +1,1 @@
+A second wallet opens the market, sees a fifty-five percent chance to buy Yes, and buys three contracts at the quoted price. The trade fills against the maker's order, the confirmation shows exactly what executed, and the position appears in the portfolio.
