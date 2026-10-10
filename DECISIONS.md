@@ -726,3 +726,19 @@ means a worker restart or a gap between manual `--once` runs no longer *silently
 cap or forgets an in-progress streak, at the cost of one more file (atomic temp-file-plus-rename,
 same pattern as `events-index.ts`'s snapshot) the worker's disk needs to survive a redeploy for;
 a lost state file just means the job starts the day's cap/streak over, same as before this fix.
+
+## 28. Landing page: motion with no new dependency, and the hero shows real data
+
+**Date:** 2026-10-09
+**Context:** Andre found the landing page boring. The first redesign pass used a synthetic
+self-drawing SVG chart in the hero; he liked everything else but not the chart.
+**Decision:** The landing page is a cinematic dark hero (slow aurora gradient, a headline that
+cycles through the seven stocks with a strike derived from the live price), a drifting logo strip
+with live prices, three "how it works" cards that reveal on scroll, trust pills and a gradient
+call-to-action band. All motion is CSS keyframes or small React hooks; no animation library. The
+hero chart is the real intraday session of the stock in the headline, rendered with the same
+Lightweight Charts component approach as the Trade page, with a dashed strike line and a Yes/No
+badge computed from the live price; a synthetic chart remains only as the fallback when no session
+data exists. Every animation collapses to its end state under `prefers-reduced-motion`.
+**Trade-off:** The hero now makes two data requests on load (prices and one ticker's history,
+cached server-side), acceptable for the one page meant to impress.

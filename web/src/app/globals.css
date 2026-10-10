@@ -234,3 +234,215 @@ body {
 [data-theme="light"] .logo-theme-dark {
   display: none !important;
 }
+
+/*
+ * Landing page (src/app/page.tsx, src/components/landing/*). All motion
+ * here is plain CSS keyframes/transitions; the `prefers-reduced-motion`
+ * rule above already forces every one of them to a single, near-instant
+ * iteration, so each keyframe set below is written so its 100% state is a
+ * clean, legible static picture rather than a mid-animation frame.
+ */
+
+/* Hero aurora: three blurred blobs drifting on a 20s loop. */
+.landing-aurora {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  z-index: 0;
+}
+.landing-aurora-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(60px);
+  opacity: 0.35;
+  will-change: transform;
+}
+.landing-aurora-blob-1 {
+  top: -12%;
+  left: -10%;
+  width: 46rem;
+  height: 46rem;
+  background: var(--color-indigo);
+  animation: landing-aurora-drift-1 20s ease-in-out infinite;
+}
+.landing-aurora-blob-2 {
+  top: 8%;
+  right: -15%;
+  width: 40rem;
+  height: 40rem;
+  background: var(--color-violet);
+  animation: landing-aurora-drift-2 20s ease-in-out infinite;
+}
+.landing-aurora-blob-3 {
+  bottom: -22%;
+  left: 18%;
+  width: 36rem;
+  height: 36rem;
+  background: var(--color-cyan);
+  opacity: 0.22;
+  animation: landing-aurora-drift-3 20s ease-in-out infinite;
+}
+@keyframes landing-aurora-drift-1 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(4%, 6%) scale(1.08); }
+}
+@keyframes landing-aurora-drift-2 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(-6%, 4%) scale(1.05); }
+}
+@keyframes landing-aurora-drift-3 {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50% { transform: translate(3%, -5%) scale(1.1); }
+}
+
+/* Hero headline ticker crossfade: a 500ms fade+rise on each remount (LandingHero keys each span by ticker). */
+@keyframes landing-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.landing-fade-in {
+  animation: landing-fade-in 500ms ease-out;
+}
+
+/*
+ * Hero chart (LiveChart.tsx): two example price paths cross-fade on a 7s
+ * loop. `stroke-dasharray`/`-offset` are the standard "draw a line" trick:
+ * 700 is comfortably longer than either path, so dashoffset 700 -> 0 draws
+ * the whole thing over ~2.5s regardless of its exact length. Group A draws
+ * first and fades out as group B draws in, ending below the strike.
+ */
+.landing-chart-draw-a,
+.landing-chart-draw-b {
+  stroke-dasharray: 700;
+  stroke-dashoffset: 700;
+}
+.landing-chart-group-a {
+  animation: landing-chart-fade-a 7s ease-in-out infinite;
+}
+.landing-chart-group-b {
+  animation: landing-chart-fade-b 7s ease-in-out infinite;
+}
+.landing-chart-group-a .landing-chart-draw-a {
+  animation: landing-chart-draw-a 7s ease-in-out infinite;
+}
+.landing-chart-group-b .landing-chart-draw-b {
+  animation: landing-chart-draw-b 7s ease-in-out infinite;
+}
+.landing-chart-group-a g[transform] {
+  filter: drop-shadow(0 0 6px var(--color-yes));
+}
+.landing-chart-group-b g[transform] {
+  filter: drop-shadow(0 0 6px var(--color-no));
+}
+@keyframes landing-chart-draw-a {
+  0%, 7% { stroke-dashoffset: 700; }
+  36%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes landing-chart-fade-a {
+  0%, 7% { opacity: 0; }
+  36%, 57% { opacity: 1; }
+  64%, 100% { opacity: 0; }
+}
+@keyframes landing-chart-draw-b {
+  0%, 57% { stroke-dashoffset: 700; }
+  86%, 100% { stroke-dashoffset: 0; }
+}
+@keyframes landing-chart-fade-b {
+  0%, 57% { opacity: 0; }
+  86%, 100% { opacity: 1; }
+}
+
+/*
+ * Hero chart (HeroChart.tsx): real intraday chart. On a ticker switch the
+ * container fades to 0 (`data-phase="fading"`), the chart underneath
+ * rebuilds for the new ticker/strike, then `data-phase="revealing"` plays
+ * a left-to-right wipe via `clip-path: inset()` ending fully visible.
+ * `prefers-reduced-motion` is also checked in JS (HeroChart.tsx) so the
+ * swap is instant, not just fast; the global rule above still collapses
+ * this keyframe to one near-instant step as a backstop.
+ */
+.hero-chart-container {
+  opacity: 1;
+  transition: opacity 150ms ease-out;
+}
+.hero-chart-container[data-phase="fading"] {
+  opacity: 0;
+}
+.hero-chart-container[data-phase="revealing"] {
+  opacity: 1;
+  clip-path: inset(0 0 0 0);
+  animation: hero-chart-reveal 900ms ease-out;
+}
+@keyframes hero-chart-reveal {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+/* Pulsing dot over the hero chart's latest sample; position is set inline from chart-space coordinates (HeroChart.tsx). */
+.hero-chart-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-cyan);
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+}
+.hero-chart-dot::before {
+  content: "";
+  position: absolute;
+  inset: -6px;
+  border-radius: 9999px;
+  background: var(--color-cyan);
+  opacity: 0.55;
+  animation: hero-chart-pulse 1.6s ease-out infinite;
+}
+@keyframes hero-chart-pulse {
+  0% { transform: scale(0.5); opacity: 0.55; }
+  100% { transform: scale(2.4); opacity: 0; }
+}
+
+/* Soft glow on the hero chart's "Yes" badge, same drop-shadow treatment as LiveChart.tsx's pills. */
+.hero-chart-badge-yes {
+  filter: drop-shadow(0 0 5px var(--color-yes));
+}
+
+/* Scroll reveal (HowItWorks.tsx): fade + rise 400ms, staggered per card via inline `transition-delay`. */
+.landing-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 400ms ease-out, transform 400ms ease-out;
+}
+.landing-reveal.is-visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+/* "Chance" bars in the mini ladder card: width fills in once the card's reveal fires. */
+.landing-chance-bar {
+  height: 8px;
+  border-radius: 9999px;
+  background: var(--color-surface-raised);
+  overflow: hidden;
+}
+.landing-chance-bar-fill {
+  height: 100%;
+  width: 0%;
+  border-radius: 9999px;
+  background: var(--color-indigo);
+  transition: width 700ms ease-out 150ms;
+}
+.landing-reveal.is-visible .landing-chance-bar-fill {
+  width: var(--chance, 50%);
+}
+
+/* Settlement card checkmark: draws in once the card's reveal fires. */
+.landing-check-path {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  transition: stroke-dashoffset 600ms ease-out 250ms;
+}
+.landing-reveal.is-visible .landing-check-path {
+  stroke-dashoffset: 0;
+}
