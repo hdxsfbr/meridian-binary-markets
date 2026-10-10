@@ -16,6 +16,44 @@ Two tracks, recorded separately and edited together:
   app, which means it has to run against the *real* current trading day — the one the Markets and
   Trade pages actually query. That constrains timing: see Part 3.
 
+## How the video is produced (2026-10-10)
+
+The deliverable is a captioned screen recording with no voice track, produced by
+`web/e2e/record-demo.mts` (Playwright, one WebM per scene, HTML title cards between scenes)
+and stitched by `web/e2e/stitch-demo.sh` into `design/demo/meridian-demo.mp4`. It runs against
+devnet through the dev server with the test wallet enabled, driving two fresh wallets. Because
+the deadline falls on a weekend, the market shown is BTC, whose Pyth feed publishes around the
+clock, so the close and the settlement in the recording are real (`DECISIONS.md` §30).
+
+Scenes, in order:
+
+1. Title card.
+2. Landing page (hero cycles the assets with a live chart), then Markets with a card expanded.
+3. Card: "Making a market".
+4. Maker wallet on Portfolio: mints 5 pairs, queues two quotes (sell 5 Yes at $0.55, buy 5 Yes
+   at $0.45), submits, confirmation toast.
+5. Card: "Taking a side".
+6. Taker wallet on Trade: buys 3 Yes at the quoted price, confirmation toast, Portfolio shows
+   the position.
+7. Card: "The close". Off screen, the market closes and the operator runs the settle job
+   (`pnpm --filter automation run job settle`), which posts the Pyth price and settles.
+8. Taker wallet: Markets shows the settled card, Trade shows the outcome, Portfolio shows
+   "Collect $X" and Redeem winning, toast, then History.
+9. End card.
+
+Run (inside the dev container; secrets come from the two demo keypairs, exported to base58):
+
+```bash
+docker exec -e MAKER="$(cat /tmp/demomaker.b58)" -e TAKER="$(cat /tmp/demotaker.b58)" \
+  -e TICKER=BTC -e STRIKE=100000 -e PHASE=pre -e PLAYWRIGHT_BROWSERS_PATH=/opt/pw-browsers \
+  -w /work/web meridian-web-devnet-e2e /work/scripts/node_modules/.bin/tsx e2e/record-demo.mts
+# ... market closes; run the settle job; then:
+docker exec ... -e PHASE=post ... e2e/record-demo.mts
+docker exec -w /work/web meridian-web-devnet-e2e bash e2e/stitch-demo.sh /work/design/demo
+```
+
+The sections below are the original narrated walkthrough and remain valid for a live demo.
+
 ## Why two tracks, not one
 
 The web app's Markets and Trade pages call `todayTradingDay()` (`web/src/lib/markets.ts`) and pass
