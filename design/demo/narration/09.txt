@@ -1,1 +1,1 @@
-An on-chain order book, oracle settlement, and non-custodial redemption, running today on Solana devnet. Meridian.
+On-chain order book, oracle settlement, non-custodial redemption, running today on Solana devnet. Meridian.

@@ -1,0 +1,1 @@
+The tokens are Token-2022 mints with their names on chain, so a wallet shows "Apple, at or above three-forty, Yes" instead of "unknown token". Mints close when empty, so a day's rent comes back. Settlement checks freshness, confidence and publish time before a single market settles; an override is possible only after a delay, and it's visible on chain.

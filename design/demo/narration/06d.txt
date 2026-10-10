@@ -1,0 +1,1 @@
+The operator's view. The settlement checks the program enforces, in plain language: how fresh a price must be, how tight its confidence band, that it was published at the close. Any market that misses its settlement shows up here with the reason, and the operator can add a strike during the day when a stock runs away from its ladder.

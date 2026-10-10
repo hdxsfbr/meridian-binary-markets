@@ -1,1 +1,0 @@
-Everything here is explained inside the app. The Docs tab walks through how contracts work, how the four trade buttons map onto one book, how settlement and redemption happen, and what the demo's limits are, all in plain language.

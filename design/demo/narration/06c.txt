@@ -1,0 +1,1 @@
+The portfolio. Balance and realized profit at the top, then every position with what it cost and what it pays, open quotes with what they've reserved, and one button to collect everything you've won. Losing tokens can be cleared from the wallet with a click, and the rent comes back.
