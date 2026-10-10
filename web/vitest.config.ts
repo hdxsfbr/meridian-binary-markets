@@ -1,3 +1,4 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
 /**
@@ -10,6 +11,14 @@ import { defineConfig } from "vitest/config";
  * could silently violate later.
  */
 export default defineConfig({
+  resolve: {
+    // Mirrors tsconfig.json's `paths` (`"@/*": ["./src/*"]`) so a component
+    // test can import its own module the same way the app code does,
+    // instead of every test needing a relative `./`/`../` import.
+    alias: {
+      "@": fileURLToPath(new URL("./src", import.meta.url)),
+    },
+  },
   test: {
     exclude: ["**/node_modules/**", "**/.next/**", "e2e/**"],
   },

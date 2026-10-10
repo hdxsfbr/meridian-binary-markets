@@ -38,6 +38,7 @@ import { formatStrike, formatUsd } from "@/lib/format";
 import type { PricePoint } from "@/lib/price-history";
 import { usePriceHistory } from "@/hooks/usePriceHistory";
 import { Skeleton } from "@/components/ui/Skeleton";
+import { AnimatedPrice } from "@/components/AnimatedPrice";
 import { LiveChart } from "./LiveChart";
 
 export type HeroChartProps = {
@@ -392,7 +393,7 @@ export function HeroChart({ ticker, strikeMicro }: HeroChartProps) {
             {isYes ? "Yes" : "No"}
           </span>
           <span className="text-text-muted">
-            {ticker} {last !== undefined ? formatUsd(last.priceMicro) : "—"} · Strike {formatStrike(strikeMicro)}
+            {ticker} {last !== undefined ? <AnimatedPrice valueMicro={last.priceMicro} /> : "—"} · Strike {formatStrike(strikeMicro)}
           </span>
         </div>
       </div>

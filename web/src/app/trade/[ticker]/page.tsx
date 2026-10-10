@@ -20,7 +20,7 @@ import { useBook } from "@/hooks/useBook";
 import { usePosition } from "@/hooks/usePosition";
 import { usePrices } from "@/hooks/usePrices";
 import { usePriceHistory } from "@/hooks/usePriceHistory";
-import { formatStrike, formatUsd } from "@/lib/format";
+import { formatStrike } from "@/lib/format";
 import { useProgram } from "@/hooks/useProgram";
 import { cancelOrder, fetchUsdcMint, fetchYesNoTokenProgram, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
 import { BookView } from "@/components/BookView";
@@ -34,6 +34,7 @@ import type { Order, Ticker } from "@meridian/sdk";
 import { Skeleton } from "@/components/ui/Skeleton";
 import { InlineError } from "@/components/ui/InlineError";
 import { TickerMark } from "@/components/TickerMark";
+import { AnimatedPrice } from "@/components/AnimatedPrice";
 
 // The charting library is browser-only (canvas), so it's loaded with
 // `ssr: false` -- the production build should carry no top-level
@@ -129,7 +130,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
             <TickerMark ticker={ticker} size={32} />
             {ticker}
           </h1>
-          {lastPrice !== undefined ? <span className="num text-lg font-normal text-text-muted">{formatUsd(lastPrice)}</span> : null}
+          {lastPrice !== undefined ? <AnimatedPrice valueMicro={lastPrice} className="text-lg font-normal text-text-muted" /> : null}
           {selected !== null ? (
             <span className="num rounded-full border border-border bg-surface-raised px-3 py-1 text-sm text-text-muted">
               Price to beat {formatStrike(selected.strike)}
@@ -144,7 +145,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
           />
         ) : null}
       </div>
-      <p className="mt-1 text-sm text-text-muted">Closes {closeTs !== undefined ? `${formatCloseTimeEt(Number(closeTs))} ET` : "4:00 PM ET"}</p>
+      <p className="mt-1 text-sm text-text-muted">Closes {closeTs !== undefined ? formatCloseTimeEt(Number(closeTs)) : "4:00 PM ET"}</p>
 
       {error ? (
         <div className="mt-6">

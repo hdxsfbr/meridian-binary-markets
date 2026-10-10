@@ -437,6 +437,56 @@ body {
   width: var(--chance, 50%);
 }
 
+/*
+ * AnimatedPrice.tsx: per-digit odometer roll plus a green/red tint on a
+ * price change. Both are plain keyframe animations retriggered by
+ * AnimatedPrice remounting the animated span with a fresh `key` on every
+ * change -- no toggled class, no JS timer. The global
+ * `prefers-reduced-motion` rule above already collapses every duration
+ * below to near-zero, turning both into an instant swap.
+ */
+.animated-price {
+  display: inline-flex;
+  align-items: baseline;
+  white-space: nowrap;
+}
+.animated-price-flash-up {
+  animation: animated-price-flash-up 900ms ease-out forwards;
+}
+.animated-price-flash-down {
+  animation: animated-price-flash-down 900ms ease-out forwards;
+}
+@keyframes animated-price-flash-up {
+  0%, 55% { color: var(--color-yes); }
+  100% { color: inherit; }
+}
+@keyframes animated-price-flash-down {
+  0%, 55% { color: var(--color-no); }
+  100% { color: inherit; }
+}
+/* Each changed digit: a 1em-tall window over a two-glyph column (old char, new char) that slides up by one glyph height, so the old glyph scrolls out the top as the new one scrolls in -- the classic odometer roll. Unchanged digits render as plain static characters right alongside, so the line never reflows. */
+.animated-price-roll {
+  position: relative;
+  display: inline-block;
+  overflow: hidden;
+  height: 1em;
+  line-height: 1em;
+  vertical-align: bottom;
+}
+.animated-price-roll-inner {
+  display: flex;
+  flex-direction: column;
+  animation: animated-price-roll 350ms ease-out forwards;
+}
+.animated-price-roll-glyph {
+  height: 1em;
+  line-height: 1em;
+}
+@keyframes animated-price-roll {
+  from { transform: translateY(0); }
+  to { transform: translateY(-1em); }
+}
+
 /* Settlement card checkmark: draws in once the card's reveal fires. */
 .landing-check-path {
   stroke-dasharray: 60;
