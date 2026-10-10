@@ -10,7 +10,7 @@ FFMPEG="${FFMPEG:-$(command -v ffmpeg || ls /opt/pw-browsers/ffmpeg-*/ffmpeg-lin
 [ -x "$FFMPEG" ] || { echo "ffmpeg not found"; exit 1; }
 cd "$DIR"
 : > scenes.txt
-for f in $(ls *.webm | sort); do
+for f in $(ls *.webm | LC_ALL=C sort); do
   # Re-encode each scene to a uniform intermediate so the concat demuxer never
   # sees mismatched streams (Playwright's WebMs have variable frame timing).
   "$FFMPEG" -y -loglevel error -i "$f" -r 30 -vf "scale=1440:900:flags=lanczos,format=yuv420p" -c:v libx264 -preset medium -crf 20 -an "tmp-${f%.webm}.mp4"

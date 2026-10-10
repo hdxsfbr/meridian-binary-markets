@@ -95,7 +95,9 @@ export function AnimatedPrice({ valueMicro, className }: AnimatedPriceProps) {
               </span>
             </span>
           ) : (
-            <span key={i}>{d.char}</span>
+            <span key={i} className="animated-price-glyph">
+              {d.char}
+            </span>
           ),
         )}
       </span>

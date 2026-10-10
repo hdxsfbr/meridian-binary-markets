@@ -447,8 +447,16 @@ body {
  */
 .animated-price {
   display: inline-flex;
-  align-items: baseline;
+  align-items: flex-end;
   white-space: nowrap;
+}
+/* Every character, rolling or static, lives in the same 1em-tall box so the
+ * baseline never shifts between the two kinds. */
+.animated-price-glyph {
+  display: inline-block;
+  height: 1em;
+  line-height: 1em;
+  vertical-align: bottom;
 }
 .animated-price-flash-up {
   animation: animated-price-flash-up 900ms ease-out forwards;

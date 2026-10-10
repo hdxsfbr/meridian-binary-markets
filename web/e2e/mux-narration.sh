@@ -15,7 +15,7 @@ TAIL_AIR="${TAIL_AIR:-0.4}"
 SLACK="${SLACK:-2.0}"
 cd "$DIR"
 : > narrated.txt
-for f in $(ls *.webm | sort); do
+for f in $(ls *.webm | LC_ALL=C sort); do
   n="${f%%-*}"
   vdur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$f")
   clip="$NARR/$n.wav"

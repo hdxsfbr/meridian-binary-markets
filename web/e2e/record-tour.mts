@@ -2,7 +2,7 @@
  * Tour scenes for the showcase cut (no transactions): landing hero, Markets
  * board, Trade page tour on an open market, Docs. Each scene is one WebM in
  * OUT_DIR, named so it sorts between record-demo.mts's scenes:
- *   02-landing, 02b-markets, 02c-trade, 06b-docs
+ *   02a-landing, 02b-markets, 02c-trade, 06b-docs
  * Run inside the dev container (see record-demo.mts for the docker exec shape):
  *   -e TICKER=BTC -e STRIKE=83400 -e MAKER=<b58> -e OUT_DIR=/work/design/demo
  */
@@ -53,7 +53,7 @@ async function slowScroll(page: Page, px: number, steps = 16): Promise<void> {
 const browser = await chromium.launch();
 
 // Landing: let the hero cycle through two assets and the chart redraw, then scroll the page.
-await scene(browser, "02-landing", undefined, async (page) => {
+await scene(browser, "02a-landing", undefined, async (page) => {
   await page.goto(`${BASE}/`, { waitUntil: "load" });
   await page.waitForTimeout(14000);
   await slowScroll(page, 900);
@@ -92,14 +92,17 @@ await scene(browser, "02c-trade", MAKER || undefined, async (page) => {
     await page.waitForTimeout(1200);
   }
   // Walk the strikes: click the row above and below, then back.
-  const rows = page.locator("table").first().locator("tbody tr");
+  // Strike rows are role="row" elements (not a <table>); skip the header by requiring a $ amount.
+  const rows = page.getByRole("row").filter({ hasText: /\$\d/ });
   const n = await rows.count();
   for (const i of [0, Math.min(1, n - 1), Math.min(2, n - 1)]) {
-    await rows.nth(i).click();
+    if (n === 0) break;
+    await rows.nth(i).click({ timeout: 5000 }).catch(() => {});
     await page.waitForTimeout(2200);
   }
   // Order book: flip to the No perspective and back.
   const noBtn = page.getByRole("button", { name: "No", exact: true }).first();
+  // (order-book perspective toggle)
   if (await noBtn.count()) {
     await noBtn.click();
     await page.waitForTimeout(2500);
