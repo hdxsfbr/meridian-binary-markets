@@ -7,6 +7,7 @@ import {
   earliestCloseTs,
   formatCloseTimeEt,
   groupByTicker,
+  groupStrikesBySettlement,
   isCountdownUrgent,
   nearestStrikes,
   openTsForDay,
@@ -263,6 +264,44 @@ describe("isCountdownUrgent", () => {
 
   it("is false exactly at closeTs (not before it, not negative remaining)", () => {
     expect(isCountdownUrgent(1_000, 1_000)).toBe(false);
+  });
+});
+
+describe("groupStrikesBySettlement", () => {
+  it("returns empty groups and allSettled false for no markets", () => {
+    const result = groupStrikesBySettlement([]);
+    expect(result).toEqual({ open: [], settled: [], allSettled: false });
+  });
+
+  it("splits open and settled strikes, each sorted by strike ascending", () => {
+    const markets = [
+      { strike: 330_000_000n, state: "settled" as const },
+      { strike: 300_000_000n, state: "open" as const },
+      { strike: 320_000_000n, state: "settled" as const },
+      { strike: 310_000_000n, state: "open" as const },
+    ];
+    const result = groupStrikesBySettlement(markets);
+    expect(result.open.map((m) => m.strike)).toEqual([300_000_000n, 310_000_000n]);
+    expect(result.settled.map((m) => m.strike)).toEqual([320_000_000n, 330_000_000n]);
+    expect(result.allSettled).toBe(false);
+  });
+
+  it("is allSettled when every strike has settled", () => {
+    const markets = [
+      { strike: 310_000_000n, state: "settled" as const },
+      { strike: 300_000_000n, state: "settled" as const },
+    ];
+    const result = groupStrikesBySettlement(markets);
+    expect(result.open).toEqual([]);
+    expect(result.settled.map((m) => m.strike)).toEqual([300_000_000n, 310_000_000n]);
+    expect(result.allSettled).toBe(true);
+  });
+
+  it("is not allSettled when every strike is open", () => {
+    const markets = [{ strike: 300_000_000n, state: "open" as const }];
+    const result = groupStrikesBySettlement(markets);
+    expect(result.settled).toEqual([]);
+    expect(result.allSettled).toBe(false);
   });
 });
 

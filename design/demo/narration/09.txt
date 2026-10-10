@@ -1,1 +1,1 @@
-Program, order book, oracle settlement and redemption, all on Solana devnet. Meridian.
+An on-chain order book, oracle settlement, and non-custodial redemption, running today on Solana devnet. Meridian.

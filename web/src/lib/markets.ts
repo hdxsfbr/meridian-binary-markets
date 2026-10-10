@@ -283,6 +283,39 @@ export function isCountdownUrgent(now: number, closeTs: number, thresholdSeconds
   return remaining > 0 && remaining <= thresholdSeconds;
 }
 
+/** The result of splitting a ticker's strikes into still-open and already-settled groups (`groupStrikesBySettlement`). */
+export type StrikeGroups<T> = {
+  open: T[];
+  settled: T[];
+  /** True once every strike in the input has settled (so a caller should skip the open/settled split entirely and just show the full, already-sorted list). */
+  allSettled: boolean;
+};
+
+/**
+ * Splits a ticker's strikes into open and settled groups, each sorted by
+ * strike ascending. Used by the Trade page's strike list (T065 follow-up)
+ * so settled rows ("Yes won"/"No won") don't sit interleaved with open
+ * ones, which reads as if an open market had already been decided.
+ * `allSettled` is true only when there's at least one strike and every one
+ * of them has settled, letting the caller render the plain, undivided list
+ * it already shows once the trading day is fully done.
+ */
+export function groupStrikesBySettlement<T extends { state: "open" | "settled"; strike: bigint }>(
+  markets: readonly T[],
+): StrikeGroups<T> {
+  const sortByStrike = (a: T, b: T) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0);
+  const open: T[] = [];
+  const settled: T[] = [];
+  for (const market of markets) {
+    (market.state === "settled" ? settled : open).push(market);
+  }
+  return {
+    open: open.sort(sortByStrike),
+    settled: settled.sort(sortByStrike),
+    allSettled: markets.length > 0 && settled.length === markets.length,
+  };
+}
+
 export type TickerLifecycle = "none" | "open" | "pending" | "settled";
 
 /**

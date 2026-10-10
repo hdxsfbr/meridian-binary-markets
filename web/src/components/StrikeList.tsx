@@ -14,6 +14,7 @@ import { useEffect, useState } from "react";
 import type { PublicKey } from "@solana/web3.js";
 import { bookPda, decodeBook, type Book } from "@meridian/sdk";
 import { formatPrice, formatStrike, impliedProbability, oppositePrice, payoutMultiple } from "@/lib/format";
+import { groupStrikesBySettlement } from "@/lib/markets";
 import { representativeYesQuote } from "@/lib/book-quote";
 import { PROGRAM_ID } from "@/lib/rpc";
 import type { MarketAccount } from "@/hooks/useMarkets";
@@ -49,6 +50,22 @@ function atTheMoneyKey(markets: MarketAccount[], lastPriceMicro: bigint | undefi
 export function StrikeList({ markets, selected, onSelect, lastPriceMicro }: StrikeListProps) {
   const program = useProgram();
   const [books, setBooks] = useState<Record<string, Book | null>>({});
+  const [settledExpanded, setSettledExpanded] = useState(false);
+
+  const selectedKey = selected?.toBase58() ?? null;
+  useEffect(() => {
+    if (selectedKey === null) {
+      return;
+    }
+    const market = markets.find((m) => m.pubkey.toBase58() === selectedKey);
+    if (market?.state === "settled") {
+      setSettledExpanded(true);
+    }
+    // Only ever auto-*expands* (never auto-collapses) when the selected strike
+    // turns out to be a settled one, so the selection stays visible; `markets`
+    // itself isn't a dependency since it's a new array every poll.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedKey]);
 
   useEffect(() => {
     let cancelled = false;
@@ -88,9 +105,80 @@ export function StrikeList({ markets, selected, onSelect, lastPriceMicro }: Stri
   }
 
   const atmKey = atTheMoneyKey(markets, lastPriceMicro);
+  const groups = groupStrikesBySettlement(markets);
+  // A divider only earns its place once there's something on both sides of
+  // it to separate; once every strike has settled (the trading day is done)
+  // there's nothing left to separate it from, so the list renders flat, same
+  // as before this grouping existed.
+  const showDivider = !groups.allSettled && groups.open.length > 0 && groups.settled.length > 0;
 
   function selectRow(market: MarketAccount) {
     onSelect(market);
+  }
+
+  function renderRow(market: MarketAccount) {
+    const key = market.pubkey.toBase58();
+    const quote = representativeYesQuote(books[key] ?? null);
+    const isSelected = selected !== null && selected.equals(market.pubkey);
+    const isAtm = atmKey === key;
+    const isSettled = market.state === "settled";
+    const rowClasses = [
+      "cursor-pointer border-b border-border/60 last:border-b-0 outline-none focus-visible:ring-2 focus-visible:ring-focus",
+      isSelected ? "bg-surface-raised" : isAtm ? "bg-cyan/5" : "",
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    return (
+      <tr
+        key={key}
+        role="row"
+        tabIndex={0}
+        aria-selected={isSelected}
+        onClick={() => selectRow(market)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            selectRow(market);
+          }
+        }}
+        className={rowClasses}
+      >
+        <td className="num px-3 py-2">
+          {formatStrike(market.strike)}
+          {isAtm ? <span className="ml-2 rounded-sm bg-cyan/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan">Near price</span> : null}
+        </td>
+        <td className="num px-3 py-2">
+          {isSettled ? (
+            <span className={market.outcome === "yes" ? "font-medium text-yes" : "text-text-muted"}>
+              {market.outcome === "yes" ? "Yes won" : "—"}
+            </span>
+          ) : (
+            (quote !== undefined ? formatPrice(quote.price) : "—")
+          )}
+        </td>
+        <td className="num px-3 py-2">
+          {isSettled ? (
+            <span className={market.outcome === "no" ? "font-medium text-no" : "text-text-muted"}>
+              {market.outcome === "no" ? "No won" : "—"}
+            </span>
+          ) : (
+            (quote !== undefined ? formatPrice(oppositePrice(quote.price)) : "—")
+          )}
+        </td>
+        <td className="num px-3 py-2">
+          {!isSettled && quote !== undefined ? (
+            <div className="flex flex-col">
+              <span>{impliedProbability(quote.price)}</span>
+              <span className="text-[10px] font-normal text-text-muted">{quote.fromAsk ? "to buy Yes" : "last bid"}</span>
+            </div>
+          ) : (
+            "—"
+          )}
+        </td>
+        <td className="num px-3 py-2">{!isSettled && quote !== undefined ? payoutMultiple(quote.price) : "—"}</td>
+      </tr>
+    );
   }
 
   return (
@@ -108,70 +196,31 @@ export function StrikeList({ markets, selected, onSelect, lastPriceMicro }: Stri
           </tr>
         </thead>
         <tbody>
-          {markets.map((market) => {
-            const key = market.pubkey.toBase58();
-            const quote = representativeYesQuote(books[key] ?? null);
-            const isSelected = selected !== null && selected.equals(market.pubkey);
-            const isAtm = atmKey === key;
-            const isSettled = market.state === "settled";
-            const rowClasses = [
-              "cursor-pointer border-b border-border/60 last:border-b-0 outline-none focus-visible:ring-2 focus-visible:ring-focus",
-              isSelected ? "bg-surface-raised" : isAtm ? "bg-cyan/5" : "",
-            ]
-              .filter(Boolean)
-              .join(" ");
-
-            return (
-              <tr
-                key={key}
-                role="row"
-                tabIndex={0}
-                aria-selected={isSelected}
-                onClick={() => selectRow(market)}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" || e.key === " ") {
-                    e.preventDefault();
-                    selectRow(market);
-                  }
-                }}
-                className={rowClasses}
-              >
-                <td className="num px-3 py-2">
-                  {formatStrike(market.strike)}
-                  {isAtm ? <span className="ml-2 rounded-sm bg-cyan/15 px-1.5 py-0.5 text-[10px] font-medium text-cyan">Near price</span> : null}
-                </td>
-                <td className="num px-3 py-2">
-                  {isSettled ? (
-                    <span className={market.outcome === "yes" ? "font-medium text-yes" : "text-text-muted"}>
-                      {market.outcome === "yes" ? "Yes won" : "—"}
-                    </span>
-                  ) : (
-                    (quote !== undefined ? formatPrice(quote.price) : "—")
-                  )}
-                </td>
-                <td className="num px-3 py-2">
-                  {isSettled ? (
-                    <span className={market.outcome === "no" ? "font-medium text-no" : "text-text-muted"}>
-                      {market.outcome === "no" ? "No won" : "—"}
-                    </span>
-                  ) : (
-                    (quote !== undefined ? formatPrice(oppositePrice(quote.price)) : "—")
-                  )}
-                </td>
-                <td className="num px-3 py-2">
-                  {!isSettled && quote !== undefined ? (
-                    <div className="flex flex-col">
-                      <span>{impliedProbability(quote.price)}</span>
-                      <span className="text-[10px] font-normal text-text-muted">{quote.fromAsk ? "to buy Yes" : "last bid"}</span>
+          {groups.allSettled ? (
+            groups.settled.map((market) => renderRow(market))
+          ) : (
+            <>
+              {groups.open.map((market) => renderRow(market))}
+              {showDivider ? (
+                <tr key="settled-divider" className="border-b border-border/60 bg-surface-raised/40">
+                  <td className="px-3 py-1.5 text-xs text-text-muted" colSpan={5}>
+                    <div className="flex items-center gap-2">
+                      <span>Settled</span>
+                      <button
+                        type="button"
+                        aria-expanded={settledExpanded}
+                        onClick={() => setSettledExpanded((prev) => !prev)}
+                        className="text-xs font-medium text-cyan outline-none hover:underline focus-visible:ring-2 focus-visible:ring-focus"
+                      >
+                        {settledExpanded ? "Hide settled" : `${groups.settled.length} settled strikes`}
+                      </button>
                     </div>
-                  ) : (
-                    "—"
-                  )}
-                </td>
-                <td className="num px-3 py-2">{!isSettled && quote !== undefined ? payoutMultiple(quote.price) : "—"}</td>
-              </tr>
-            );
-          })}
+                  </td>
+                </tr>
+              ) : null}
+              {showDivider && settledExpanded ? groups.settled.map((market) => renderRow(market)) : null}
+            </>
+          )}
         </tbody>
       </table>
     </div>
