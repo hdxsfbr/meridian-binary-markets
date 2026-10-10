@@ -26,9 +26,12 @@ const BURN_DISCRIMINANT = 8;
 const CLOSE_ACCOUNT_DISCRIMINANT = 9;
 
 function burnInstruction(tokenProgram: PublicKey, tokenAccount: PublicKey, mint: PublicKey, owner: PublicKey, amount: bigint): TransactionInstruction {
-  const data = Buffer.alloc(9);
-  data.writeUInt8(BURN_DISCRIMINANT, 0);
-  data.writeBigUInt64LE(amount, 1);
+  // DataView, not Buffer.writeBigUInt64LE: the browser Buffer polyfill lacks
+  // the BigInt writers (the SDK avoids them for the same reason).
+  const bytes = new Uint8Array(9);
+  bytes[0] = BURN_DISCRIMINANT;
+  new DataView(bytes.buffer).setBigUint64(1, amount, true);
+  const data = Buffer.from(bytes);
   return {
     programId: tokenProgram,
     keys: [
