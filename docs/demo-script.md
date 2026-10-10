@@ -52,6 +52,20 @@ docker exec ... -e PHASE=post ... e2e/record-demo.mts
 docker exec -w /work/web meridian-web-devnet-e2e bash e2e/stitch-demo.sh /work/design/demo
 ```
 
+## Narration for the recorded cut (2 min 44 s)
+
+| Time | Scene | Say |
+| --- | --- | --- |
+| 0:00–0:03 | Title | This is Meridian: binary markets on the daily close, built on Solana. |
+| 0:03–0:21 | Landing, Markets | Every market asks one question: will a stock close at or above a price today? Each contract has a Yes side and a No side, and together they always pay exactly one dollar. You buy the side you believe for less than a dollar; if you're right, it's worth a dollar at the close. Here's today's board, with one strike per card and the rest a click away. |
+| 0:21–0:24 | Card | First, where liquidity comes from. |
+| 0:24–1:20 | Maker | A market maker deposits one dollar per pair and mints a Yes and a No token. Those dollars sit in the market's vault on chain, not with us. The maker then quotes both sides: offering to sell Yes at fifty-five cents, and to buy Yes at forty-five. Every quote is an on-chain order on a single book, so the No side is just one minus the Yes price. Each action is one wallet signature, and the app confirms it as soon as the transaction lands. |
+| 1:20–1:23 | Card | Now a trader takes a side. |
+| 1:23–1:46 | Taker | A second wallet opens the market, sees a fifty-five percent chance to buy Yes, and buys three contracts at the quoted price. The trade fills against the maker's order, the confirmation shows exactly what executed, and the position appears in the portfolio. |
+| 1:46–1:47 | Card | Then the close. |
+| 1:47–2:41 | Settlement, redemption | At the close, trading stops on chain. The settlement service fetches the closing price from the Pyth oracle, posts it to Solana, and the program settles every market against it. This one closed below the strike, so No wins. Winners redeem at a dollar per token: the maker collects ten dollars with one signature, and the balance updates. Losers' tokens are simply worth zero. No custody, no margin, no counterparty: the vault pays the winning side and nothing else. |
+| 2:41–2:45 | End | Program, order book, oracle settlement and redemption, all on Solana devnet. Meridian. |
+
 The sections below are the original narrated walkthrough and remain valid for a live demo.
 
 ## Why two tracks, not one
