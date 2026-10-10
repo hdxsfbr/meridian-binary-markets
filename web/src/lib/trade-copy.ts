@@ -217,6 +217,12 @@ export function quotesCancelledToastTitle(count: number): string {
 }
 
 /** "Collected $2.00 from AAPL $345" -- a single redeem (winning or pair). */
+/** "Minted 5 pairs on AAPL $345 for $5.00" -- Mint pair on Portfolio's Your quotes. */
+export function mintedPairsToastTitle(qty: bigint, ticker: string, strikeMicro: bigint): string {
+  const pairs = qty === 1n ? "1 pair" : `${qty} pairs`;
+  return `Minted ${pairs} on ${ticker} ${formatStrike(strikeMicro)} for ${formatUsd(qty * 1_000_000n)}`;
+}
+
 export function redeemCollectedToastTitle(amountMicro: bigint, ticker: string, strikeMicro: bigint): string {
   return `Collected ${formatUsd(amountMicro)} from ${ticker} ${formatStrike(strikeMicro)}`;
 }

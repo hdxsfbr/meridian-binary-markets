@@ -25,7 +25,7 @@ import {
 } from "@/lib/redeem-tx";
 import { chunk, planRedeemAll, redeemableMicro, REDEEM_ALL_CHUNK_SIZE } from "@/lib/redeem-all";
 import { fetchUsdcMint, mapSendError, placeOrder, sendTx, type BuildCtx } from "@/lib/tx";
-import { redeemAllCollectedToastTitle, redeemCollectedToastTitle, removedFromWalletToastTitle } from "@/lib/trade-copy";
+import { redeemAllCollectedToastTitle, redeemCollectedToastTitle, removedFromWalletToastTitle, mintedPairsToastTitle } from "@/lib/trade-copy";
 import { removeFromWallet } from "@/lib/remove-from-wallet";
 import { useToast } from "@/components/ui/Toast";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
@@ -156,6 +156,7 @@ export default function PortfolioPage() {
         await mintPair(program, connection, sendTransaction, publicKey, market, usdcMint, qty);
         setBalanceTick((n) => n + 1);
         refresh();
+        notify({ title: mintedPairsToastTitle(qty, market.ticker, market.strike), tone: "success" });
       } catch (err) {
         setActionError(err instanceof Error ? err.message : "Minting pair did not go through. Please try again.");
       } finally {

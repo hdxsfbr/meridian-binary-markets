@@ -103,11 +103,11 @@ async function pre(browser: Browser): Promise<void> {
   // Scene 2: landing + markets.
   {
     const page = await newPage(browser, "02-markets");
-    await page.goto(`${BASE}/`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/`, { waitUntil: "load" });
     await page.waitForTimeout(7000);
     await slowScroll(page, 1400);
     await page.waitForTimeout(1500);
-    await page.goto(`${BASE}/markets`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/markets`, { waitUntil: "load" });
     await page.waitForTimeout(4000);
     const btn = page.getByRole("button", { name: /more strike/ }).first();
     if (await btn.count()) {
@@ -122,35 +122,45 @@ async function pre(browser: Browser): Promise<void> {
   // Scene 4: maker mints and quotes on Portfolio.
   {
     const page = await newPage(browser, "04-maker", MAKER);
-    await page.goto(`${BASE}/portfolio`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await connect(page);
-    await page.waitForTimeout(3000);
-    await page.getByRole("heading", { name: "Your quotes" }).scrollIntoViewIfNeeded();
+    await page.waitForTimeout(6000); // let positions and each market's token program resolve
+    const quotes = page.getByRole("heading", { name: "Your quotes" });
+    await quotes.scrollIntoViewIfNeeded();
     await page.waitForTimeout(1000);
-    const marketSelect = page.locator("select").first();
-    const options = await marketSelect.locator("option").allInnerTexts();
-    const wanted = options.find((o) => o.includes(TICKER) && o.includes(STRIKE));
-    if (wanted) await marketSelect.selectOption({ label: wanted });
+    const mintSelect = page.getByLabel(/^Market/).first();
+    const optionLabel = (await mintSelect.locator("option").allInnerTexts()).find((o) => o.includes(TICKER) && o.includes(STRIKE));
+    if (optionLabel) await mintSelect.selectOption({ label: optionLabel });
     await page.waitForTimeout(800);
     await page.getByLabel(/Pairs to mint/).fill("5");
     await page.waitForTimeout(600);
-    await page.getByRole("button", { name: "Mint pair", exact: true }).click();
-    await waitForToast(page, /Minted|pairs?/i).catch(() => page.waitForTimeout(60_000));
-    await page.waitForTimeout(1500);
-    // Quotes: sell 5 Yes at 0.55, buy 5 Yes at 0.45 (the form labels live in MakerQuoteForm).
-    const askPrice = page.getByLabel(/Sell.*price|Ask price|Sell price/i).first();
-    const askQty = page.getByLabel(/Sell.*quantity|Ask quantity|Sell qty/i).first();
-    const bidPrice = page.getByLabel(/Buy.*price|Bid price|Buy price/i).first();
-    const bidQty = page.getByLabel(/Buy.*quantity|Bid quantity|Buy qty/i).first();
-    if (await askPrice.count()) {
-      await askPrice.fill("0.55");
-      await askQty.fill("5");
-      await bidPrice.fill("0.45");
-      await bidQty.fill("5");
-      await page.waitForTimeout(800);
-      await page.getByRole("button", { name: /Place quotes/ }).click();
-      await waitForToast(page, /Quotes placed/i).catch(() => page.waitForTimeout(90_000));
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      await page.getByRole("button", { name: "Mint pair", exact: true }).click();
+      const outcome = await Promise.race([
+        page.getByRole("status").filter({ hasText: /Minted/ }).first().waitFor({ timeout: 120_000 }).then(() => "ok"),
+        page.getByText("Still checking this market").waitFor({ timeout: 120_000 }).then(() => "retry"),
+      ]).catch(() => "timeout");
+      if (outcome === "ok") break;
+      if (outcome === "retry") { await page.waitForTimeout(5000); continue; }
+      break;
     }
+    await page.waitForTimeout(2500);
+    // Quotes: offer to sell 5 Yes at 0.55 and to buy 5 Yes at 0.45, queued then submitted together.
+    const form = page.locator("form").filter({ has: page.getByRole("button", { name: "Add to queue" }) }).first();
+    await form.scrollIntoViewIfNeeded();
+    const strikeSelect = form.getByLabel(/^Strike/);
+    const strikeLabel = (await strikeSelect.locator("option").allInnerTexts()).find((o) => o.includes(TICKER) && o.includes(STRIKE));
+    if (strikeLabel) await strikeSelect.selectOption({ label: strikeLabel });
+    for (const [side, price] of [["Offer to sell Yes at", "0.55"], ["Offer to buy Yes at", "0.45"]] as const) {
+      await form.getByLabel(/^Side/).selectOption({ label: side });
+      await form.getByLabel(/^Price/).fill(price);
+      await form.getByLabel(/^Quantity/).fill("5");
+      await page.waitForTimeout(700);
+      await form.getByRole("button", { name: "Add to queue" }).click();
+      await page.waitForTimeout(900);
+    }
+    await page.getByRole("button", { name: "Submit queued quotes" }).click();
+    await waitForToast(page, /Quotes placed/).catch(() => page.waitForTimeout(120_000));
     await page.waitForTimeout(2500);
     await finish(page, "04-maker");
   }
@@ -160,7 +170,7 @@ async function pre(browser: Browser): Promise<void> {
   // Scene 6: taker buys Yes on the Trade page.
   {
     const page = await newPage(browser, "06-taker", TAKER);
-    await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "load" });
     await page.waitForTimeout(5000);
     await connect(page);
     await page.waitForTimeout(2500);
@@ -169,7 +179,7 @@ async function pre(browser: Browser): Promise<void> {
     await page.getByRole("button", { name: "Buy Yes", exact: true }).click();
     await waitForToast(page, /Bought/).catch(() => page.waitForTimeout(90_000));
     await page.waitForTimeout(2000);
-    await page.goto(`${BASE}/portfolio`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await page.waitForTimeout(5000);
     await finish(page, "06-taker");
   }
@@ -181,11 +191,11 @@ async function post(browser: Browser): Promise<void> {
   // Scene 8: settled markets and redemption.
   {
     const page = await newPage(browser, "08-settled", TAKER);
-    await page.goto(`${BASE}/markets`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/markets`, { waitUntil: "load" });
     await page.waitForTimeout(4000);
-    await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "load" });
     await page.waitForTimeout(4000);
-    await page.goto(`${BASE}/portfolio`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await connect(page);
     await page.waitForTimeout(4000);
     const redeem = page.getByRole("button", { name: /Redeem winning|Redeem all/ }).first();
@@ -196,7 +206,7 @@ async function post(browser: Browser): Promise<void> {
       await waitForToast(page, /Collected/).catch(() => page.waitForTimeout(90_000));
     }
     await page.waitForTimeout(2500);
-    await page.goto(`${BASE}/history`, { waitUntil: "networkidle" });
+    await page.goto(`${BASE}/history`, { waitUntil: "load" });
     await page.waitForTimeout(4000);
     await finish(page, "08-settled");
   }

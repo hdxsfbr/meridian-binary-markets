@@ -35,15 +35,50 @@ export async function GET(request: Request): Promise<Response> {
   if (hit !== undefined && Date.now() - hit.at < CACHE_TTL_MS) {
     return Response.json(hit.body);
   }
+  const body = await fetchPricesTolerant(ids, key);
+  if (body === null) {
+    return Response.json({ error: "price source unavailable" }, { status: 502 });
+  }
+  cache.set(cacheKey, { at: Date.now(), body });
+  return Response.json(body);
+}
+
+/** Feed ids Hermes has refused as "not entitled" (status 403), skipped for a while so one
+ *  ungranted feed never blanks every other price in the batch. */
+const unentitled = new Map<string, number>();
+const UNENTITLED_TTL_MS = 10 * 60_000;
+
+async function fetchBatch(ids: string[], key: string): Promise<{ ok: true; body: unknown } | { ok: false; status: number; text: string }> {
   const query = ids.map((id) => `ids[]=${id}`).join("&");
   const upstream = await fetch(`${HERMES_URL}/v2/updates/price/latest?${query}&parsed=true`, {
     headers: { Authorization: `Bearer ${key}` },
     cache: "no-store",
   });
   if (!upstream.ok) {
-    return Response.json({ error: `price source returned ${upstream.status}` }, { status: 502 });
+    return { ok: false, status: upstream.status, text: await upstream.text().catch(() => "") };
   }
-  const body = hermesToDisplayPrices(await upstream.json());
-  cache.set(cacheKey, { at: Date.now(), body });
-  return Response.json(body);
+  return { ok: true, body: await upstream.json() };
+}
+
+/**
+ * Fetches the batch, dropping any feed Hermes reports as not entitled (it names the id in
+ * its 403 body) and retrying with the rest, up to the number of ids. Returns the prices it
+ * could get (possibly empty), or null only when the source is down for every id.
+ */
+async function fetchPricesTolerant(ids: string[], key: string): Promise<Record<string, DisplayPrice> | null> {
+  const now = Date.now();
+  let remaining = ids.filter((id) => {
+    const until = unentitled.get(id);
+    return until === undefined || until < now;
+  });
+  for (let attempt = 0; attempt <= ids.length; attempt += 1) {
+    if (remaining.length === 0) return {};
+    const result = await fetchBatch(remaining, key);
+    if (result.ok) return hermesToDisplayPrices(result.body);
+    const match = result.status === 403 ? /([0-9a-f]{64})/i.exec(result.text) : null;
+    if (match === null) return attempt === 0 ? null : {};
+    unentitled.set(match[1].toLowerCase(), now + UNENTITLED_TTL_MS);
+    remaining = remaining.filter((id) => id.toLowerCase() !== match[1].toLowerCase());
+  }
+  return {};
 }
