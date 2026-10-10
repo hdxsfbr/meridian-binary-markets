@@ -151,12 +151,22 @@ async function pre(browser: Browser): Promise<void> {
     const strikeSelect = form.getByLabel(/^Strike/);
     const strikeLabel = (await strikeSelect.locator("option").allInnerTexts()).find((o) => o.includes(TICKER) && o.includes(STRIKE));
     if (strikeLabel) await strikeSelect.selectOption({ label: strikeLabel });
-    for (const [side, price] of [["Offer to sell Yes at", "0.55"], ["Offer to buy Yes at", "0.45"]] as const) {
-      await form.getByLabel(/^Side/).selectOption({ label: side });
-      await form.getByLabel(/^Price/).fill(price);
-      await form.getByLabel(/^Quantity/).fill("5");
-      await page.waitForTimeout(700);
-      await form.getByRole("button", { name: "Add to queue" }).click();
+    const addButton = form.getByRole("button", { name: "Add to queue" });
+    await addButton.waitFor({ state: "visible" });
+    for (let i = 0; i < 60 && !(await addButton.isEnabled()); i += 1) await page.waitForTimeout(1000);
+    for (const [side, price, rowText] of [["Offer to sell Yes at", "0.55", "Sell Yes"], ["Offer to buy Yes at", "0.45", "Buy Yes"]] as const) {
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        await form.getByLabel(/^Side/).selectOption({ label: side });
+        await page.waitForTimeout(400);
+        await form.getByLabel(/^Price/).fill(price);
+        await form.getByLabel(/^Quantity/).fill("5");
+        await page.waitForTimeout(700);
+        await addButton.click();
+        const queued = await page.locator("tr", { hasText: rowText }).filter({ hasText: `$${price}` }).first()
+          .waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
+        if (queued) break;
+        await page.waitForTimeout(1500);
+      }
       await page.waitForTimeout(900);
     }
     await page.getByRole("button", { name: "Submit queued quotes" }).click();

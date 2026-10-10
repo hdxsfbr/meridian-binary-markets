@@ -1,11 +1,12 @@
 #!/bin/bash
 # Stitches the scenes recorded by record-demo.mts (PHASE=pre then PHASE=post)
-# into one MP4. Run inside the dev container:
-#   docker exec -w /work/web meridian-web-devnet-e2e bash e2e/stitch-demo.sh /work/design/demo
+# into one MP4. Needs an ffmpeg with libx264: the host's /usr/bin/ffmpeg has it,
+# Playwright's bundled build does not (VP8 only), so run this on the host:
+#   bash web/e2e/stitch-demo.sh design/demo
 # Output: <dir>/meridian-demo.mp4 (H.264, 1440x900, 30 fps) and <dir>/scenes.txt.
 set -euo pipefail
 DIR="${1:-/work/design/demo}"
-FFMPEG="${FFMPEG:-$(ls /opt/pw-browsers/ffmpeg-*/ffmpeg-linux 2>/dev/null | head -1)}"
+FFMPEG="${FFMPEG:-$(command -v ffmpeg || ls /opt/pw-browsers/ffmpeg-*/ffmpeg-linux 2>/dev/null | head -1)}"
 [ -x "$FFMPEG" ] || { echo "ffmpeg not found"; exit 1; }
 cd "$DIR"
 : > scenes.txt
