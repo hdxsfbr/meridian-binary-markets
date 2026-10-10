@@ -12,6 +12,7 @@ NARR="${2:?narration dir}"
 FFMPEG="${FFMPEG:-/usr/bin/ffmpeg}"
 FFPROBE="${FFPROBE:-/usr/bin/ffprobe}"
 TAIL_AIR="${TAIL_AIR:-0.4}"
+SLACK="${SLACK:-2.0}"
 cd "$DIR"
 : > narrated.txt
 for f in $(ls *.webm | sort); do
@@ -20,12 +21,25 @@ for f in $(ls *.webm | sort); do
   clip="$NARR/$n.wav"
   if [ -f "$clip" ]; then
     adur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$clip")
-    need=$(python3 -c "print(max(float('$vdur'), float('$adur') + float('$TAIL_AIR')))")
-    pad=$(python3 -c "print(max(0.0, float('$need') - float('$vdur')))")
-    "$FFMPEG" -y -loglevel error -i "$f" -i "$clip" \
-      -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,fps=30,tpad=stop_mode=clone:stop_duration=${pad}[v];[1:a]aresample=48000,apad[a]" \
-      -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
-    echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s"
+    # Footage much longer than its narration (devnet confirmation stalls) is time-compressed
+    # down to narration + SLACK so the voice never trails off into silence; footage shorter
+    # than its narration is held on the last frame.
+    target=$(python3 -c "print(float('$adur') + float('$SLACK'))")
+    if python3 -c "import sys; sys.exit(0 if float('$vdur') > float('$target') else 1)"; then
+      factor=$(python3 -c "print(float('$target') / float('$vdur'))")
+      need="$target"
+      "$FFMPEG" -y -loglevel error -i "$f" -i "$clip" \
+        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,setpts=PTS*${factor},fps=30[v];[1:a]aresample=48000,apad[a]" \
+        -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
+      echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s (compressed x$(python3 -c "print(round(1/float('$factor'),2))"))"
+    else
+      need=$(python3 -c "print(max(float('$vdur'), float('$adur') + float('$TAIL_AIR')))")
+      pad=$(python3 -c "print(max(0.0, float('$need') - float('$vdur')))")
+      "$FFMPEG" -y -loglevel error -i "$f" -i "$clip" \
+        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,fps=30,tpad=stop_mode=clone:stop_duration=${pad}[v];[1:a]aresample=48000,apad[a]" \
+        -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
+      echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s"
+    fi
   else
     "$FFMPEG" -y -loglevel error -i "$f" -f lavfi -i anullsrc=r=48000:cl=stereo \
       -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,fps=30[v]" \
