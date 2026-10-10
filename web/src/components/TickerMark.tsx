@@ -28,7 +28,9 @@ export function TickerMark({ ticker, size = 28 }: TickerMarkProps) {
     >
       {svg !== undefined ? (
         <span
-          className="flex items-center justify-center"
+          // Safari collapses an unsized inline SVG inside a flex box; force the
+          // SVG to fill this box explicitly.
+          className="flex items-center justify-center [&>svg]:block [&>svg]:h-full [&>svg]:w-full"
           style={{ width: iconSize, height: iconSize }}
           // eslint-disable-next-line react/no-danger -- inlined build-time SVG from src/lib/ticker-marks.ts, not user input
           dangerouslySetInnerHTML={{ __html: svg }}
