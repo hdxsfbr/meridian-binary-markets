@@ -10,9 +10,9 @@
 mod common;
 
 use anchor_lang::prelude::Pubkey;
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
-use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo, Transfer as TokenTransfer};
+use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo};
 use solana_keypair::Keypair;
 
 use meridian::errors::MeridianError;
@@ -81,9 +81,10 @@ fn send_mint_pair(
         no_mint,
         vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &yes_mint),
-        user_no: get_associated_token_address(&user_pk, &no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -115,9 +116,10 @@ fn send_redeem_pair(
         no_mint,
         vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &yes_mint),
-        user_no: get_associated_token_address(&user_pk, &no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -156,7 +158,8 @@ fn send_redeem_winning(
         vault,
         user_usdc,
         user_winning,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
     };
     let data = meridian::instruction::RedeemWinning { side, qty };
     let ix = build_ix(meridian::ID, accounts, data);
@@ -168,7 +171,7 @@ fn send_redeem_winning(
 /// for `user`: `yes_mint`'s ATA for `side == 1`, `no_mint`'s for `side == 2`.
 fn winning_ata(user: &Keypair, yes_mint: Pubkey, no_mint: Pubkey, side: u8) -> Pubkey {
     let mint = if side == 1 { yes_mint } else { no_mint };
-    get_associated_token_address(&user.pubkey_pk(), &mint)
+    get_associated_token_address_with_program_id(&user.pubkey_pk(), &mint, &anchor_spl::token_2022::ID)
 }
 
 /// Calls `pause()`, signed by `signer` (private copy of other test files' helper, per
@@ -261,11 +264,11 @@ fn settle_with_price(env: &mut Env, market: Pubkey, close_ts: i64, price_micro: 
 }
 
 fn yes_balance(env: &Env, user: &Keypair, yes_mint: Pubkey) -> u64 {
-    read_token_amount(env, get_associated_token_address(&user.pubkey_pk(), &yes_mint))
+    read_token_amount(env, get_associated_token_address_with_program_id(&user.pubkey_pk(), &yes_mint, &anchor_spl::token_2022::ID))
 }
 
 fn no_balance(env: &Env, user: &Keypair, no_mint: Pubkey) -> u64 {
-    read_token_amount(env, get_associated_token_address(&user.pubkey_pk(), &no_mint))
+    read_token_amount(env, get_associated_token_address_with_program_id(&user.pubkey_pk(), &no_mint, &anchor_spl::token_2022::ID))
 }
 
 /// Sets up one `Env` with an initialized config, one open AAPL market at `strike`, and
@@ -588,7 +591,7 @@ fn after_all_yes_redeemed_vault_is_empty_and_invariant_holds() {
     .expect("redeem_winning should succeed");
 
     assert_eq!(read_token_amount(&s.env, s.market.vault), 0);
-    let yes_mint_account: anchor_spl::token::Mint = s.env.fetch(s.market.yes_mint);
+    let yes_mint_account: anchor_spl::token_interface::Mint = s.env.fetch(s.market.yes_mint);
     assert_eq!(yes_mint_account.supply, 0);
     // vault.amount >= yes_mint.supply holds trivially: 0 >= 0.
     assert!(read_token_amount(&s.env, s.market.vault) >= yes_mint_account.supply);
@@ -623,7 +626,7 @@ fn redeem_pair_after_settlement_still_works_for_a_both_sides_holder_and_redeem_w
 
     // User A then redeems their winning Yes via redeem_winning; the vault must still
     // have enough to pay them (vault.amount >= yes_mint.supply before this redemption).
-    let yes_mint_account: anchor_spl::token::Mint = s.env.fetch(s.market.yes_mint);
+    let yes_mint_account: anchor_spl::token_interface::Mint = s.env.fetch(s.market.yes_mint);
     assert!(read_token_amount(&s.env, s.market.vault) >= yes_mint_account.supply);
 
     let a_usdc_before = read_token_amount(&s.env, s.user_a_usdc);
@@ -675,14 +678,17 @@ fn holder_who_only_received_yes_by_transfer_and_never_minted_redeems_successfull
     let user_c_usdc = create_usdc_ata(&mut s.env, &user_c);
     let yes_mint_addr = addr(s.market.yes_mint);
     let user_c_yes_addr = CreateAssociatedTokenAccount::new(&mut s.env.svm, &user_c, &yes_mint_addr)
+        .token_program_id(&addr(anchor_spl::token_2022::ID))
         .send()
         .expect("create user C's Yes ata should succeed");
     let user_c_yes = pk(user_c_yes_addr);
 
     let user_a = s.user_a.insecure_clone();
-    TokenTransfer::new(&mut s.env.svm, &user_a, &yes_mint_addr, &user_c_yes_addr, 4 * ONE_USDC)
-        .owner(&user_a)
-        .send()
+    let user_a_yes = get_associated_token_address_with_program_id(&user_a.pubkey_pk(), &s.market.yes_mint, &anchor_spl::token_2022::ID);
+    let transfer_ix =
+        yes_no_transfer_checked_ix(s.market.yes_mint, user_a_yes, pk(user_c_yes_addr), user_a.pubkey_pk(), 4 * ONE_USDC);
+    s.env
+        .send(&[transfer_ix], &[&user_a])
         .expect("transfer of Yes from user A to user C should succeed");
     assert_eq!(read_token_amount(&s.env, user_c_yes), 4 * ONE_USDC);
 

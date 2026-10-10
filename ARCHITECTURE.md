@@ -105,11 +105,18 @@ account lists: `specs/001-binary-outcome-markets/contracts/program-instructions.
 | Account | Seeds | Size | Notes |
 | --- | --- | --- | --- |
 | `Config` | `["config"]` | 539 bytes incl. 8-byte discriminator | Singleton: admin authority, pause flag, oracle provider + program, publisher allowlist, guard thresholds, listed tickers, default book capacity |
-| `Market` | `["market", ticker, trading_day u32 LE, strike u64 LE]` | 196 bytes | One per ticker/strike/trading-day: state, outcome, settlement price, the two SPL mints, the vault, a pointer to its `Book` |
+| `Market` | `["market", ticker, trading_day u32 LE, strike u64 LE]` | 196 bytes | One per ticker/strike/trading-day: state, outcome, settlement price, the two SPL mints, the vault, a pointer to its `Book`. The two mint fields are plain `Pubkey`s — `Market`'s layout carries no field saying which token program owns them; that is read at runtime from each mint account's own `owner` (see the PDA note below), unchanged by the Token-2022 migration (`DECISIONS.md` §29) |
 | `Book` | `["book", market]` | `8 + 120 + 2*capacity*64` — 2,176 bytes at capacity 16, 16,512 bytes at capacity 128 | Raw account, not an Anchor `#[account]` (its own 8-byte discriminator is the literal `b"MERIBOOK"`); fixed header plus variable-capacity bid/ask arrays of price-time-ordered orders. Verified directly against `programs/meridian/src/state/book.rs`'s own `book_space()` and its unit tests (`book_space_for_demo_scale_capacity_16`, `book_space_for_default_capacity_128`) |
 | `MockPriceUpdate` | `["mock_price", feed_id]` | — | One per feed ID, mock-provider only; mirrors the fields a real Pyth `PriceUpdateV2` would carry |
 
 Other PDAs seeded by market: `yes_mint`, `no_mint`, `vault`, `escrow_usdc`, `escrow_yes`.
+`yes_mint`/`no_mint` are **Token-2022** (with a `MetadataPointer` + on-mint `TokenMetadata`, and a
+`MintCloseAuthority` making them closable) for every market `create_market`/`add_strike` creates
+from this upgrade onward; they are **classic SPL Token** (no metadata, not closable) for every
+market created before it. Nothing in `Market` distinguishes the two — every instruction that
+touches a mint reads its actual `owner` at call time
+(`state::market::require_matching_token_program`) and takes the matching code path, so old and
+new markets are handled automatically (`DECISIONS.md` §29).
 
 **How to refresh:** `grep -n "pub struct\|book_space" programs/meridian/src/state/*.rs`, or run
 `pnpm --filter @meridian/scripts run rent-estimate` inside the dev container for live
@@ -268,15 +275,33 @@ reclaimed rather than accumulating forever (`DECISIONS.md` §6). Two mechanics:
   settled more than a day earlier.
 
 **What is reclaimed and what is not.** `close_book`/`close_market` return rent for the `Market`
-account, its `Book`, its collateral vault, and its two order-escrow accounts. They do **not**
-close the market's two SPL token mints (the Yes mint and the No mint, created by `create_market`)
-— classic SPL mints have no close instruction in the token program the way a token *account*
-does, so every market this system ever creates permanently retains two 82-byte mint accounts and
-their rent (approximately 0.0014616 SOL each, approximately 0.0029 SOL per market at today's rent
-rate). This is a small, indefinitely accumulating cost with no reclaim path today: roughly 45
-markets/day (the default 7-ticker ladder) adds on the order of 0.13 SOL/day in permanently locked
-rent, scaling linearly with however many days the deployment runs. Nothing in this system
-reclaims it.
+account, its `Book`, its collateral vault, and its two order-escrow accounts. Whether they also
+return the market's two SPL token mints' rent now depends on when the market was created
+(`DECISIONS.md` §29):
+- **Legacy markets** (created before the Token-2022 migration): their Yes/No mints are classic
+  SPL Token, which has no close instruction for a mint the way it does for a token *account*, so
+  `close_market` leaves them in place — every such market permanently retains two 82-byte mint
+  accounts and their rent (approximately 0.0014616 SOL each, approximately 0.0029 SOL per market
+  at today's rent rate), with no reclaim path. This is unchanged by the migration.
+- **New markets** (created by this upgrade's `create_market`/`add_strike`): their Yes/No mints
+  are Token-2022 with a `MintCloseAuthority` extension (authority = market PDA). `close_market`
+  closes whichever mint is already at zero supply *at that moment* — almost always the winning
+  side, since its holders redeem it for USDC — and returns its rent to the admin. The losing
+  side is almost never at zero supply yet (its holders are left with worthless tokens they have
+  no urgent reason to act on), so `close_market` leaves it in place and deletes `Market` anyway;
+  the permissionless `reclaim_mint` instruction closes it later, once enough holders have burned
+  it via "Remove from wallet" (`web/src/components/PositionRow.tsx`) to bring its supply to zero
+  — `reclaim_mint` re-derives the market PDA from its seeds alone, so it works even after
+  `Market` is gone. Nothing is *permanently* locked for a new market, but the two mints are not
+  necessarily reclaimed at the same time.
+
+For legacy markets the old arithmetic still holds: roughly 45 markets/day (the default 7-ticker
+ladder) adds on the order of 0.13 SOL/day in permanently locked rent, scaling linearly with
+however many days the deployment ran on classic mints before the migration landed. The
+Token-2022 mint's exact byte size (fixed extensions plus the variable-length on-mint name/symbol
+metadata) is larger than the classic mint's 82 bytes, but not pinned down here to an exact
+figure — see `programs/meridian/src/instructions/create_market.rs`'s `init_token_metadata` for
+how that size is computed per mint at creation time.
 
 ## 5. Automation
 
@@ -288,7 +313,7 @@ One Node process (`services/automation`), scheduled with `node-cron` in `America
 | `publisher` (mock provider only) | `* * * * *`, gated 09:25-16:10 ET | `mock_write_price` from Finnhub + Nasdaq disagreement as confidence |
 | `extend` | `*/5 * * * 1-5`, gated 09:35-15:45 ET | For each ticker with markets already created today, adds one strike $10 above/below the ladder's edge after two consecutive ticks within $5 of that edge; capped at 2 added strikes per ticker per day; never removes a strike (`DECISIONS.md` §27) |
 | `settle` | `30 0 16 * * 1-5` (16:00:30 ET) | `provider.publish` then `settle_market` per open market, retrying every 30 seconds for 15 minutes, then alerting |
-| `reclaim` | `0 20 * * 1-5` (20:00 ET) | `close_book`/`close_market` for markets settled over a day ago with empty books/vaults |
+| `reclaim` | `0 20 * * 1-5` (20:00 ET) | `close_book`/`close_market` for markets settled over a day ago with empty books/vaults, then `reclaim_mint` for both of that market's Yes/No mints (best effort; the losing side usually isn't reclaimable yet) |
 
 The same job code is exposed as CLI entry points
 (`pnpm --filter automation run job <morning|settle|publisher|extend|reclaim>`), used by both the
@@ -366,12 +391,24 @@ Locally, `compose.yml`'s `dev` service is the only supported path; Docker is the
 (`DECISIONS.md` §7) — nothing needs installing on the host except Docker, Compose, Make, and
 Bash.
 
-**Mint-rent arithmetic, worked through an example.** Each market permanently retains two SPL
-mints (Yes, No) at 82 bytes each, about 0.0014616 SOL rent per mint at today's rent rate, so about
-0.0029 SOL per market that can never be reclaimed. At the default 7-ticker, ~45-market-per-day
-ladder, that is on the order of 0.13 SOL/day, growing linearly with the number of days the
-deployment runs, since nothing in the system closes a mint. This is the one rent cost that is not
-recycled by the nightly `reclaim` job — see §4 above and `KEY_METRICS.md` §F.
+**Mint-rent arithmetic, worked through an example.** This now splits by when a market was
+created (`DECISIONS.md` §29). A **legacy market** (created before the Token-2022 migration)
+permanently retains two classic SPL mints (Yes, No) at 82 bytes each, about 0.0014616 SOL rent
+per mint at today's rent rate, so about 0.0029 SOL per market that can never be reclaimed — at
+the default 7-ticker, ~45-market-per-day ladder, on the order of 0.13 SOL/day, growing linearly
+with however many days that deployment ran on classic mints. For those markets this is still the
+one rent cost not recycled by the nightly `reclaim` job. A **new market** (created by this
+upgrade's `create_market`/`add_strike`) is different: its Yes/No mints are Token-2022 with a
+`MintCloseAuthority` extension. `close_market` closes whichever mint is already at zero supply —
+typically the winner — and the permissionless `reclaim_mint` instruction closes the other
+(typically the loser) once enough holders have burned it to bring its supply to zero; the
+`reclaim` job attempts `reclaim_mint` for both mints right after it closes a market, and
+`web/src/components/PositionRow.tsx`'s "Remove from wallet" is what actually gets a losing
+mint's supply to zero. Nothing about a new market's mints is *permanently* locked, but the two
+are not necessarily reclaimed in the same run. The Token-2022 mint is larger than the classic mint's 82
+bytes (two fixed extensions plus variable-length on-mint metadata), but that exact byte count
+isn't pinned down here — see `programs/meridian/src/instructions/create_market.rs` for how it's
+computed per mint. See §4 above and `KEY_METRICS.md` §F.
 
 ## 8. Security and trust assumptions
 

@@ -226,4 +226,10 @@ export function redeemAllCollectedToastTitle(amountMicro: bigint, marketCount: n
   return `Collected ${formatUsd(amountMicro)} across ${marketCount.toString()} market${marketCount === 1 ? "" : "s"}`;
 }
 
+/** "Removed 5 No tokens; rent returned" -- "Remove from wallet" on a settled losing position. */
+export function removedFromWalletToastTitle(qty: bigint, side: "yes" | "no"): string {
+  const label = side === "yes" ? "Yes" : "No";
+  return `Removed ${qty.toString()} ${label} token${qty === 1n ? "" : "s"}; rent returned`;
+}
+
 export const VIEW_IN_PORTFOLIO = "View in Portfolio";

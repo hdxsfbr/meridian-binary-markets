@@ -742,3 +742,93 @@ badge computed from the live price; a synthetic chart remains only as the fallba
 data exists. Every animation collapses to its end state under `prefers-reduced-motion`.
 **Trade-off:** The hero now makes two data requests on load (prices and one ticker's history,
 cached server-side), acceptable for the one page meant to impress.
+
+## 29. Yes/No mints move to Token-2022, with metadata and a close authority, via a runtime owner check rather than a `Market` field
+
+**Date:** 2026-10-09
+**Context:** Every market's Yes/No mints were classic SPL Token, with no name/symbol/image and
+no close instruction — the exact gap behind §25's "a closed market's key can never be reused":
+`close_market` reclaims the Market, Book, vault and escrows, but a classic mint has no
+`close_account` path, so its rent-bearing account survives forever and a later `create_market`
+for the same (ticker, day, strike) collides on "account already in use" at the mint PDA even
+though no `Market` exists anymore. Token-2022's `MintCloseAuthority` extension closes that gap
+directly, and its native `TokenMetadata` extension gives wallets a name/symbol for the first time
+without a separate program.
+**Decision:** `create_market`/`add_strike` now unconditionally create Yes/No mints on Token-2022
+(6 decimals, mint authority = market PDA) with two extensions — `MetadataPointer` (self-pointing)
+and `MintCloseAuthority` (= market PDA) — plus a hand-rolled on-mint `TokenMetadata`
+(name `"<TICKER> ≥ $<strike> <Yes|No> <YYYY-MM-DD>"` with a compact fallback that never truncates
+the strike digits or the date, symbol `<TICKER>Y`/`<TICKER>N`, empty uri), initialized via a
+mint-account realloc and rent top-up before the CPI (the fixed-size extensions are declarative
+Anchor constraints; the variable-length metadata is not, in this anchor-lang version).
+`close_market`'s reclaim path now closes a Yes/No mint — returning its rent — when it is
+Token-2022 and has zero supply; it still skips a classic-Token mint with a log line, since those
+have no close authority extension and cannot be closed this way.
+**Mint lifecycle, precisely (added after an audit review, 2026-10-09):** at the moment
+`close_market` runs, the winning side's mint is almost always already at zero supply (holders
+redeemed it via `redeem_winning` for USDC) and gets closed inline, in the same instruction, as
+described above. The losing side's mint is a different story: its holders are left with
+worthless tokens they have no urgent reason to act on, so it is almost never at zero supply yet —
+and `close_market` still deletes `Market` regardless, since nothing about the vault/book/escrow
+invariants it actually checks depends on the Yes/No mints' supply. Without a further step, that
+losing mint's rent would be stuck forever: there is no other instruction that can CPI
+`close_account` with the market PDA as `authority` once `Market` itself is gone. The permissionless
+`reclaim_mint(ticker, trading_day, strike, side)` instruction (`instructions/reclaim_mint.rs`)
+closes that gap: it re-derives the market PDA straight from the seeds alone (signing a CPI only
+ever needs the seeds/bump, never a live account at that address) and closes the named mint once
+its supply reaches zero and its `MintCloseAuthority` still names that PDA — regardless of whether
+`Market` still exists (it checks the market is at least settled and `book_closed` if so). The
+user-signed half of this is `web/src/components/PositionRow.tsx`'s "Remove from wallet" action on
+a settled losing position: a plain burn + `close_account` (works for classic and Token-2022
+alike) that brings the mint's supply down, paid for and triggered by whichever holder cares to
+free up their own rent-exempt token account. `services/automation/src/jobs/reclaim.ts`'s `reclaim`
+job attempts `reclaim_mint` for both mints right after it closes a market in the same run (the
+winning one typically already closed, failing harmlessly; the losing one succeeding once enough
+holders have burned theirs) — it does not yet retry this for a market closed in an *earlier* run,
+since by then `Market` is gone and this job only discovers markets via `fetchSettledMarkets`
+(which only returns `Market` accounts that still exist); that gap is documented in `reclaim.ts`'s
+module doc comment as a manual path (look the market up via the event index, confirm the losing
+mint's supply is zero, call `reclaim_mint` directly) pending a cheap way to enumerate already-closed
+markets. A classic-Token market's mints are never reclaimable at all — `reclaim_mint` rejects a
+non-Token-2022 mint outright — and stay on chain, rent-locked, forever, exactly as before this
+upgrade.
+`Market`'s account layout is
+**unchanged** — no new field, no migration instruction. Which token program owns a market's
+mints is derived at runtime from the mint account's own `owner`
+(`state::market::require_matching_token_program`, checked by every instruction that touches a
+mint), so a classic-Token market created before this upgrade and a Token-2022 market created
+after it are simply two code paths inside the same instructions, selected automatically — every
+existing/legacy market keeps trading with zero migration steps, zero downtime, and no admin
+action required.
+**Rejected alternative (Market field + migration instruction):** add a `token_program: Pubkey`
+field to `Market` plus a `migrate_market` admin instruction to realloc every existing open market
+once. Rejected because `Market` has no reserved padding (its `InitSpace` derive puts it at 196
+bytes on chain today — ARCHITECTURE.md §3's accounts table), so growing it needs a realloc
+anyway, which the runtime-owner check avoids entirely while reaching the identical
+backward-compatibility goal with strictly less surface area (no new instruction, no admin
+runbook step, no account-version discriminant to keep straight) and no meaningful added cost (one
+extra owner comparison per instruction, not worth weighing against the CU budget below).
+**Rejected alternative (Metaplex Token Metadata):** the older, separate-account metadata
+standard was rejected in favor of Token-2022's native metadata extension because the data lives
+inside the mint account itself (no extra rent-bearing PDA per mint), there's no third-party
+program fee or dependency, and the mint becomes closable via the same token-2022 program
+(`MintCloseAuthority`) — a Metaplex-metadata mint is not, which would have left the §25 fix out of
+reach.
+**§25 relationship — fixes it for new markets only, not retroactively.** Every market created
+from now on gets a mint PDA whose rent-bearing account is actually closed (not just drained) once
+`close_market` runs with zero supply, so a later `create_market` for the same (ticker, day,
+strike) no longer collides on "account already in use." Markets created before this upgrade still
+have classic, non-closable mints; the §25 collision risk for *those* markets is unchanged — this
+upgrade does not reach back and fix mints that already exist.
+**Test fixtures:** no devnet-dumped `.so` fixture was needed for the new Token-2022 test coverage.
+litesvm 0.12.0 already bundles Token-2022 (`TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb1`) in its
+default loaded programs alongside classic Token — verified against litesvm's own
+`load_default_programs` source before implementation started, rather than assumed.
+**Trade-off:** `cargo test -p meridian --tests` is 287 passed (including the Token-2022,
+legacy-fixture, and `reclaim_mint` test files); `create_market`'s compute units measured at
+93,309 (program-measured via litesvm), comfortably inside any compute-budget concern, so no
+client-side compute-budget instruction is needed anywhere because of this change. The compiled
+binary grew from 623,328 bytes (pre-migration) to 732,672 bytes (about 109 KB, ~17.5%, including
+`reclaim_mint`) from the extension/metadata code and the new instruction, which raises the devnet
+program-data rent and means the next upgrade-deploy needs its program-data account extended by
+roughly that size delta before the new binary can be written to it (`docs/deployment.md` §1).

@@ -35,6 +35,7 @@ function row(overrides: Partial<PositionRowData> & { marketKey: string }): Posit
     yesMint: pk("yes"),
     noMint: pk("no"),
     vault: pk("vault"),
+    yesNoTokenProgram: pk("token-program"),
     ...overrides,
   };
 }

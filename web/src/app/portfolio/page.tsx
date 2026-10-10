@@ -25,14 +25,21 @@ import {
 } from "@/lib/redeem-tx";
 import { chunk, planRedeemAll, redeemableMicro, REDEEM_ALL_CHUNK_SIZE } from "@/lib/redeem-all";
 import { fetchUsdcMint, mapSendError, placeOrder, sendTx, type BuildCtx } from "@/lib/tx";
-import { redeemAllCollectedToastTitle, redeemCollectedToastTitle } from "@/lib/trade-copy";
+import { redeemAllCollectedToastTitle, redeemCollectedToastTitle, removedFromWalletToastTitle } from "@/lib/trade-copy";
+import { removeFromWallet } from "@/lib/remove-from-wallet";
 import { useToast } from "@/components/ui/Toast";
 import type { MarketLike, PositionRowData } from "@/lib/positions-view";
 import { restingTotalsByMarket, type MyOrderRow } from "@/lib/maker-view";
 import type { QuoteSide } from "@/components/MakerQuoteForm";
 
 function toRedeemMarket(row: PositionRowData): RedeemMarket {
-  return { pubkey: row.marketPubkey, yesMint: row.yesMint, noMint: row.noMint, vault: row.vault };
+  return {
+    pubkey: row.marketPubkey,
+    yesMint: row.yesMint,
+    noMint: row.noMint,
+    vault: row.vault,
+    yesNoTokenProgram: row.yesNoTokenProgram,
+  };
 }
 import { useConfig } from "@/hooks/useConfig";
 import { useMyOrders } from "@/hooks/useMyOrders";
@@ -136,6 +143,13 @@ export default function PortfolioPage() {
       if (!publicKey || !usdcMint) {
         return;
       }
+      // `market.yesNoTokenProgram` is an unverified placeholder until the
+      // batched on-chain read confirms it (usePositions.ts) -- minting
+      // against it would derive the wrong ATA for a Token-2022 market.
+      if (market.yesNoTokenProgramUnknown) {
+        setActionError("Still checking this market's token program. Try again in a moment.");
+        return;
+      }
       setActionError(null);
       setMinting(true);
       try {
@@ -177,9 +191,18 @@ export default function PortfolioPage() {
       if (!publicKey) {
         throw new Error("Connect a wallet to trade.");
       }
+      if (market.yesNoTokenProgramUnknown) {
+        throw new Error("Still checking this market's token program. Try again in a moment.");
+      }
       try {
         const usdcMint = await fetchUsdcMint(program);
-        const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint };
+        const ctx: BuildCtx = {
+          program,
+          user: publicKey,
+          market: market.pubkey,
+          usdcMint,
+          yesNoTokenProgram: market.yesNoTokenProgram,
+        };
         const ix = await placeOrder(ctx, {
           side: side === "bid" ? PlaceOrderSide.Bid : PlaceOrderSide.Ask,
           price: priceMicro,
@@ -218,6 +241,33 @@ export default function PortfolioPage() {
       }
     },
     [publicKey, usdcMint, program, connection, sendTransaction, refresh, notify],
+  );
+
+  /** Yes/No mints are always 6 decimals (`create_market.rs`); `row.yes`/`row.no` are whole contracts. */
+  const YES_NO_BASE_UNITS_PER_CONTRACT = 1_000_000n;
+
+  const handleRemoveFromWallet = useCallback(
+    async (row: (typeof rows)[number], side: "yes" | "no") => {
+      if (!publicKey) {
+        return;
+      }
+      setActionError(null);
+      setRedeemingKey(`${row.marketKey}:remove:${side}`);
+      try {
+        const mint = side === "yes" ? row.yesMint : row.noMint;
+        const qty = side === "yes" ? row.yes : row.no;
+        const tokenAccount = associatedTokenAddress(publicKey, mint, row.yesNoTokenProgram);
+        await removeFromWallet(connection, sendTransaction, publicKey, mint, tokenAccount, row.yesNoTokenProgram, qty * YES_NO_BASE_UNITS_PER_CONTRACT);
+        setBalanceTick((n) => n + 1);
+        refresh();
+        notify({ title: removedFromWalletToastTitle(qty, side), tone: "success" });
+      } catch (err) {
+        setActionError(err instanceof Error ? err.message : "Removing from wallet did not go through. Please try again.");
+      } finally {
+        setRedeemingKey(null);
+      }
+    },
+    [publicKey, connection, sendTransaction, refresh, notify],
   );
 
   /**
@@ -390,8 +440,10 @@ export default function PortfolioPage() {
                 row={row}
                 onRedeemPair={() => handleRedeemPair(row)}
                 onRedeemWinning={() => handleRedeemWinning(row)}
+                onRemoveFromWallet={(side) => handleRemoveFromWallet(row, side)}
                 redeemingPair={redeemingKey === `${row.marketKey}:pair`}
                 redeemingWinning={redeemingKey === `${row.marketKey}:winning`}
+                removingFromWallet={redeemingKey === `${row.marketKey}:remove:yes` || redeemingKey === `${row.marketKey}:remove:no`}
                 busy={busy}
                 costBasisPending={!historyLoaded}
               />
@@ -408,8 +460,10 @@ export default function PortfolioPage() {
                 row={row}
                 onRedeemPair={() => handleRedeemPair(row)}
                 onRedeemWinning={() => handleRedeemWinning(row)}
+                onRemoveFromWallet={(side) => handleRemoveFromWallet(row, side)}
                 redeemingPair={redeemingKey === `${row.marketKey}:pair`}
                 redeemingWinning={redeemingKey === `${row.marketKey}:winning`}
+                removingFromWallet={redeemingKey === `${row.marketKey}:remove:yes` || redeemingKey === `${row.marketKey}:remove:no`}
                 busy={busy}
                 costBasisPending={!historyLoaded}
               />
@@ -426,8 +480,10 @@ export default function PortfolioPage() {
                 row={row}
                 onRedeemPair={() => handleRedeemPair(row)}
                 onRedeemWinning={() => handleRedeemWinning(row)}
+                onRemoveFromWallet={(side) => handleRemoveFromWallet(row, side)}
                 redeemingPair={redeemingKey === `${row.marketKey}:pair`}
                 redeemingWinning={redeemingKey === `${row.marketKey}:winning`}
+                removingFromWallet={redeemingKey === `${row.marketKey}:remove:yes` || redeemingKey === `${row.marketKey}:remove:no`}
                 busy={busy}
                 costBasisPending={!historyLoaded}
               />

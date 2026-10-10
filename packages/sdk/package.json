@@ -29,6 +29,7 @@
     "#pnl": "./src/pnl.ts",
     "#program-id": "./src/program-id.ts",
     "#strikes": "./src/strikes.ts",
+    "#token": "./src/token.ts",
     "#types": "./src/types.ts"
   },
   "scripts": {

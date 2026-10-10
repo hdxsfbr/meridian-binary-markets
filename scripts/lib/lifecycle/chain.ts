@@ -27,6 +27,7 @@ import AnchorLangCore from "@anchor-lang/core";
 import {
   IDL,
   PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
   bookPda,
   configPda,
   decodeBook,
@@ -34,6 +35,7 @@ import {
   mockPricePda,
   noMintPda,
   tickerSymbolBytes,
+  tokenProgramForMint,
   usdcEscrowPda,
   vaultPda,
   yesEscrowPda,
@@ -64,6 +66,8 @@ export interface MarketAccountDecoded {
   book: PublicKey;
   bookCapacity: number;
   pairsOutstanding: bigint;
+  /** Token program owning `yesMint`/`noMint` -- classic for a legacy market, Token-2022 for one `createMarket`/`addStrike` created (every market, going forward). Resolved from chain by `fetchMarket`, not stored on-chain. */
+  yesNoTokenProgram: PublicKey;
 }
 
 export interface ConfigAccountDecoded {
@@ -103,7 +107,12 @@ function outcomeFromVariant(v: unknown): "Unset" | "Yes" | "No" {
   return "Unset";
 }
 
-function decodeMarket(raw: Record<string, unknown>): MarketAccountDecoded {
+/**
+ * `yesNoTokenProgram` is not stored on-chain (see `MarketAccountDecoded`'s
+ * doc comment) -- the caller (`fetchMarket`) resolves it separately via an
+ * RPC call and passes it in here, since this decoder has no connection.
+ */
+function decodeMarket(raw: Record<string, unknown>, yesNoTokenProgram: PublicKey): MarketAccountDecoded {
   return {
     ticker: tickerFromSymbolBytes(raw.ticker as number[]),
     strike: bnToBigint(raw.strike),
@@ -118,6 +127,7 @@ function decodeMarket(raw: Record<string, unknown>): MarketAccountDecoded {
     book: raw.book as PublicKey,
     bookCapacity: Number(raw.bookCapacity),
     pairsOutstanding: bnToBigint(raw.pairsOutstanding),
+    yesNoTokenProgram,
   };
 }
 
@@ -261,7 +271,9 @@ export class LifecycleChain {
 
   async fetchMarket(market: PublicKey): Promise<MarketAccountDecoded | null> {
     const raw = await this.program.account.market.fetchNullable(market);
-    return raw ? decodeMarket(raw) : null;
+    if (!raw) return null;
+    const yesNoTokenProgram = await tokenProgramForMint(this.connection, raw.yesMint as PublicKey);
+    return decodeMarket(raw, yesNoTokenProgram);
   }
 
   async fetchBook(book: PublicKey): Promise<Book> {
@@ -293,7 +305,12 @@ export class LifecycleChain {
         usdcEscrow: accts.usdcEscrow,
         yesEscrow: accts.yesEscrow,
         usdcMint: this.usdcMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        // `createMarket` always creates Token-2022 Yes/No mints (every
+        // market created from the migration on; see create_market.rs's
+        // module doc) -- there is no existing mint to resolve a token
+        // program from here.
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
@@ -376,20 +393,20 @@ export class LifecycleChain {
     return associatedTokenAddress(owner, this.usdcMint);
   }
 
-  yesAtaAddress(owner: PublicKey, yesMint: PublicKey): PublicKey {
-    return associatedTokenAddress(owner, yesMint);
+  yesAtaAddress(owner: PublicKey, yesMint: PublicKey, tokenProgram: PublicKey): PublicKey {
+    return associatedTokenAddress(owner, yesMint, tokenProgram);
   }
 
-  noAtaAddress(owner: PublicKey, noMint: PublicKey): PublicKey {
-    return associatedTokenAddress(owner, noMint);
+  noAtaAddress(owner: PublicKey, noMint: PublicKey, tokenProgram: PublicKey): PublicKey {
+    return associatedTokenAddress(owner, noMint, tokenProgram);
   }
 
   /** `mint_pair(qty)`: USDC in, Yes+No out. */
   async mintPair(user: Keypair, market: PublicKey, m: MarketAccountDecoded, qty: bigint): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
-    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint);
-    const userNo = this.noAtaAddress(user.publicKey, m.noMint);
+    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
+    const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
     await this.program.methods
       .mintPair(new BN(qty.toString()))
       .accountsStrict({
@@ -402,7 +419,8 @@ export class LifecycleChain {
         userUsdc,
         userYes,
         userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -423,7 +441,7 @@ export class LifecycleChain {
   ): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
-    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint);
+    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
     await this.program.methods
       .placeOrder(side, new BN(price.toString()), new BN(qty.toString()), tif)
       .accountsStrict({
@@ -436,7 +454,8 @@ export class LifecycleChain {
         userUsdc,
         yesMint: m.yesMint,
         userYes,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -456,8 +475,8 @@ export class LifecycleChain {
   ): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
-    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint);
-    const userNo = this.noAtaAddress(user.publicKey, m.noMint);
+    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
+    const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
     await this.program.methods
       .buyNoMarket(new BN(qty.toString()), new BN(minYesPrice.toString()))
       .accountsStrict({
@@ -473,7 +492,8 @@ export class LifecycleChain {
         userUsdc,
         userYes,
         userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -493,8 +513,8 @@ export class LifecycleChain {
   ): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
-    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint);
-    const userNo = this.noAtaAddress(user.publicKey, m.noMint);
+    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
+    const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
     await this.program.methods
       .sellNoMarket(new BN(qty.toString()), new BN(maxYesPrice.toString()))
       .accountsStrict({
@@ -510,7 +530,8 @@ export class LifecycleChain {
         userUsdc,
         userYes,
         userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -523,7 +544,7 @@ export class LifecycleChain {
   async cancelOrder(owner: Keypair, market: PublicKey, m: MarketAccountDecoded, orderId: bigint): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(owner.publicKey);
-    const userYes = this.yesAtaAddress(owner.publicKey, m.yesMint);
+    const userYes = this.yesAtaAddress(owner.publicKey, m.yesMint, m.yesNoTokenProgram);
     await this.program.methods
       .cancelOrder(new BN(orderId.toString()))
       .accountsStrict({
@@ -532,9 +553,11 @@ export class LifecycleChain {
         book: m.book,
         usdcEscrow: accts.usdcEscrow,
         yesEscrow: accts.yesEscrow,
+        yesMint: m.yesMint,
         userUsdc,
         userYes,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
       })
       .signers([owner])
       .rpc();
@@ -549,7 +572,7 @@ export class LifecycleChain {
     qty: bigint,
   ): Promise<void> {
     const winningMint = side === 1 ? m.yesMint : m.noMint;
-    const userWinning = associatedTokenAddress(user.publicKey, winningMint);
+    const userWinning = associatedTokenAddress(user.publicKey, winningMint, m.yesNoTokenProgram);
     await this.program.methods
       .redeemWinning(side, new BN(qty.toString()))
       .accountsStrict({
@@ -560,7 +583,8 @@ export class LifecycleChain {
         vault: m.vault,
         userUsdc: await this.usdcAta(user.publicKey),
         userWinning,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
       })
       .signers([user])
       .rpc();
@@ -570,8 +594,8 @@ export class LifecycleChain {
   async redeemPair(user: Keypair, market: PublicKey, m: MarketAccountDecoded, qty: bigint): Promise<void> {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
-    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint);
-    const userNo = this.noAtaAddress(user.publicKey, m.noMint);
+    const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
+    const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
     await this.program.methods
       .redeemPair(new BN(qty.toString()))
       .accountsStrict({
@@ -584,7 +608,8 @@ export class LifecycleChain {
         userUsdc,
         userYes,
         userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: m.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })

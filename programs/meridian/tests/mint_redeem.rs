@@ -8,9 +8,9 @@
 mod common;
 
 use anchor_lang::prelude::Pubkey;
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
-use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo, Transfer as TokenTransfer};
+use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo};
 use solana_keypair::Keypair;
 
 use meridian::errors::MeridianError;
@@ -87,9 +87,10 @@ fn send_mint_pair(
         no_mint,
         vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &yes_mint),
-        user_no: get_associated_token_address(&user_pk, &no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -122,9 +123,10 @@ fn send_redeem_pair(
         no_mint,
         vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &yes_mint),
-        user_no: get_associated_token_address(&user_pk, &no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -258,12 +260,12 @@ fn settle_with_good_price(env: &mut Env, market: Pubkey, close_ts: i64) -> Pubke
 }
 
 fn yes_balance(env: &Env, user: &Keypair, yes_mint: Pubkey) -> u64 {
-    let ata = get_associated_token_address(&user.pubkey_pk(), &yes_mint);
+    let ata = get_associated_token_address_with_program_id(&user.pubkey_pk(), &yes_mint, &anchor_spl::token_2022::ID);
     read_token_amount(env, ata)
 }
 
 fn no_balance(env: &Env, user: &Keypair, no_mint: Pubkey) -> u64 {
-    let ata = get_associated_token_address(&user.pubkey_pk(), &no_mint);
+    let ata = get_associated_token_address_with_program_id(&user.pubkey_pk(), &no_mint, &anchor_spl::token_2022::ID);
     read_token_amount(env, ata)
 }
 
@@ -722,7 +724,7 @@ fn redeem_pair_after_settlement_pays_exact_amount_and_holds_winning_supply_invar
 
     // The on-chain invariant the instruction itself enforced: vault.amount >=
     // winning_mint.supply (both base units, no scaling). Re-derive and check it here too.
-    let yes_mint_account: anchor_spl::token::Mint = env.fetch(market.yes_mint);
+    let yes_mint_account: anchor_spl::token_interface::Mint = env.fetch(market.yes_mint);
     assert_eq!(read_token_amount(&env, market.vault), yes_mint_account.supply);
 }
 
@@ -881,7 +883,7 @@ fn mint_with_user_yes_ata_belonging_to_another_wallet_is_refused_and_state_uncha
 
     let other_wallet = new_user(&mut env);
     // Another wallet's Yes ATA for this same market -- a valid address, just not `user`'s.
-    let other_wallet_yes = get_associated_token_address(&other_wallet.pubkey_pk(), &market.yes_mint);
+    let other_wallet_yes = get_associated_token_address_with_program_id(&other_wallet.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID);
 
     let usdc_before = read_token_amount(&env, user_usdc);
     let vault_before = read_token_amount(&env, market.vault);
@@ -896,8 +898,9 @@ fn mint_with_user_yes_ata_belonging_to_another_wallet_is_refused_and_state_uncha
         vault: market.vault,
         user_usdc,
         user_yes: other_wallet_yes,
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -940,13 +943,13 @@ fn redeem_with_sufficient_yes_but_insufficient_no_rolls_back_entirely() {
     // Drain 1 No token away to another wallet, leaving the user with 2 Yes but only 1 No.
     let other_wallet = new_user(&mut env);
     let other_no_ata = CreateAssociatedTokenAccount::new(&mut env.svm, &other_wallet, &addr(market.no_mint))
+        .token_program_id(&addr(anchor_spl::token_2022::ID))
         .send()
         .expect("create other wallet's No ata should succeed");
     let user_clone = user.insecure_clone();
-    TokenTransfer::new(&mut env.svm, &user_clone, &addr(market.no_mint), &other_no_ata, 1_000_000)
-        .owner(&user_clone)
-        .source(&addr(get_associated_token_address(&user.pubkey_pk(), &market.no_mint)))
-        .send()
+    let user_no_ata = get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.no_mint, &anchor_spl::token_2022::ID);
+    let drain_ix = yes_no_transfer_checked_ix(market.no_mint, user_no_ata, pk(other_no_ata), user.pubkey_pk(), 1_000_000);
+    env.send(&[drain_ix], &[&user_clone])
         .expect("draining 1 No token to another wallet should succeed");
 
     assert_eq!(yes_balance(&env, &user, market.yes_mint), 2_000_000);

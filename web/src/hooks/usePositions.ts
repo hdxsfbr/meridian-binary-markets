@@ -17,7 +17,7 @@
 import { useCallback, useContext, useEffect, useRef, useState } from "react";
 import { PublicKey, type Connection } from "@solana/web3.js";
 import { bookPda, buildPositions, decodeBook, summarize, tickerFromBytes, type Position, type PositionSummary } from "@meridian/sdk";
-import { TOKEN_PROGRAM_ID } from "@/lib/ata";
+import { TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "@/lib/ata";
 import { refreshEventCacheDetailed, requestFreshEventCacheSync } from "@/lib/events-cache";
 import {
   buildPositionRows,
@@ -49,17 +49,26 @@ async function allMarketInventories(
   wallet: PublicKey,
 ): Promise<Map<string, { available: AvailableBalance; restingYes: bigint }>> {
   const balancesByMint = new Map<string, bigint>();
-  try {
-    const owned = await connection.getTokenAccountsByOwner(wallet, { programId: TOKEN_PROGRAM_ID }, "confirmed");
-    for (const { account } of owned.value) {
-      const data = Uint8Array.from(account.data);
-      if (data.length < 72) continue;
-      const mint = new PublicKey(data.subarray(0, 32)).toBase58();
-      const amount = new DataView(data.buffer, data.byteOffset + 64, 8).getBigUint64(0, true);
-      balancesByMint.set(mint, (balancesByMint.get(mint) ?? 0n) + amount);
+  // Two calls, not one: a market's Yes/No mint is classic SPL Token (legacy)
+  // or Token-2022 (every market since the migration), and a wallet can hold
+  // both kinds at once. Token-2022's token-account layout is a strict
+  // superset of classic's (TLV extensions appended after the same 165-byte
+  // base layout), so the same mint/amount offsets below decode either --
+  // merging into one `balancesByMint` by mint address string is safe since a
+  // given mint only ever belongs to one program.
+  for (const programId of [TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID]) {
+    try {
+      const owned = await connection.getTokenAccountsByOwner(wallet, { programId }, "confirmed");
+      for (const { account } of owned.value) {
+        const data = Uint8Array.from(account.data);
+        if (data.length < 72) continue;
+        const mint = new PublicKey(data.subarray(0, 32)).toBase58();
+        const amount = new DataView(data.buffer, data.byteOffset + 64, 8).getBigUint64(0, true);
+        balancesByMint.set(mint, (balancesByMint.get(mint) ?? 0n) + amount);
+      }
+    } catch {
+      // RPC flake: treat as no balances this round, same tolerance as before.
     }
-  } catch {
-    // RPC flake: treat as no balances this round, same tolerance as before.
   }
 
   const bookAddresses = markets.map((market) => bookPda(PROGRAM_ID, market.pubkey)[0]);
@@ -126,7 +135,27 @@ function toBigInt(value: BnLike): bigint {
   return BigInt(value.toString());
 }
 
+/**
+ * Markets' verified Yes/No token program, keyed by market base58 --
+ * module-scoped so it survives across `load()` runs (every run re-decodes
+ * `Market` accounts from scratch) and across hook remounts. Only a
+ * successful `getMultipleAccountsInfo` read in `attachYesNoTokenPrograms`
+ * ever writes here; a failed round reads it but never overwrites or clears
+ * it, so a real earlier verification is never lost to one bad RPC round.
+ */
+const verifiedMarketTokenProgramCache = new Map<string, PublicKey>();
+
+/**
+ * `yesNoTokenProgram` is not stored on-chain (see `MarketLike`'s doc
+ * comment) -- decode first from the cache above (falling back to the
+ * classic placeholder only for a market never yet verified), then
+ * `attachYesNoTokenPrograms` below confirms/refreshes it from a single
+ * batched on-chain read before the market list is ever shown or built into
+ * rows. `yesNoTokenProgramUnknown` is true exactly when this market has
+ * never been verified at all (not even in a previous round).
+ */
 function decodeMarket(pubkey: PublicKey, raw: RawMarket): MarketLike {
+  const cached = verifiedMarketTokenProgramCache.get(pubkey.toBase58());
   return {
     pubkey,
     ticker: tickerFromBytes(Uint8Array.from(raw.ticker)),
@@ -139,7 +168,52 @@ function decodeMarket(pubkey: PublicKey, raw: RawMarket): MarketLike {
     yesMint: raw.yesMint,
     noMint: raw.noMint,
     vault: raw.vault,
+    yesNoTokenProgram: cached ?? TOKEN_PROGRAM_ID,
+    yesNoTokenProgramUnknown: cached === undefined,
   };
+}
+
+/**
+ * Resolves every market's actual Yes/No token program (classic vs
+ * Token-2022) in one batched `getMultipleAccountsInfo` call per 100 markets
+ * -- the Yes mint's own account `owner`, the same thing the on-chain program
+ * checks at call time (no new field, no migration instruction; see
+ * `create_market.rs`'s module doc). A market whose Yes mint can't be read
+ * this round keeps whatever was previously verified in
+ * `verifiedMarketTokenProgramCache` (still `yesNoTokenProgramUnknown:
+ * false`, since that earlier verification is real); one that has *never*
+ * been verified stays `yesNoTokenProgramUnknown: true` rather than
+ * publishing the classic placeholder as if it were confirmed (the audited
+ * bug: inventory scanning could still find Token-2022 balances while
+ * redemption/quote builders derived classic ATAs from the placeholder and
+ * submitted failing transactions).
+ */
+async function attachYesNoTokenPrograms(connection: Connection, markets: readonly MarketLike[]): Promise<MarketLike[]> {
+  const resolvedThisRound = new Map<string, PublicKey>();
+  for (let i = 0; i < markets.length; i += 100) {
+    const slice = markets.slice(i, i + 100);
+    try {
+      const infos = await connection.getMultipleAccountsInfo(slice.map((m) => m.yesMint), "confirmed");
+      infos.forEach((info, j) => {
+        if (info !== null) {
+          const key = slice[j].pubkey.toBase58();
+          resolvedThisRound.set(key, info.owner);
+          verifiedMarketTokenProgramCache.set(key, info.owner);
+        }
+      });
+    } catch {
+      // RPC flake: these markets fall through to the cache below.
+    }
+  }
+  return markets.map((market) => {
+    const key = market.pubkey.toBase58();
+    const verified = resolvedThisRound.get(key) ?? verifiedMarketTokenProgramCache.get(key);
+    return {
+      ...market,
+      yesNoTokenProgram: verified ?? market.yesNoTokenProgram,
+      yesNoTokenProgramUnknown: verified === undefined,
+    };
+  });
 }
 
 export type UsePositionsResult = {
@@ -250,7 +324,13 @@ export function usePositionsPolling(wallet: PublicKey | null, skip = false): Use
         return; // a newer load superseded this one
       }
 
-      const decodedMarkets = rawMarkets.map(({ publicKey, account }) => decodeMarket(publicKey, account));
+      const decodedMarkets = await attachYesNoTokenPrograms(
+        connection,
+        rawMarkets.map(({ publicKey, account }) => decodeMarket(publicKey, account)),
+      );
+      if (generationRef.current !== generation) {
+        return;
+      }
       setMarkets(decodedMarkets);
 
       // Available (wallet ATAs) and escrowed (resting asks) inventory,

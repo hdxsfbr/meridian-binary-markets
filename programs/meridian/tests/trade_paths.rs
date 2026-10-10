@@ -13,7 +13,7 @@ mod common;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{AnchorDeserialize, Discriminator, InstructionData, ToAccountMetas};
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
 use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo};
 use solana_instruction::account_meta::AccountMeta as SdkAccountMeta;
@@ -156,11 +156,11 @@ fn funded_user(env: &mut Env, usdc_funding: u64) -> (Keypair, Pubkey) {
 }
 
 fn yes_ata(user: &Keypair, market: &CreateMarketResult) -> Pubkey {
-    get_associated_token_address(&user.pubkey_pk(), &market.yes_mint)
+    get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID)
 }
 
 fn no_ata(user: &Keypair, market: &CreateMarketResult) -> Pubkey {
-    get_associated_token_address(&user.pubkey_pk(), &market.no_mint)
+    get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.no_mint, &anchor_spl::token_2022::ID)
 }
 
 /// Builds and sends a `mint_pair(qty)` instruction for `user` against `market`.
@@ -174,9 +174,10 @@ fn send_mint_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, us
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -216,7 +217,8 @@ fn send_place_order(
         user_usdc,
         yes_mint: market.yes_mint,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -261,7 +263,8 @@ fn send_buy_no_market(
         user_usdc,
         user_yes: yes_ata(user, market),
         user_no: no_ata(user, market),
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -298,7 +301,8 @@ fn send_buy_no_limit(env: &mut Env, user: &Keypair, market: &CreateMarketResult,
         user_usdc,
         user_yes: yes_ata(user, market),
         user_no: no_ata(user, market),
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -331,7 +335,8 @@ fn send_sell_no_market(
         user_usdc,
         user_yes: yes_ata(user, market),
         user_no: no_ata(user, market),
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -483,6 +488,7 @@ fn seed_bids(env: &mut Env, market: &CreateMarketResult, count: usize, qty_each:
         // though a bid maker never minted/held any Yes themselves.
         let yes_mint_addr = addr(market.yes_mint);
         let maker_yes = pk(CreateAssociatedTokenAccount::new(&mut env.svm, &maker, &yes_mint_addr)
+            .token_program_id(&addr(anchor_spl::token_2022::ID))
             .send()
             .expect("create maker Yes ata should succeed"));
         send_place_order(env, &maker, market, maker_usdc, maker_yes, SIDE_BID, price, qty_each, TIF_LIMIT, &[])
@@ -653,6 +659,7 @@ fn buy_no_market_fill_events_decode_with_exact_fields_and_order() {
     for (price, qty) in [(700_000u64, 3u64), (650_000, 2), (600_000, 4)] {
         let (maker, maker_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
         let maker_yes = pk(CreateAssociatedTokenAccount::new(&mut env.svm, &maker, &addr(market.yes_mint))
+            .token_program_id(&addr(anchor_spl::token_2022::ID))
             .send()
             .expect("create maker Yes ata should succeed"));
         send_place_order(&mut env, &maker, &market, maker_usdc, maker_yes, SIDE_BID, price, qty, TIF_LIMIT, &[])
@@ -709,7 +716,8 @@ fn buy_no_market_wrong_maker_owner_in_remaining_accounts_is_refused_and_unchange
     // A stranger's Yes ATA: right mint, wrong owner.
     let (stranger, _stranger_usdc) = funded_user(&mut env, 0);
     let stranger_yes = pk(CreateAssociatedTokenAccount::new(&mut env.svm, &stranger, &addr(market.yes_mint))
-        .send()
+        .token_program_id(&addr(anchor_spl::token_2022::ID))
+            .send()
         .expect("create stranger Yes ata should succeed"));
 
     let (taker, taker_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
@@ -735,7 +743,8 @@ fn buy_no_market_wrong_mint_in_remaining_accounts_is_refused_and_unchanged() {
 
     let (maker, maker_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);
     let maker_yes = pk(CreateAssociatedTokenAccount::new(&mut env.svm, &maker, &addr(market.yes_mint))
-        .send()
+        .token_program_id(&addr(anchor_spl::token_2022::ID))
+            .send()
         .expect("create maker Yes ata should succeed"));
     send_place_order(&mut env, &maker, &market, maker_usdc, maker_yes, SIDE_BID, 650_000, 5, TIF_LIMIT, &[])
         .expect("maker bid should rest");
@@ -768,7 +777,8 @@ fn buy_no_market_three_fill_with_wrong_third_maker_rolls_back_the_whole_tx() {
     // A stranger's Yes ATA stands in for the third maker: wrong owner.
     let (stranger, _stranger_usdc) = funded_user(&mut env, 0);
     let stranger_yes = pk(CreateAssociatedTokenAccount::new(&mut env.svm, &stranger, &addr(market.yes_mint))
-        .send()
+        .token_program_id(&addr(anchor_spl::token_2022::ID))
+            .send()
         .expect("create stranger Yes ata should succeed"));
 
     let (taker, taker_usdc) = funded_user(&mut env, 10_000 * ONE_USDC);

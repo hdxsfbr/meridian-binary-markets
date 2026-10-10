@@ -35,7 +35,16 @@ import {
   type VersionedTransactionResponse,
 } from "@solana/web3.js";
 import { BN, type Program } from "@anchor-lang/core";
-import { bookPda, configPda, noMintPda, usdcEscrowPda, vaultPda, yesEscrowPda, yesMintPda } from "@meridian/sdk";
+import {
+  bookPda,
+  configPda,
+  noMintPda,
+  tokenProgramForMint,
+  usdcEscrowPda,
+  vaultPda,
+  yesEscrowPda,
+  yesMintPda,
+} from "@meridian/sdk";
 import type { InstructionPlan } from "@meridian/sdk";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, associatedTokenAddress } from "./ata";
 import { PROGRAM_ID } from "./rpc";
@@ -50,7 +59,28 @@ export type BuildCtx = {
   market: PublicKey;
   /** `Config.usdc_mint`; callers get this once via `fetchUsdcMint`. */
   usdcMint: PublicKey;
+  /**
+   * The token program that actually owns `market`'s Yes/No mints -- classic
+   * SPL Token for a legacy (pre-Token-2022-migration) market, Token-2022 for
+   * every market created since. Callers resolve this once via
+   * `fetchYesNoTokenProgram` before building a transaction (one RPC call per
+   * user action, not one per instruction builder). USDC accounts are
+   * unaffected by this migration and always use classic SPL Token.
+   */
+  yesNoTokenProgram: PublicKey;
 };
+
+/**
+ * Resolves `market`'s Yes/No token program (see `BuildCtx.yesNoTokenProgram`)
+ * from chain -- one `getAccountInfo` call on the Yes mint, since Yes and No
+ * are always created together under the same token program. Callers should
+ * call this once per user action (alongside `fetchUsdcMint`), not once per
+ * instruction builder.
+ */
+export async function fetchYesNoTokenProgram(program: Program, market: PublicKey): Promise<PublicKey> {
+  const [yesMint] = yesMintPda(PROGRAM_ID, market);
+  return tokenProgramForMint(program.provider.connection, yesMint);
+}
 
 /** PDAs derived from `market` alone, shared by every builder in this file. */
 function marketAccounts(market: PublicKey) {
@@ -65,11 +95,17 @@ function marketAccounts(market: PublicKey) {
   };
 }
 
-function userTokenAccounts(user: PublicKey, usdcMint: PublicKey, yesMint: PublicKey, noMint: PublicKey) {
+function userTokenAccounts(
+  user: PublicKey,
+  usdcMint: PublicKey,
+  yesMint: PublicKey,
+  noMint: PublicKey,
+  yesNoTokenProgram: PublicKey,
+) {
   return {
     userUsdc: associatedTokenAddress(user, usdcMint),
-    userYes: associatedTokenAddress(user, yesMint),
-    userNo: associatedTokenAddress(user, noMint),
+    userYes: associatedTokenAddress(user, yesMint, yesNoTokenProgram),
+    userNo: associatedTokenAddress(user, noMint, yesNoTokenProgram),
   };
 }
 
@@ -84,15 +120,22 @@ export type MakerSide = "bidTaker" | "askTaker" | "buyNoMarket" | "sellNoMarket"
 /**
  * Derives the `remaining_accounts` list of maker token ATAs for a planned
  * set of fills, capped at the program's `MAX_FILLS`. Pure (no RPC calls):
- * `mints.usdc`/`mints.yes` are PDAs the caller already has.
+ * `mints.usdc`/`mints.yes` are PDAs the caller already has. `tokenPrograms`
+ * is optional and defaults both legs to classic SPL Token for callers that
+ * haven't been updated; a real caller passes `yes: ctx.yesNoTokenProgram`
+ * (USDC makers are always paid in classic SPL Token -- USDC is unaffected
+ * by the Token-2022 migration).
  */
 export function makerAccountsFor(
   makers: PublicKey[],
   side: MakerSide,
   mints: { usdc: PublicKey; yes: PublicKey },
+  tokenPrograms: { usdc: PublicKey; yes: PublicKey } = { usdc: TOKEN_PROGRAM_ID, yes: TOKEN_PROGRAM_ID },
 ): PublicKey[] {
-  const mint = side === "bidTaker" || side === "sellNoMarket" ? mints.usdc : mints.yes;
-  return makers.slice(0, MAX_FILLS).map((maker) => associatedTokenAddress(maker, mint));
+  const payInYes = side === "askTaker" || side === "buyNoMarket";
+  const mint = payInYes ? mints.yes : mints.usdc;
+  const tokenProgram = payInYes ? tokenPrograms.yes : tokenPrograms.usdc;
+  return makers.slice(0, MAX_FILLS).map((maker) => associatedTokenAddress(maker, mint, tokenProgram));
 }
 
 function remainingAccountMetas(pubkeys: PublicKey[]) {
@@ -135,9 +178,14 @@ export type PlaceOrderArgs = {
 /** Buy Yes / Sell Yes (market or limit): `place_order(side, price, qty, tif)`. */
 export async function placeOrder(ctx: BuildCtx, args: PlaceOrderArgs): Promise<TransactionInstruction> {
   const accs = marketAccounts(ctx.market);
-  const { userUsdc, userYes } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint);
+  const { userUsdc, userYes } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint, ctx.yesNoTokenProgram);
   const makerSide: MakerSide = args.side === 0 ? "bidTaker" : "askTaker";
-  const makerAtas = makerAccountsFor(args.makers, makerSide, { usdc: ctx.usdcMint, yes: accs.yesMint });
+  const makerAtas = makerAccountsFor(
+    args.makers,
+    makerSide,
+    { usdc: ctx.usdcMint, yes: accs.yesMint },
+    { usdc: TOKEN_PROGRAM_ID, yes: ctx.yesNoTokenProgram },
+  );
 
   return methodCall(ctx.program, "placeOrder", [args.side, bn(args.price), bn(args.qty), args.tif])
     .accountsPartial({
@@ -150,7 +198,8 @@ export async function placeOrder(ctx: BuildCtx, args: PlaceOrderArgs): Promise<T
       userUsdc,
       yesMint: accs.yesMint,
       userYes,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: ctx.yesNoTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
@@ -163,7 +212,7 @@ export type CancelOrderArgs = { orderId: bigint };
 /** Cancels a resting order: `cancel_order(order_id)`. */
 export async function cancelOrder(ctx: BuildCtx, args: CancelOrderArgs): Promise<TransactionInstruction> {
   const accs = marketAccounts(ctx.market);
-  const { userUsdc, userYes } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint);
+  const { userUsdc, userYes } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint, ctx.yesNoTokenProgram);
 
   return methodCall(ctx.program, "cancelOrder", [bn(args.orderId)])
     .accountsPartial({
@@ -172,9 +221,11 @@ export async function cancelOrder(ctx: BuildCtx, args: CancelOrderArgs): Promise
       book: accs.book,
       usdcEscrow: accs.usdcEscrow,
       yesEscrow: accs.yesEscrow,
+      yesMint: accs.yesMint,
       userUsdc,
       userYes,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: ctx.yesNoTokenProgram,
     })
     .instruction();
 }
@@ -184,7 +235,13 @@ export type MintPairArgs = { qty: bigint };
 /** Mints `qty` Yes + `qty` No for `qty` USDC: `mint_pair(qty)`. */
 export async function mintPair(ctx: BuildCtx, args: MintPairArgs): Promise<TransactionInstruction> {
   const accs = marketAccounts(ctx.market);
-  const { userUsdc, userYes, userNo } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint);
+  const { userUsdc, userYes, userNo } = userTokenAccounts(
+    ctx.user,
+    ctx.usdcMint,
+    accs.yesMint,
+    accs.noMint,
+    ctx.yesNoTokenProgram,
+  );
 
   return methodCall(ctx.program, "mintPair", [bn(args.qty)])
     .accountsPartial({
@@ -197,7 +254,8 @@ export async function mintPair(ctx: BuildCtx, args: MintPairArgs): Promise<Trans
       userUsdc,
       userYes,
       userNo,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: ctx.yesNoTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
@@ -209,7 +267,13 @@ export type RedeemPairArgs = { qty: bigint };
 /** Redeems `qty` matched Yes + No pairs for `qty` USDC: `redeem_pair(qty)`. */
 export async function redeemPair(ctx: BuildCtx, args: RedeemPairArgs): Promise<TransactionInstruction> {
   const accs = marketAccounts(ctx.market);
-  const { userUsdc, userYes, userNo } = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint);
+  const { userUsdc, userYes, userNo } = userTokenAccounts(
+    ctx.user,
+    ctx.usdcMint,
+    accs.yesMint,
+    accs.noMint,
+    ctx.yesNoTokenProgram,
+  );
 
   return methodCall(ctx.program, "redeemPair", [bn(args.qty)])
     .accountsPartial({
@@ -222,7 +286,8 @@ export async function redeemPair(ctx: BuildCtx, args: RedeemPairArgs): Promise<T
       userUsdc,
       userYes,
       userNo,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: ctx.yesNoTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
@@ -236,7 +301,7 @@ export async function redeemPair(ctx: BuildCtx, args: RedeemPairArgs): Promise<T
  */
 function noCompositeAccounts(ctx: BuildCtx) {
   const accs = marketAccounts(ctx.market);
-  const tokens = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint);
+  const tokens = userTokenAccounts(ctx.user, ctx.usdcMint, accs.yesMint, accs.noMint, ctx.yesNoTokenProgram);
   return {
     user: ctx.user,
     config: accs.config,
@@ -250,7 +315,8 @@ function noCompositeAccounts(ctx: BuildCtx) {
     userUsdc: tokens.userUsdc,
     userYes: tokens.userYes,
     userNo: tokens.userNo,
-    tokenProgram: TOKEN_PROGRAM_ID,
+    usdcTokenProgram: TOKEN_PROGRAM_ID,
+    yesnoTokenProgram: ctx.yesNoTokenProgram,
     associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
   };
@@ -261,7 +327,12 @@ export type BuyNoMarketArgs = { qty: bigint; minYesPrice: bigint; makers: Public
 /** Buy No (market): mints `qty` pairs, sells Yes IOC into bids, redeems any unfilled pair (R8). */
 export async function buyNoMarket(ctx: BuildCtx, args: BuyNoMarketArgs): Promise<TransactionInstruction> {
   const accounts = noCompositeAccounts(ctx);
-  const makerAtas = makerAccountsFor(args.makers, "buyNoMarket", { usdc: ctx.usdcMint, yes: accounts.yesMint });
+  const makerAtas = makerAccountsFor(
+    args.makers,
+    "buyNoMarket",
+    { usdc: ctx.usdcMint, yes: accounts.yesMint },
+    { usdc: TOKEN_PROGRAM_ID, yes: ctx.yesNoTokenProgram },
+  );
 
   return methodCall(ctx.program, "buyNoMarket", [bn(args.qty), bn(args.minYesPrice)])
     .accountsPartial({
@@ -277,7 +348,8 @@ export async function buyNoMarket(ctx: BuildCtx, args: BuyNoMarketArgs): Promise
       userUsdc: accounts.userUsdc,
       userYes: accounts.userYes,
       userNo: accounts.userNo,
-      tokenProgram: accounts.tokenProgram,
+      usdcTokenProgram: accounts.usdcTokenProgram,
+      yesnoTokenProgram: accounts.yesnoTokenProgram,
       associatedTokenProgram: accounts.associatedTokenProgram,
       systemProgram: accounts.systemProgram,
     })
@@ -305,7 +377,8 @@ export async function buyNoLimit(ctx: BuildCtx, args: BuyNoLimitArgs): Promise<T
       userUsdc: accounts.userUsdc,
       userYes: accounts.userYes,
       userNo: accounts.userNo,
-      tokenProgram: accounts.tokenProgram,
+      usdcTokenProgram: accounts.usdcTokenProgram,
+      yesnoTokenProgram: accounts.yesnoTokenProgram,
       associatedTokenProgram: accounts.associatedTokenProgram,
       systemProgram: accounts.systemProgram,
     })
@@ -317,7 +390,12 @@ export type SellNoMarketArgs = { qty: bigint; maxYesPrice: bigint; makers: Publi
 /** Sell No (market): buys Yes IOC from asks, redeems the resulting pairs, user receives `qty * (1 - p)` (R8). */
 export async function sellNoMarket(ctx: BuildCtx, args: SellNoMarketArgs): Promise<TransactionInstruction> {
   const accounts = noCompositeAccounts(ctx);
-  const makerAtas = makerAccountsFor(args.makers, "sellNoMarket", { usdc: ctx.usdcMint, yes: accounts.yesMint });
+  const makerAtas = makerAccountsFor(
+    args.makers,
+    "sellNoMarket",
+    { usdc: ctx.usdcMint, yes: accounts.yesMint },
+    { usdc: TOKEN_PROGRAM_ID, yes: ctx.yesNoTokenProgram },
+  );
 
   return methodCall(ctx.program, "sellNoMarket", [bn(args.qty), bn(args.maxYesPrice)])
     .accountsPartial({
@@ -333,7 +411,8 @@ export async function sellNoMarket(ctx: BuildCtx, args: SellNoMarketArgs): Promi
       userUsdc: accounts.userUsdc,
       userYes: accounts.userYes,
       userNo: accounts.userNo,
-      tokenProgram: accounts.tokenProgram,
+      usdcTokenProgram: accounts.usdcTokenProgram,
+      yesnoTokenProgram: accounts.yesnoTokenProgram,
       associatedTokenProgram: accounts.associatedTokenProgram,
       systemProgram: accounts.systemProgram,
     })

@@ -34,6 +34,8 @@ const { AnchorProvider, BN, Program, Wallet, utils } = AnchorLangCore;
 import {
   IDL,
   PROGRAM_ID,
+  TOKEN_2022_PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
   bookPda,
   configPda,
   decodeBook,
@@ -41,6 +43,7 @@ import {
   mockPricePda,
   noMintPda,
   tickerSymbolBytes,
+  tokenProgramForMint,
   usdcEscrowPda,
   vaultPda,
   yesEscrowPda,
@@ -48,8 +51,6 @@ import {
   type BookHeader,
   type Ticker,
 } from "@meridian/sdk";
-
-const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
 
 /** mainnet-beta's well-known genesis hash. Refused outright, regardless of `SOLANA_CLUSTER`. */
 export const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
@@ -322,7 +323,11 @@ export class ChainClient {
         usdcEscrow: accts.usdcEscrow,
         yesEscrow: accts.yesEscrow,
         usdcMint: this.usdcMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        // `create_market` always creates Token-2022 Yes/No mints (every
+        // market since the migration; see create_market.rs's module doc) --
+        // there is no existing mint to resolve a token program from here.
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
@@ -353,7 +358,9 @@ export class ChainClient {
         usdcEscrow: accts.usdcEscrow,
         yesEscrow: accts.yesEscrow,
         usdcMint: this.usdcMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        // `add_strike` shares the same Token-2022-always rule as `create_market` above.
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
         rent: SYSVAR_RENT_PUBKEY,
       })
@@ -509,7 +516,42 @@ export class ChainClient {
     await this.sendClose("closeMarket", market);
   }
 
-  /** Shared account list for `close_book`/`close_market` -- see `close.rs`'s `CloseAccounts`. */
+  /**
+   * `reclaim_mint`: permissionless cleanup for a Yes/No Token-2022 mint
+   * `close_market` could not close because it still had outstanding supply
+   * (`programs/meridian/src/instructions/reclaim_mint.rs`). Re-derives the
+   * market PDA straight from `(ticker, tradingDay, strike)` -- it still
+   * works once `close_market` has deleted `Market`, which is the normal
+   * case by the time this is worth calling. `side` is `1` for Yes, `2` for
+   * No, matching `redeemWinning`'s convention. Throws (uncaught) if the
+   * mint still has supply, is a classic mint, or doesn't match the
+   * instruction's own account checks -- `jobs/reclaim.ts` wraps every call
+   * in its own try/catch, same as `closeBook`/`closeMarket`.
+   */
+  async reclaimMint(ticker: Ticker, tradingDay: number, strike: bigint, side: 1 | 2, mint: PublicKey): Promise<void> {
+    const [config] = configPda(PROGRAM_ID);
+    const [market] = marketPda(PROGRAM_ID, ticker, tradingDay, strike);
+    await this.program.methods
+      .reclaimMint(Array.from(tickerSymbolBytes(ticker)), tradingDay, new BN(strike.toString()), side)
+      .accountsStrict({
+        config,
+        market,
+        mint,
+        admin: this.adminKeypair.publicKey,
+        tokenProgram: TOKEN_2022_PROGRAM_ID,
+      })
+      .signers([this.adminKeypair])
+      .rpc();
+  }
+
+  /**
+   * Shared account list for `close_book`/`close_market` -- see `close.rs`'s
+   * `CloseAccounts`. Unlike `createMarket`/`addStrike`, the mints here
+   * already exist and may predate the Token-2022 migration (this job can
+   * run against a market created in an earlier service run, or even before
+   * the migration shipped), so the Yes/No token program is resolved from
+   * the mint account's own owner, not assumed.
+   */
   private async sendClose(method: "closeBook" | "closeMarket", market: PublicKey): Promise<void> {
     const [config] = configPda(PROGRAM_ID);
     const [book] = bookPda(PROGRAM_ID, market);
@@ -518,6 +560,7 @@ export class ChainClient {
     const [vault] = vaultPda(PROGRAM_ID, market);
     const [yesMint] = yesMintPda(PROGRAM_ID, market);
     const [noMint] = noMintPda(PROGRAM_ID, market);
+    const yesnoTokenProgram = await tokenProgramForMint(this.connection, yesMint);
 
     await this.program.methods[method]()
       .accountsStrict({
@@ -530,7 +573,8 @@ export class ChainClient {
         vault,
         yesMint,
         noMint,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram,
         systemProgram: SystemProgram.programId,
       })
       .signers([this.adminKeypair])

@@ -9,7 +9,7 @@ mod common;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::{InstructionData, ToAccountMetas};
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
 use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo};
 use solana_instruction::account_meta::AccountMeta as SdkAccountMeta;
@@ -79,9 +79,10 @@ fn send_mint_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, us
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -131,7 +132,8 @@ fn send_place_order(
         user_usdc,
         yes_mint: market.yes_mint,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -168,9 +170,11 @@ fn send_cancel_order(
         book: market.book,
         usdc_escrow: market.usdc_escrow,
         yes_escrow: market.yes_escrow,
+        yes_mint: market.yes_mint,
         user_usdc,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
     };
     let data = meridian::instruction::CancelOrder { order_id };
     let ix = build_ix(meridian::ID, accounts, data);
@@ -275,7 +279,7 @@ fn mint_pairs_for(env: &mut Env, user: &Keypair, market: &CreateMarketResult, us
 }
 
 fn yes_ata(user: &Keypair, market: &CreateMarketResult) -> Pubkey {
-    get_associated_token_address(&user.pubkey_pk(), &market.yes_mint)
+    get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID)
 }
 
 /// Re-derives the book's expected escrow totals from its own live orders and asserts

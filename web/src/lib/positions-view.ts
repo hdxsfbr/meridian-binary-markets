@@ -41,6 +41,16 @@ export type MarketLike = {
   yesMint: PublicKey;
   noMint: PublicKey;
   vault: PublicKey;
+  /** Owning token program of `yesMint`/`noMint` -- classic SPL Token for a legacy market, Token-2022 for one created after the migration. */
+  yesNoTokenProgram: PublicKey;
+  /**
+   * True when `yesNoTokenProgram` has never actually been verified against
+   * chain for this market (every lookup attempt failed and no prior
+   * successful lookup exists to fall back on) -- `yesNoTokenProgram` is a
+   * placeholder in that case, not a confirmed value. Optional/defaults to
+   * `false` so existing fixtures that never set it keep type-checking.
+   */
+  yesNoTokenProgramUnknown?: boolean;
 };
 
 /** One market's row in the Portfolio view, derived from a `Position` + its `Market`. */
@@ -81,6 +91,10 @@ export type PositionRowData = {
   yesMint: PublicKey;
   noMint: PublicKey;
   vault: PublicKey;
+  /** Owning token program of `yesMint`/`noMint` (see `MarketLike`). */
+  yesNoTokenProgram: PublicKey;
+  /** See `MarketLike.yesNoTokenProgramUnknown`; when true, `canRedeemWinning`/`canRedeemPair` are forced `false` -- a builder must never derive an ATA from this row's `yesNoTokenProgram`. */
+  yesNoTokenProgramUnknown?: boolean;
 };
 
 function sortRows(a: PositionRowData, b: PositionRowData): number {
@@ -180,11 +194,17 @@ export function buildPositionRows(
       winningSide,
       payoutAvailableMicro,
       payoutReceivedMicro,
-      canRedeemWinning: payoutAvailableMicro > 0n,
-      canRedeemPair: pairsHeld > 0n,
+      // A market whose Yes/No token program was never actually verified
+      // must not offer a redeem action: both builders derive the user's
+      // Yes/No ATA from `yesNoTokenProgram`, which is a guess (not a
+      // confirmed value) in that state (item 3 of the Token-2022 audit).
+      canRedeemWinning: !market.yesNoTokenProgramUnknown && payoutAvailableMicro > 0n,
+      canRedeemPair: !market.yesNoTokenProgramUnknown && pairsHeld > 0n,
       yesMint: market.yesMint,
       noMint: market.noMint,
       vault: market.vault,
+      yesNoTokenProgram: market.yesNoTokenProgram,
+      yesNoTokenProgramUnknown: market.yesNoTokenProgramUnknown,
     });
   }
 

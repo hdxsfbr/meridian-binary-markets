@@ -39,8 +39,15 @@ including the program-data account at the binary's actual current size.
 On top of the deploy budget, a full day's demo lifecycle (seven tickers, full strike ladder,
 16-order-per-side books) separately costs on the order of **1.25 SOL** in market/book/vault rent
 at demo scale (DECISIONS.md §6, research.md R7) — most of which comes back via `close_book`/
-`close_market` once markets settle, except for the two SPL mints every market permanently retains
-(see `docs/architecture.md` §7). Fund the deployer first, finish `make deploy` and
+`close_market` once markets settle. For a Token-2022 market (every market created since
+DECISIONS.md §29), that includes both Yes/No mints eventually: `close_market` closes whichever
+one is already at zero supply (almost always the winner), and the permissionless `reclaim_mint`
+instruction closes the other (almost always the loser) once enough holders have burned their
+worthless tokens (`web/src/components/PositionRow.tsx`'s "Remove from wallet", or
+`services/automation/src/jobs/reclaim.ts`'s `reclaim` job, which attempts it automatically right
+after closing a market). A classic-Token market's two mints are the one rent category that is
+*never* recovered — they have no close-account path at all and are permanently retained (see
+`docs/architecture.md` §7). Fund the deployer first, finish `make deploy` and
 `make init-config`, confirm the buffer rent came back, *then* airdrop again for the lifecycle run
 — trying to cover both in one up-front guess is how reviewers end up short mid-deploy.
 
@@ -84,6 +91,73 @@ the actual rent figures and why a temporary buffer account, not just the final p
 account, needs to be funded during the deploy. `make deploy` refuses to proceed if the configured
 RPC endpoint's genesis hash looks like mainnet-beta, or disagrees with `CLUSTER=devnet`
 (`scripts/lib/client.ts`).
+
+**Token-2022 migration grew the binary.** A dev-container build after the Token-2022 migration
+and its `reclaim_mint` follow-up (new Yes/No mint extensions, on-mint metadata, and the
+permissionless mint-reclaim instruction, `DECISIONS.md` §29) measured **732,672 bytes**, up from
+the 623,328-byte binary recorded against the live devnet program in §2 below — about **109 KB
+(~17.5%) larger**, from the extension/metadata-handling code and `reclaim_mint` itself, not from
+anything that grows per-market. This is still a normal **in-place upgrade-deploy**: `declare_id!`
+and the program ID are unchanged, so it is `anchor upgrade`/`make deploy` against the existing
+program, not a redeploy to a new address. The one thing that changes mechanically is that the
+**program-data account must be extended by roughly the size delta (~109 KB) before the new binary
+can be written to it** — `anchor upgrade`/`solana program deploy` do this extension automatically
+as part of the upgrade, but it costs additional rent on top of whatever the program-data account
+already holds, roughly in line with §1.1's per-byte rent rate (that section's `solana rent
+<bytes>` pattern applies the same way to the size delta: query it yourself with
+`solana rent 732672 -u https://api.devnet.solana.com` for the full-size figure, or
+`pnpm --filter @meridian/scripts run rent-estimate` for the live numbers at whatever the binary's
+exact current size is, rather than trusting these byte counts as the deploy keeps changing). This
+number was measured inside the dev container as part of the Token-2022/`reclaim_mint` work,
+before any deploy — it has not yet been deployed to devnet as part of that work (see the note at
+the end of this section).
+
+**Upgrade note: legacy markets need no migration step.** This upgrade changes what
+`create_market`/`add_strike` do (new markets get Token-2022 Yes/No mints with metadata and a
+close authority) but does not touch `Market`'s on-chain layout and adds no migration
+instruction. Every market that already exists on devnet before this upgrade lands keeps its
+classic SPL Token mints and keeps minting/trading/redeeming exactly as before — the token
+program each market's mints use is read from the mint account's own owner at call time, not from
+anything stored in `Market`, so old and new markets are simply two paths through the same
+instructions with zero admin action required. Only markets created *after* the upgrade is live
+get Token-2022 mints.
+
+**Reclaim/`close_market` behavior change, and the new `reclaim_mint` instruction.** `close_market`
+closes a market's Yes/No mint — returning its rent — when it is Token-2022 and already has zero
+supply at that moment (new markets only); this is almost always true for the winning side (its
+holders redeem it for USDC via `redeem_winning`) and almost never true for the losing side (its
+holders are left with worthless tokens they have no urgent reason to act on). `close_market`
+still deletes `Market` either way. The permissionless `reclaim_mint(ticker, trading_day, strike,
+side)` instruction exists for exactly that leftover case: it re-derives the market PDA from its
+seeds alone (no live `Market` account needed — signing only ever needs the seeds/bump) and closes
+the named mint once its supply reaches zero, returning its rent to `Config.admin`. The `reclaim`
+worker job attempts this automatically for both mints right after it closes a market in the same
+run; the user-signed trigger that actually brings a losing mint's supply to zero is
+`web/src/components/PositionRow.tsx`'s "Remove from wallet" action on a settled losing position
+(a plain burn + close-account, works for classic and Token-2022 alike). Classic mints (every
+legacy market) are never reclaimable this way — `reclaim_mint` rejects a non-Token-2022 mint
+outright — and are left in place exactly as before, skipped with a log line rather than an error.
+
+**Verify after this upgrade actually deploys** (this task did not touch devnet — see below):
+- `declare_id!`'s address (`programs/meridian/src/lib.rs`) matches the already-deployed program
+  ID recorded in §2 below; a mismatch means the wrong keypair/binary was used for the upgrade.
+- A test `create_market` call on devnet (when Andre runs one) produces a Yes/No mint whose
+  `TokenMetadata` extension holds the expected name/symbol (`"<TICKER> ≥ $<strike> <Yes|No>
+  <YYYY-MM-DD>"` / `<TICKER>Y`/`<TICKER>N`) and whose owner is the Token-2022 program.
+- An existing pre-upgrade market (one created before the upgrade landed) still mints, trades, and
+  redeems successfully — its mints stay classic SPL Token and nothing about that path changed.
+- `close_market` on an old, already-settled pre-upgrade market still reclaims the Market/Book/
+  vault/escrows without attempting (and failing) to close its classic mints — check for the
+  "skipped, not Token-2022 or not empty" log line rather than an error.
+- After the `reclaim` worker job closes a Token-2022 market with a losing side still holding
+  tokens, its `reclaim_mint` step logs a skip (not a failure) for that mint; once every holder has
+  used "Remove from wallet" on it, the next `reclaim` run (or a manually-triggered `reclaim_mint`
+  call) actually closes it and the admin's balance reflects the returned rent.
+
+**This task did not touch devnet.** The 732,672-byte figure above came from a dev-container build
+done in parallel with this documentation update; no devnet deploy has happened as part of the
+Token-2022/`reclaim_mint` work, and this section describes what to verify *when* Andre runs that
+deploy separately, not a record of having already run it.
 
 ### 1.3 Initialize the on-chain config, with Circle USDC
 

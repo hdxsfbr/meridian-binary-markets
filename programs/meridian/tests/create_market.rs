@@ -129,7 +129,8 @@ fn market_created_event_is_present_in_logs() {
         usdc_escrow: derive_for_test(&[b"escrow_usdc", market.as_ref()]),
         yes_escrow: derive_for_test(&[b"escrow_yes", market.as_ref()]),
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };
@@ -224,7 +225,8 @@ fn capacity_128_needs_exactly_two_create_book_calls_and_a_third_is_a_no_op() {
         usdc_escrow,
         yes_escrow,
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };
@@ -286,7 +288,8 @@ fn create_book_survives_a_prefunded_pda() {
         usdc_escrow,
         yes_escrow,
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };
@@ -391,7 +394,8 @@ fn non_admin_create_market_is_refused() {
         usdc_escrow: derive_for_test(&[b"escrow_usdc", market.as_ref()]),
         yes_escrow: derive_for_test(&[b"escrow_yes", market.as_ref()]),
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };
@@ -429,7 +433,8 @@ fn create_book_by_non_admin_is_refused() {
         usdc_escrow: derive_for_test(&[b"escrow_usdc", market.as_ref()]),
         yes_escrow: derive_for_test(&[b"escrow_yes", market.as_ref()]),
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };

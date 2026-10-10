@@ -11,10 +11,14 @@ export type PositionRowProps = {
   row: PositionRowData;
   onRedeemWinning?: () => void;
   onRedeemPair?: () => void;
+  /** Settled, this row's losing side, nothing left to redeem on it -- burns those tokens and closes the account, rent back to the wallet. */
+  onRemoveFromWallet?: (side: "yes" | "no") => void;
   /** This row's own winning redemption is the one in flight -- only affects the button's label. */
   redeemingWinning?: boolean;
   /** This row's own pair redemption is the one in flight -- only affects the button's label. */
   redeemingPair?: boolean;
+  /** This row's own "Remove from wallet" is the one in flight -- only affects the button's label. */
+  removingFromWallet?: boolean;
   /** Any redemption or mint anywhere on the page is in flight: both buttons here are disabled, whether or not this row is the one running (Wave R4 review item 4 -- one busy state covers every redeem/mint action). */
   busy?: boolean;
   /** True while the wallet's trade history is still syncing, so cost basis and P&L are not yet known. */
@@ -37,7 +41,17 @@ function stateBadge(row: PositionRowData, nowSeconds: number): { label: string; 
 }
 
 /** One market's line in the Portfolio page: open/settled badge, a single "Minted pair" line for the matched portion, any one-sided Yes/No balance, and the redeem actions each balance is eligible for. */
-export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinning, redeemingPair, busy, costBasisPending }: PositionRowProps) {
+export function PositionRow({
+  row,
+  onRedeemWinning,
+  onRedeemPair,
+  onRemoveFromWallet,
+  redeemingWinning,
+  redeemingPair,
+  removingFromWallet,
+  busy,
+  costBasisPending,
+}: PositionRowProps) {
   // The unmatched portion of each side; if a side is fully matched into
   // pairs but still redeemable as the winning side (settled, this side
   // won), show it anyway -- "Minted pair" and "Redeem winning" are two
@@ -57,6 +71,16 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
 
   const nowSeconds = Math.floor(Date.now() / 1000);
   const badge = stateBadge(row, nowSeconds);
+
+  // Settled and this side lost: its tokens are worthless and have nothing
+  // left to redeem (unlike the matched `pairsHeld` portion, which is always
+  // redeemable for USDC regardless of outcome). Offered only once the
+  // market's actual token program is confirmed (`yesNoTokenProgramUnknown`)
+  // -- the burn/close instructions below derive the token account from it.
+  const losingSide: "yes" | "no" | undefined =
+    row.state === "settled" && row.winningSide !== undefined ? (row.winningSide === "yes" ? "no" : "yes") : undefined;
+  const losingOnly = losingSide === "yes" ? yesOnly : losingSide === "no" ? noOnly : 0n;
+  const canRemoveFromWallet = losingSide !== undefined && losingOnly > 0n && !row.yesNoTokenProgramUnknown;
 
   return (
     <Card className="flex flex-col gap-3 p-4">
@@ -114,6 +138,19 @@ export function PositionRow({ row, onRedeemWinning, onRedeemPair, redeemingWinni
             {redeemingWinning ? "Redeeming…" : "Redeem winning"}
           </button>
           <span className="num text-sm text-text-muted">{collectLabel(row.canRedeemWinning, row.payoutAvailableMicro)}</span>
+        </div>
+      ) : null}
+
+      {canRemoveFromWallet && onRemoveFromWallet ? (
+        <div>
+          <button
+            type="button"
+            onClick={() => onRemoveFromWallet(losingSide as "yes" | "no")}
+            disabled={busy}
+            className="rounded-md border border-border px-3 py-1.5 text-sm font-medium text-text-muted hover:border-text-muted disabled:opacity-60"
+          >
+            {removingFromWallet ? "Removing…" : "Remove from wallet"}
+          </button>
         </div>
       ) : null}
 

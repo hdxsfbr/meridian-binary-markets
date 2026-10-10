@@ -371,7 +371,7 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
     assertEqualBigint(plan.fills[0].price, 400_000n, "Buy No market: fill price");
     assertEqualBigint(plan.fills[0].qty, 4n, "Buy No market: fill qty");
     assertTrue(plan.fills[0].maker.equals(userA.keypair.publicKey), "Buy No market: fill maker must be A");
-    const remaining = plan.fills.map((f) => makerAccount(chain.yesAtaAddress(f.maker, tradedMarket.yesMint)));
+    const remaining = plan.fills.map((f) => makerAccount(chain.yesAtaAddress(f.maker, tradedMarket.yesMint, tradedMarket.yesNoTokenProgram)));
     await chain.buyNoMarket(userB.keypair, tradedMarketAddress, tradedMarket, 4n, 400_000n, remaining);
   }
   expectedA += TRADE_2_BUY_NO.maker.usdcMicro;
@@ -387,7 +387,7 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
     assertEqualBigint(BigInt(plan.fills.length), 1n, "Sell Yes market: expected exactly one fill (against A's last 0.40 bid unit)");
     assertEqualBigint(plan.fills[0].qty, 1n, "Sell Yes market: fill qty");
     assertTrue(plan.fills[0].maker.equals(userA.keypair.publicKey), "Sell Yes market: fill maker must be A");
-    const remaining = plan.fills.map((f) => makerAccount(chain.yesAtaAddress(f.maker, tradedMarket.yesMint)));
+    const remaining = plan.fills.map((f) => makerAccount(chain.yesAtaAddress(f.maker, tradedMarket.yesMint, tradedMarket.yesNoTokenProgram)));
     await chain.placeOrder(userB.keypair, tradedMarketAddress, tradedMarket, 1, 1n, 1n, 1, remaining);
   }
   expectedA += TRADE_3_SELL_YES.maker.usdcMicro;
@@ -442,8 +442,8 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
   // by `ONE_USDC` (one whole unit's base-unit count -- Yes/No mints share USDC's 6
   // decimals, per `mint_pair.rs`) before being passed as `qty`.
   logStep("A and B redeem winnings");
-  const finalYesABase = await chain.getTokenBalance(chain.yesAtaAddress(userA.keypair.publicKey, tradedMarket.yesMint));
-  const finalYesBBase = await chain.getTokenBalance(chain.yesAtaAddress(userB.keypair.publicKey, tradedMarket.yesMint));
+  const finalYesABase = await chain.getTokenBalance(chain.yesAtaAddress(userA.keypair.publicKey, tradedMarket.yesMint, tradedMarket.yesNoTokenProgram));
+  const finalYesBBase = await chain.getTokenBalance(chain.yesAtaAddress(userB.keypair.publicKey, tradedMarket.yesMint, tradedMarket.yesNoTokenProgram));
   assertEqualBigint(finalYesABase % ONE_USDC, 0n, "A's Yes balance must be a whole number of tokens");
   assertEqualBigint(finalYesBBase % ONE_USDC, 0n, "B's Yes balance must be a whole number of tokens");
   const finalYesA = finalYesABase / ONE_USDC;
@@ -461,8 +461,8 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
 
   const finalUsdcA = await chain.getTokenBalance(userAUsdcAta);
   const finalUsdcB = await chain.getTokenBalance(userBUsdcAta);
-  const finalNoA = await chain.getTokenBalance(chain.noAtaAddress(userA.keypair.publicKey, tradedMarket.noMint));
-  const finalNoB = await chain.getTokenBalance(chain.noAtaAddress(userB.keypair.publicKey, tradedMarket.noMint));
+  const finalNoA = await chain.getTokenBalance(chain.noAtaAddress(userA.keypair.publicKey, tradedMarket.noMint, tradedMarket.yesNoTokenProgram));
+  const finalNoB = await chain.getTokenBalance(chain.noAtaAddress(userB.keypair.publicKey, tradedMarket.noMint, tradedMarket.yesNoTokenProgram));
   const vaultFinal = await chain.getTokenBalance(tradedMarket.vault);
 
   const pnlA = finalUsdcA - initialUsdcA;

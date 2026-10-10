@@ -12,7 +12,7 @@ mod common;
 
 use anchor_lang::prelude::Pubkey;
 use anchor_lang::Space;
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
 use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo, Transfer as TokenTransfer};
 use solana_keypair::Keypair;
@@ -146,9 +146,10 @@ fn send_mint_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, us
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -168,9 +169,10 @@ fn send_redeem_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, 
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -198,7 +200,8 @@ fn send_redeem_winning(
         vault: market.vault,
         user_usdc,
         user_winning,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
     };
     let data = meridian::instruction::RedeemWinning { side, qty };
     let ix = build_ix(meridian::ID, accounts, data);
@@ -228,7 +231,8 @@ fn send_place_order(
         user_usdc,
         yes_mint: market.yes_mint,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -252,9 +256,11 @@ fn send_cancel_order(
         book: market.book,
         usdc_escrow: market.usdc_escrow,
         yes_escrow: market.yes_escrow,
+        yes_mint: market.yes_mint,
         user_usdc,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
     };
     let data = meridian::instruction::CancelOrder { order_id };
     let ix = build_ix(meridian::ID, accounts, data);
@@ -273,7 +279,8 @@ fn close_accounts(market: &CreateMarketResult, admin: Pubkey) -> meridian::accou
         vault: market.vault,
         yes_mint: market.yes_mint,
         no_mint: market.no_mint,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         system_program: anchor_lang::system_program::ID,
     }
 }
@@ -339,7 +346,8 @@ fn setup_with_unfinished_book(strike: u64) -> (Env, CreateMarketResult, i64) {
         usdc_escrow,
         yes_escrow,
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };
@@ -385,7 +393,15 @@ fn close_book_then_close_market_succeed_on_zero_activity_market_and_reclaim_rent
     let book_rent = env.svm.minimum_balance_for_rent_exemption(book_space(CAPACITY));
     let token_account_rent = env.svm.minimum_balance_for_rent_exemption(165); // spl_token::state::Account::LEN
     let market_rent = env.svm.minimum_balance_for_rent_exemption(8 + Market::INIT_SPACE);
-    let expected_rent = book_rent + 3 * token_account_rent + market_rent;
+    // Both Yes/No mints are Token-2022 (created by `create_market`) with zero supply on
+    // this zero-activity market, so `close_market` reclaims them too -- see
+    // `close.rs`'s module doc comment and `close_mint_if_reclaimable`. Their exact size
+    // (base mint + MetadataPointer + MintCloseAuthority + on-mint TokenMetadata)
+    // depends on the name/symbol string lengths, so read their actual pre-close
+    // lamport balances instead of recomputing the size from constants.
+    let yes_mint_rent = env.balance(market.yes_mint).expect("yes_mint should exist before close");
+    let no_mint_rent = env.balance(market.no_mint).expect("no_mint should exist before close");
+    let expected_rent = book_rent + 3 * token_account_rent + market_rent + yes_mint_rent + no_mint_rent;
 
     let admin = env.admin.insecure_clone();
     let admin_before = env.balance(admin.pubkey_pk()).expect("admin should exist");
@@ -400,7 +416,7 @@ fn close_book_then_close_market_succeed_on_zero_activity_market_and_reclaim_rent
     let admin_after = env.balance(admin.pubkey_pk()).expect("admin should still exist");
     let reclaimed = admin_after - admin_before;
 
-    // Approximately the summed rent of the five closed accounts, minus the (small,
+    // Approximately the summed rent of the seven closed accounts, minus the (small,
     // fixed-fee) cost of the two transactions that did the closing.
     assert!(
         reclaimed <= expected_rent,
@@ -416,6 +432,8 @@ fn close_book_then_close_market_succeed_on_zero_activity_market_and_reclaim_rent
     assert!(account_is_closed(&env, market.yes_escrow));
     assert!(account_is_closed(&env, market.vault));
     assert!(account_is_closed(&env, market.market));
+    assert!(account_is_closed(&env, market.yes_mint), "zero-supply Token-2022 yes_mint should be closed too");
+    assert!(account_is_closed(&env, market.no_mint), "zero-supply Token-2022 no_mint should be closed too");
 }
 
 #[test]
@@ -434,7 +452,7 @@ fn close_book_with_resting_order_is_refused_until_cancelled() {
     let user = new_user(&mut env);
     let user_usdc = create_usdc_ata(&mut env, &user);
     mint_usdc(&mut env, user_usdc, 10 * 1_000_000);
-    let user_yes = get_associated_token_address(&user.pubkey_pk(), &market.yes_mint);
+    let user_yes = get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID);
 
     let meta = send_place_order(&mut env, &user, &market, user_usdc, user_yes, SIDE_BID, 500_000, 2, TIF_LIMIT)
         .expect("place_order should succeed");
@@ -581,7 +599,7 @@ fn full_lifecycle_mint_settle_redeem_winning_and_redeem_pair_then_both_closes_su
     let m: Market = env.fetch(market.market);
     assert_eq!(m.state, MarketState::Settled);
 
-    let user_yes = get_associated_token_address(&user.pubkey_pk(), &market.yes_mint);
+    let user_yes = get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID);
     send_redeem_winning(&mut env, &user, &market, user_usdc, user_yes, 1, 2)
         .expect("redeem_winning should succeed post-settlement");
 

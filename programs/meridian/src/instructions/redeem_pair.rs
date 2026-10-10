@@ -4,15 +4,21 @@
 //! `specs/001-binary-outcome-markets/data-model.md` "Validation rules carried into
 //! instructions" (`redeem_pair(qty)`) and `contracts/program-instructions.md`
 //! ("Redeem Pair" row, "Invariant checks executed in code").
+//!
+//! Token-2022 migration: see `mint_pair.rs`'s module doc comment -- same split, USDC
+//! always classic (`usdc_token_program`), Yes/No burns via whichever program owns the
+//! mints (`yesno_token_program`, checked with `require_matching_token_program`).
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::errors::MeridianError;
 use crate::events::PairRedeemed;
 use crate::math::pairs_to_usdc;
 use crate::state::config::Config;
-use crate::state::market::{Market, MarketState, Outcome, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, MarketState, Outcome, SEED as MARKET_SEED};
 
 pub fn handle_redeem_pair(ctx: Context<RedeemPair>, qty: u64) -> Result<()> {
     let accounts = ctx.accounts;
@@ -25,7 +31,8 @@ pub fn handle_redeem_pair(ctx: Context<RedeemPair>, qty: u64) -> Result<()> {
         &accounts.user_usdc,
         &accounts.user_yes,
         &accounts.user_no,
-        &accounts.token_program,
+        &accounts.usdc_token_program,
+        &accounts.yesno_token_program,
         qty,
     )
 }
@@ -46,27 +53,31 @@ pub fn handle_redeem_pair(ctx: Context<RedeemPair>, qty: u64) -> Result<()> {
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn redeem_pair_core<'info>(
     market: &mut Account<'info, Market>,
-    yes_mint: &mut Account<'info, Mint>,
-    no_mint: &mut Account<'info, Mint>,
+    yes_mint: &mut InterfaceAccount<'info, token_interface::Mint>,
+    no_mint: &mut InterfaceAccount<'info, token_interface::Mint>,
     vault: &mut Account<'info, TokenAccount>,
     user: &Signer<'info>,
     user_usdc: &Account<'info, TokenAccount>,
-    user_yes: &Account<'info, TokenAccount>,
-    user_no: &Account<'info, TokenAccount>,
-    token_program: &Program<'info, Token>,
+    user_yes: &InterfaceAccount<'info, token_interface::TokenAccount>,
+    user_no: &InterfaceAccount<'info, token_interface::TokenAccount>,
+    usdc_token_program: &Program<'info, Token>,
+    yesno_token_program: &Interface<'info, TokenInterface>,
     qty: u64,
 ) -> Result<()> {
     require!(qty > 0, MeridianError::ZeroQuantity);
+
+    require_matching_token_program(yes_mint.to_account_info().owner, &yesno_token_program.key())?;
+    require_matching_token_program(no_mint.to_account_info().owner, &yesno_token_program.key())?;
 
     // Yes/No mints and the USDC vault all use the same 6-decimal scale (data-model.md
     // "All money is `u64` in USDC micro-units (6 decimals)"), so `qty` pairs is
     // `qty * ONE_USDC` base units on every one of the three legs below.
     let usdc_amount = pairs_to_usdc(qty)?;
 
-    token::burn(
+    token_interface::burn(
         CpiContext::new(
-            token_program.key(),
-            Burn {
+            yesno_token_program.key(),
+            token_interface::Burn {
                 mint: yes_mint.to_account_info(),
                 from: user_yes.to_account_info(),
                 authority: user.to_account_info(),
@@ -75,10 +86,10 @@ pub(crate) fn redeem_pair_core<'info>(
         usdc_amount,
     )?;
 
-    token::burn(
+    token_interface::burn(
         CpiContext::new(
-            token_program.key(),
-            Burn {
+            yesno_token_program.key(),
+            token_interface::Burn {
                 mint: no_mint.to_account_info(),
                 from: user_no.to_account_info(),
                 authority: user.to_account_info(),
@@ -105,7 +116,7 @@ pub(crate) fn redeem_pair_core<'info>(
 
     token::transfer(
         CpiContext::new_with_signer(
-            token_program.key(),
+            usdc_token_program.key(),
             Transfer {
                 from: vault.to_account_info(),
                 to: user_usdc.to_account_info(),
@@ -145,7 +156,7 @@ pub(crate) fn redeem_pair_core<'info>(
     // `vault.amount >= winning_mint.supply` -- both already in base units (6 decimals),
     // so no scaling is needed. The winning mint is whichever of Yes/No matches
     // `market.outcome`; reload it too, since the `burn` CPIs above mutated its supply
-    // without updating this in-memory `Account<Mint>`.
+    // without updating this in-memory `InterfaceAccount<Mint>`.
     vault.reload()?;
     match pairs_outstanding {
         Some(pairs_outstanding) => {
@@ -210,10 +221,10 @@ pub struct RedeemPair<'info> {
     pub market: Account<'info, Market>,
 
     #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, anchor_spl::token::Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, anchor_spl::token::Mint>,
+    pub no_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Account<'info, TokenAccount>,
@@ -229,17 +240,20 @@ pub struct RedeemPair<'info> {
         mut,
         associated_token::mint = yes_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_yes: Account<'info, TokenAccount>,
+    pub user_yes: InterfaceAccount<'info, token_interface::TokenAccount>,
 
     #[account(
         mut,
         associated_token::mint = no_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_no: Account<'info, TokenAccount>,
+    pub user_no: InterfaceAccount<'info, token_interface::TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
-    pub associated_token_program: Program<'info, anchor_spl::associated_token::AssociatedToken>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

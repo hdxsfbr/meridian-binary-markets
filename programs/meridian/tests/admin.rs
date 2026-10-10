@@ -11,7 +11,7 @@
 mod common;
 
 use anchor_lang::prelude::Pubkey;
-use anchor_spl::associated_token::get_associated_token_address;
+use anchor_spl::associated_token::get_associated_token_address_with_program_id;
 use litesvm::types::TransactionResult;
 use litesvm_token::{CreateAssociatedTokenAccount, MintTo as TokenMintTo};
 use solana_keypair::Keypair;
@@ -163,7 +163,7 @@ fn funded_user(env: &mut Env, usdc_funding: u64) -> (Keypair, Pubkey) {
 }
 
 fn yes_ata(user: &Keypair, market: &CreateMarketResult) -> Pubkey {
-    get_associated_token_address(&user.pubkey_pk(), &market.yes_mint)
+    get_associated_token_address_with_program_id(&user.pubkey_pk(), &market.yes_mint, &anchor_spl::token_2022::ID)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -177,9 +177,10 @@ fn send_mint_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, us
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -200,9 +201,10 @@ fn send_redeem_pair(env: &mut Env, user: &Keypair, market: &CreateMarketResult, 
         no_mint: market.no_mint,
         vault: market.vault,
         user_usdc,
-        user_yes: get_associated_token_address(&user_pk, &market.yes_mint),
-        user_no: get_associated_token_address(&user_pk, &market.no_mint),
-        token_program: anchor_spl::token::ID,
+        user_yes: get_associated_token_address_with_program_id(&user_pk, &market.yes_mint, &anchor_spl::token_2022::ID),
+        user_no: get_associated_token_address_with_program_id(&user_pk, &market.no_mint, &anchor_spl::token_2022::ID),
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -234,7 +236,8 @@ fn send_place_order(
         user_usdc,
         yes_mint: market.yes_mint,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
         associated_token_program: anchor_spl::associated_token::ID,
         system_program: anchor_lang::system_program::ID,
     };
@@ -251,9 +254,11 @@ fn send_cancel_order(env: &mut Env, owner: &Keypair, market: &CreateMarketResult
         book: market.book,
         usdc_escrow: market.usdc_escrow,
         yes_escrow: market.yes_escrow,
+        yes_mint: market.yes_mint,
         user_usdc,
         user_yes,
-        token_program: anchor_spl::token::ID,
+        usdc_token_program: anchor_spl::token::ID,
+        yesno_token_program: anchor_spl::token_2022::ID,
     };
     let data = meridian::instruction::CancelOrder { order_id };
     let ix = build_ix(meridian::ID, accounts, data);
@@ -335,7 +340,8 @@ fn add_strike_by_non_admin_is_unauthorized() {
         usdc_escrow: Pubkey::find_program_address(&[b"escrow_usdc", market.as_ref()], &meridian::ID).0,
         yes_escrow: Pubkey::find_program_address(&[b"escrow_yes", market.as_ref()], &meridian::ID).0,
         usdc_mint: env.usdc_mint,
-        token_program: anchor_spl::token::ID,
+        token_program: anchor_spl::token_2022::ID,
+        usdc_token_program: anchor_spl::token::ID,
         system_program: anchor_lang::system_program::ID,
         rent: anchor_lang::prelude::rent::ID,
     };

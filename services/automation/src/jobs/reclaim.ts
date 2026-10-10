@@ -16,6 +16,32 @@
  * A market that fails either check is logged and skipped, not retried --
  * the next day's run will pick it up once whatever is blocking it (a
  * resting order, an unredeemed winner) is gone.
+ *
+ * Mint reclaim: `close_market` only closes a Yes/No Token-2022 mint whose
+ * supply is already zero *at that moment* -- almost always true for the
+ * winning side (holders redeem it for USDC) and almost never true for the
+ * losing side (holders are left with worthless tokens they have no reason
+ * to act on quickly). Right after this job closes a market, it also
+ * attempts `reclaim_mint` for both of that market's mints: the winning
+ * one is typically already gone (closed inline by `close_market`) and the
+ * call simply fails harmlessly; the losing one succeeds once enough
+ * holders have burned their tokens (`web/src/components/PositionRow.tsx`'s
+ * "Remove from wallet" action) to bring its supply to zero, and is a
+ * normal, expected `skip` otherwise. Each attempt is its own try/catch, so
+ * a mint that isn't reclaimable yet never affects `marketsClosed`/`failed`
+ * accounting for the market itself.
+ *
+ * This job does **not** retry mint reclaim for a market it closed in some
+ * *earlier* run: `fetchSettledMarkets` only returns `Market` accounts that
+ * still exist, and `close_market` always deletes `Market`, so a
+ * previously-closed market's leftover losing mint falls outside what this
+ * job can discover on its own (that would need enumerating closed markets
+ * from the event index, which isn't wired up here). Until that's built,
+ * the manual path is: look up the market's ticker/tradingDay/strike from
+ * the event index or `scripts/lifecycle.ts`'s history, confirm the losing
+ * mint's supply is zero, and call `reclaim_mint` directly (e.g. via a
+ * one-off script using this file's `reclaimMint` on `services/automation/
+ * src/chain.ts`, or the equivalent SDK call from `scripts/`).
  */
 
 import { PublicKey } from "@solana/web3.js";
@@ -33,6 +59,7 @@ export interface ReclaimChain {
   getTokenAccountBalance(pubkey: PublicKey): Promise<bigint>;
   closeBook(market: PublicKey): Promise<void>;
   closeMarket(market: PublicKey): Promise<void>;
+  reclaimMint(ticker: Ticker, tradingDay: number, strike: bigint, side: 1 | 2, mint: PublicKey): Promise<void>;
 }
 
 export interface ReclaimJobDeps {
@@ -53,6 +80,7 @@ interface ReclaimSummary {
   marketsConsidered: number;
   booksClosed: number;
   marketsClosed: number;
+  mintsReclaimed: number;
   skipped: number;
   failed: number;
 }
@@ -155,6 +183,52 @@ async function reclaimOneMarket(
   await chain.closeMarket(market);
   summary.marketsClosed += 1;
   log({ job: "reclaim", ticker, market: key, step: "close_market", ok: true });
+
+  await reclaimMints(chain, record, summary);
+}
+
+/**
+ * Attempts `reclaim_mint` for both of `record`'s mints, right after
+ * `close_market` just closed (see this file's module doc comment). Each
+ * side is independent and never throws out of this function: the winning
+ * mint is typically already gone (closed inline by `close_market`) and
+ * fails harmlessly; the losing one succeeds only once enough holders have
+ * burned their tokens to bring its supply to zero, which is a normal,
+ * expected `skip` otherwise, not a `failed`.
+ */
+async function reclaimMints(chain: ReclaimChain, record: MarketRecord, summary: ReclaimSummary): Promise<void> {
+  const market = record.publicKey;
+  const key = market.toBase58();
+  const ticker: Ticker = record.account.ticker;
+  const { tradingDay, strike, yesMint, noMint } = record.account;
+
+  const sides: Array<{ side: 1 | 2; mint: PublicKey; label: string }> = [
+    { side: 1, mint: yesMint, label: "yes_mint" },
+    { side: 2, mint: noMint, label: "no_mint" },
+  ];
+
+  for (const { side, mint, label } of sides) {
+    try {
+      // eslint-disable-next-line no-await-in-loop
+      await chain.reclaimMint(ticker, tradingDay, strike, side, mint);
+      summary.mintsReclaimed += 1;
+      log({ job: "reclaim", ticker, market: key, step: "reclaim_mint", ok: true, error: label });
+    } catch (err) {
+      // Expected in the common case (already closed by `close_market`, or
+      // still has outstanding supply) -- logged as a skip, not a failure,
+      // so it never affects `summary.failed`/the job's own exit status.
+      summary.skipped += 1;
+      const message = (err as Error).message ?? String(err);
+      log({
+        job: "reclaim",
+        ticker,
+        market: key,
+        step: "reclaim_mint",
+        ok: false,
+        error: `skipped ${label}: ${message}`,
+      });
+    }
+  }
 }
 
 /** Runs one pass of the reclaim job: discover, then best-effort close each eligible market. */
@@ -171,6 +245,7 @@ export async function runReclaimJob(deps: ReclaimJobDeps, opts: ReclaimJobOption
     marketsConsidered: scoped.length,
     booksClosed: 0,
     marketsClosed: 0,
+    mintsReclaimed: 0,
     skipped: 0,
     failed: 0,
   };
@@ -199,7 +274,8 @@ export async function runReclaimJob(deps: ReclaimJobDeps, opts: ReclaimJobOption
     ok: summary.failed === 0,
     error:
       `considered=${summary.marketsConsidered} booksClosed=${summary.booksClosed} ` +
-      `marketsClosed=${summary.marketsClosed} skipped=${summary.skipped} failed=${summary.failed}` +
+      `marketsClosed=${summary.marketsClosed} mintsReclaimed=${summary.mintsReclaimed} ` +
+      `skipped=${summary.skipped} failed=${summary.failed}` +
       (dryRun ? " (dry-run)" : ""),
   });
 }

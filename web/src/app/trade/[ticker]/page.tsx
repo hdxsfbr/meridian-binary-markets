@@ -22,7 +22,7 @@ import { usePrices } from "@/hooks/usePrices";
 import { usePriceHistory } from "@/hooks/usePriceHistory";
 import { formatStrike, formatUsd } from "@/lib/format";
 import { useProgram } from "@/hooks/useProgram";
-import { cancelOrder, fetchUsdcMint, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
+import { cancelOrder, fetchUsdcMint, fetchYesNoTokenProgram, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
 import { BookView } from "@/components/BookView";
 import { Countdown } from "@/components/Countdown";
 import { OrderList } from "@/components/OrderList";
@@ -107,8 +107,11 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
     setCancelling(true);
     setCancelError(null);
     try {
-      const usdcMint = await fetchUsdcMint(program);
-      const ctx: BuildCtx = { program, user: publicKey, market: selected.pubkey, usdcMint };
+      const [usdcMint, yesNoTokenProgram] = await Promise.all([
+        fetchUsdcMint(program),
+        fetchYesNoTokenProgram(program, selected.pubkey),
+      ]);
+      const ctx: BuildCtx = { program, user: publicKey, market: selected.pubkey, usdcMint, yesNoTokenProgram };
       const ix = await cancelOrder(ctx, { orderId: order.id });
       await sendTx(connection, sendTransaction, [ix], publicKey);
     } catch (e) {

@@ -13,10 +13,16 @@
 //! (maker leg, taker leg, bid-side price-improvement refund, order decrement/removal)
 //! -> rest the remainder (Limit) or refund it (IOC) -> persist the header -> assert the
 //! escrow invariants (`>=`, tolerating unsolicited deposits).
+//!
+//! Token-2022 migration: USDC escrow transfers stay on the classic `usdc_token_program`
+//! (`escrow::transfer_*`, unchanged); Yes escrow transfers move through whichever
+//! program owns `yes_mint` (`yesno_token_program`, checked once up front with
+//! `require_matching_token_program`) via the checked variants in `book/escrow.rs`.
 
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::book::escrow;
 use crate::book::matching::{self, Side};
@@ -28,7 +34,11 @@ use crate::state::book::{
     write_header, Order,
 };
 use crate::state::config::Config;
-use crate::state::market::{Market, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, SEED as MARKET_SEED};
+
+/// Yes/No mints are always 6 decimals (data-model.md "All money is `u64` in USDC
+/// micro-units (6 decimals)").
+const YES_NO_DECIMALS: u8 = 6;
 
 /// `tif` argument: `0` = Limit, `1` = ImmediateOrCancel.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -74,6 +84,11 @@ pub fn handle_place_order<'info>(
     require!(price >= 1 && price <= PRICE_MAX, MeridianError::PriceOutOfRange);
     require!(qty > 0, MeridianError::ZeroQuantity);
 
+    require_matching_token_program(
+        ctx.accounts.yes_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
+
     let side = Side::from_u8(side).ok_or_else(|| {
         msg!("place_order: side must be 0 (Bid) or 1 (Ask)");
         error!(MeridianError::InvariantViolated)
@@ -102,7 +117,9 @@ pub fn handle_place_order<'info>(
         &bump,
     ];
     let signer_seeds: &[&[&[u8]]] = &[&seeds];
-    let token_program_key = ctx.accounts.token_program.key();
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
+    let yesno_token_program_key = ctx.accounts.yesno_token_program.key();
+    let yes_mint_ai = ctx.accounts.yes_mint.to_account_info();
     let market_ai = ctx.accounts.market.to_account_info();
 
     let mut data = book_ai.try_borrow_mut_data()?;
@@ -154,7 +171,7 @@ pub fn handle_place_order<'info>(
         Side::Bid => {
             let amount = checked_mul_div(price, qty, 1)?;
             escrow::transfer_user_to_escrow(
-                token_program_key,
+                usdc_token_program_key,
                 &ctx.accounts.user_usdc.to_account_info(),
                 &ctx.accounts.usdc_escrow.to_account_info(),
                 &ctx.accounts.user.to_account_info(),
@@ -163,12 +180,14 @@ pub fn handle_place_order<'info>(
         }
         Side::Ask => {
             let amount = pairs_to_usdc(qty)?; // qty * 1_000_000 Yes base units
-            escrow::transfer_user_to_escrow(
-                token_program_key,
+            escrow::transfer_user_to_escrow_checked(
+                yesno_token_program_key,
                 &ctx.accounts.user_yes.to_account_info(),
+                &yes_mint_ai,
                 &ctx.accounts.yes_escrow.to_account_info(),
                 &ctx.accounts.user.to_account_info(),
                 amount,
+                YES_NO_DECIMALS,
             )?;
         }
     }
@@ -185,18 +204,20 @@ pub fn handle_place_order<'info>(
                 escrow::validate_maker_account(maker_ai, &fill.maker, &ctx.accounts.config.usdc_mint)?;
 
                 let yes_amt = pairs_to_usdc(fill.qty)?;
-                escrow::transfer_escrow_out(
-                    token_program_key,
+                escrow::transfer_escrow_out_checked(
+                    yesno_token_program_key,
                     &ctx.accounts.yes_escrow.to_account_info(),
+                    &yes_mint_ai,
                     &ctx.accounts.user_yes.to_account_info(),
                     &market_ai,
                     signer_seeds,
                     yes_amt,
+                    YES_NO_DECIMALS,
                 )?;
 
                 let usdc_amt = checked_mul_div(fill.price, fill.qty, 1)?;
                 escrow::transfer_escrow_out(
-                    token_program_key,
+                    usdc_token_program_key,
                     &ctx.accounts.usdc_escrow.to_account_info(),
                     maker_ai,
                     &market_ai,
@@ -208,7 +229,7 @@ pub fn handle_place_order<'info>(
                     let diff = price - fill.price;
                     let refund = checked_mul_div(diff, fill.qty, 1)?;
                     escrow::transfer_escrow_out(
-                        token_program_key,
+                        usdc_token_program_key,
                         &ctx.accounts.usdc_escrow.to_account_info(),
                         &ctx.accounts.user_usdc.to_account_info(),
                         &market_ai,
@@ -222,7 +243,7 @@ pub fn handle_place_order<'info>(
 
                 let usdc_amt = checked_mul_div(fill.price, fill.qty, 1)?;
                 escrow::transfer_escrow_out(
-                    token_program_key,
+                    usdc_token_program_key,
                     &ctx.accounts.usdc_escrow.to_account_info(),
                     &ctx.accounts.user_usdc.to_account_info(),
                     &market_ai,
@@ -231,13 +252,15 @@ pub fn handle_place_order<'info>(
                 )?;
 
                 let yes_amt = pairs_to_usdc(fill.qty)?;
-                escrow::transfer_escrow_out(
-                    token_program_key,
+                escrow::transfer_escrow_out_checked(
+                    yesno_token_program_key,
                     &ctx.accounts.yes_escrow.to_account_info(),
+                    &yes_mint_ai,
                     maker_ai,
                     &market_ai,
                     signer_seeds,
                     yes_amt,
+                    YES_NO_DECIMALS,
                 )?;
             }
         }
@@ -322,7 +345,7 @@ pub fn handle_place_order<'info>(
                 Side::Bid => {
                     let refund = checked_mul_div(price, unfilled_qty, 1)?;
                     escrow::transfer_escrow_out(
-                        token_program_key,
+                        usdc_token_program_key,
                         &ctx.accounts.usdc_escrow.to_account_info(),
                         &ctx.accounts.user_usdc.to_account_info(),
                         &market_ai,
@@ -332,13 +355,15 @@ pub fn handle_place_order<'info>(
                 }
                 Side::Ask => {
                     let refund = pairs_to_usdc(unfilled_qty)?;
-                    escrow::transfer_escrow_out(
-                        token_program_key,
+                    escrow::transfer_escrow_out_checked(
+                        yesno_token_program_key,
                         &ctx.accounts.yes_escrow.to_account_info(),
+                        &yes_mint_ai,
                         &ctx.accounts.user_yes.to_account_info(),
                         &market_ai,
                         signer_seeds,
                         refund,
+                        YES_NO_DECIMALS,
                     )?;
                 }
             },
@@ -407,7 +432,7 @@ pub struct PlaceOrder<'info> {
     pub usdc_escrow: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, seeds = [b"escrow_yes", market.key().as_ref()], bump)]
-    pub yes_escrow: Box<Account<'info, TokenAccount>>,
+    pub yes_escrow: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     #[account(mut, token::mint = config.usdc_mint, token::authority = user)]
     pub user_usdc: Box<Account<'info, TokenAccount>>,
@@ -417,17 +442,19 @@ pub struct PlaceOrder<'info> {
     /// `yes_mint` account `mint_pair.rs`'s `MintPair` struct carries, just re-validated
     /// here against `market.yes_mint`.
     #[account(address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = yes_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_yes: Box<Account<'info, TokenAccount>>,
+    pub user_yes: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     // Remaining accounts: makers' receiving token accounts, in fill (book priority)

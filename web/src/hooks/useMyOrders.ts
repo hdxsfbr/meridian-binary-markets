@@ -25,7 +25,7 @@ import type { PublicKey } from "@solana/web3.js";
 import { bookPda, decodeBook, type Book } from "@meridian/sdk";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { buildMyOrderRows, type MyOrderRow } from "@/lib/maker-view";
-import { cancelOrder, fetchUsdcMint, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
+import { cancelOrder, fetchUsdcMint, fetchYesNoTokenProgram, mapSendError, sendTx, type BuildCtx } from "@/lib/tx";
 import { useToast } from "@/components/ui/Toast";
 import { QUOTE_CANCELLED, quotesCancelledToastTitle } from "@/lib/trade-copy";
 import { useAllMarkets, type MarketAccount } from "./useMarkets";
@@ -179,8 +179,11 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
       setLastError(null);
       setCancelling(`order:${row.marketKey}:${row.orderId.toString()}`);
       try {
-        const usdcMint = await fetchUsdcMint(program);
-        const ctx: BuildCtx = { program, user: wallet, market: row.market, usdcMint };
+        const [usdcMint, yesNoTokenProgram] = await Promise.all([
+          fetchUsdcMint(program),
+          fetchYesNoTokenProgram(program, row.market),
+        ]);
+        const ctx: BuildCtx = { program, user: wallet, market: row.market, usdcMint, yesNoTokenProgram };
         const ix = await cancelOrder(ctx, { orderId: row.orderId });
         await sendTx(connection, sendTransaction, [ix], wallet);
         await load();
@@ -210,8 +213,11 @@ export function useMyOrders(wallet: PublicKey | null): UseMyOrdersResult {
       // still reflects everything that already landed.
       let cancelledCount = 0;
       try {
-        const usdcMint = await fetchUsdcMint(program);
-        const ctx: BuildCtx = { program, user: wallet, market: marketRows[0].market, usdcMint };
+        const [usdcMint, yesNoTokenProgram] = await Promise.all([
+          fetchUsdcMint(program),
+          fetchYesNoTokenProgram(program, marketRows[0].market),
+        ]);
+        const ctx: BuildCtx = { program, user: wallet, market: marketRows[0].market, usdcMint, yesNoTokenProgram };
         for (let i = 0; i < marketRows.length; i += CANCEL_BATCH_SIZE) {
           const batch = marketRows.slice(i, i + CANCEL_BATCH_SIZE);
           const ixs = await Promise.all(batch.map((r) => cancelOrder(ctx, { orderId: r.orderId })));

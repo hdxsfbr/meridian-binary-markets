@@ -156,4 +156,12 @@ pub mod meridian {
     pub fn close_market(ctx: Context<CloseAccounts>) -> Result<()> {
         instructions::handle_close_market(ctx)
     }
+
+    /// Permissionless cleanup for a Yes/No Token-2022 mint `close_market` could not
+    /// close because it still had outstanding supply (see `reclaim_mint.rs`'s module
+    /// doc comment). `side` is `1` for Yes, `2` for No, matching `redeem_winning`'s
+    /// convention.
+    pub fn reclaim_mint(ctx: Context<ReclaimMint>, ticker: [u8; 8], trading_day: u32, strike: u64, side: u8) -> Result<()> {
+        instructions::handle_reclaim_mint(ctx, ticker, trading_day, strike, side)
+    }
 }

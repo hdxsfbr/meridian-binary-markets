@@ -36,6 +36,7 @@ function market(overrides: Partial<MarketLike> & { pubkey: PublicKey }): MarketL
     yesMint: pk("yes"),
     noMint: pk("no"),
     vault: pk("vault"),
+    yesNoTokenProgram: pk("token-program"),
     ...overrides,
   };
 }

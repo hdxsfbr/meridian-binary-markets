@@ -31,7 +31,7 @@ import {
   yesMintPda,
   type Ticker,
 } from "@meridian/sdk";
-import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./ata";
+import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./ata";
 import { isWalletRejection } from "./tx";
 import { PROGRAM_ID } from "./rpc";
 
@@ -160,6 +160,15 @@ export type AddStrikeArgs = {
   capacity: number;
 };
 
+/**
+ * `create_market`/`add_strike` always create Token-2022 Yes/No mints (every
+ * market created from the Token-2022 migration on -- there is no "classic
+ * mode" left in that instruction; see `create_market.rs`'s module doc).
+ * `tokenProgram` is hardcoded to Token-2022 here for that reason, not
+ * resolved from chain -- there is nothing to resolve yet, the mints don't
+ * exist until this instruction creates them. `usdcTokenProgram` stays
+ * classic SPL Token (USDC is unaffected by this migration).
+ */
 function marketCreationAccounts(market: PublicKey, admin: PublicKey, usdcMint: PublicKey) {
   return {
     payer: admin,
@@ -172,7 +181,8 @@ function marketCreationAccounts(market: PublicKey, admin: PublicKey, usdcMint: P
     usdcEscrow: usdcEscrowPda(PROGRAM_ID, market)[0],
     yesEscrow: yesEscrowPda(PROGRAM_ID, market)[0],
     usdcMint,
-    tokenProgram: TOKEN_PROGRAM_ID,
+    tokenProgram: TOKEN_2022_PROGRAM_ID,
+    usdcTokenProgram: TOKEN_PROGRAM_ID,
     systemProgram: SystemProgram.programId,
     rent: SYSVAR_RENT_PUBKEY,
   };

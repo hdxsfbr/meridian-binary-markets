@@ -24,12 +24,18 @@ import {
   type TransactionSignature,
 } from "@solana/web3.js";
 import AnchorLangCore from "@anchor-lang/core";
-import { IDL, PROGRAM_ID } from "@meridian/sdk";
+import {
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  IDL,
+  PROGRAM_ID,
+  TOKEN_PROGRAM_ID,
+  associatedTokenAddress,
+  tokenProgramForMint,
+} from "@meridian/sdk";
 
 const { AnchorProvider, Program, Wallet } = AnchorLangCore;
 
-export const TOKEN_PROGRAM_ID = new PublicKey("TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA");
-export const ASSOCIATED_TOKEN_PROGRAM_ID = new PublicKey("ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL");
+export { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_PROGRAM_ID, associatedTokenAddress, tokenProgramForMint };
 
 /** Byte size of a classic SPL Token `Mint` account. */
 export const MINT_SPACE = 82;
@@ -145,12 +151,13 @@ function initializeMintInstruction(
   });
 }
 
-/** Classic Associated Token Account program `Create` (no instruction data). */
+/** Associated Token Account program `Create` (no instruction data); works for either token program, which owns `mint`/is passed as `tokenProgram`. */
 function createAssociatedTokenAccountInstruction(
   payer: PublicKey,
   ata: PublicKey,
   owner: PublicKey,
   mint: PublicKey,
+  tokenProgram: PublicKey = TOKEN_PROGRAM_ID,
 ): TransactionInstruction {
   return new TransactionInstruction({
     programId: ASSOCIATED_TOKEN_PROGRAM_ID,
@@ -160,19 +167,12 @@ function createAssociatedTokenAccountInstruction(
       { pubkey: owner, isSigner: false, isWritable: false },
       { pubkey: mint, isSigner: false, isWritable: false },
       { pubkey: SystemProgram.programId, isSigner: false, isWritable: false },
-      { pubkey: TOKEN_PROGRAM_ID, isSigner: false, isWritable: false },
+      { pubkey: tokenProgram, isSigner: false, isWritable: false },
     ],
     data: Buffer.alloc(0),
   });
 }
 
-/** Associated token account address for `owner`/`mint` (classic SPL Token program). */
-export function associatedTokenAddress(owner: PublicKey, mint: PublicKey): PublicKey {
-  return PublicKey.findProgramAddressSync(
-    [owner.toBuffer(), TOKEN_PROGRAM_ID.toBuffer(), mint.toBuffer()],
-    ASSOCIATED_TOKEN_PROGRAM_ID,
-  )[0];
-}
 
 /**
  * Creates a fresh 6-decimal SPL mint with `payer` as both account funder
@@ -204,21 +204,25 @@ export async function createTestMint(
 
 /**
  * Returns the associated token account for `owner`/`mint`, creating it
- * (funded by `payer`) if it does not already exist.
+ * (funded by `payer`) if it does not already exist. `tokenProgram` defaults
+ * to classic SPL Token (every caller today only uses this for USDC, which
+ * is unaffected by the Token-2022 migration); pass it explicitly for a
+ * Token-2022 mint.
  */
 export async function getOrCreateAta(
   connection: Connection,
   payer: Keypair,
   mint: PublicKey,
   owner: PublicKey,
+  tokenProgram: PublicKey = TOKEN_PROGRAM_ID,
 ): Promise<PublicKey> {
-  const ata = associatedTokenAddress(owner, mint);
+  const ata = associatedTokenAddress(owner, mint, tokenProgram);
   const info = await connection.getAccountInfo(ata, DEFAULT_COMMITMENT);
   if (info !== null) {
     return ata;
   }
   const tx = new Transaction().add(
-    createAssociatedTokenAccountInstruction(payer.publicKey, ata, owner, mint),
+    createAssociatedTokenAccountInstruction(payer.publicKey, ata, owner, mint, tokenProgram),
   );
   await sendAndConfirm(connection, tx, [payer]);
   return ata;

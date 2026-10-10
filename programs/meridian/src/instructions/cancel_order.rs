@@ -4,9 +4,14 @@
 //! returns escrowed funds, it never takes new ones). Searches both sides for the order
 //! id, checks ownership, refunds the exact remaining escrow, removes the order, and
 //! re-asserts the escrow invariants.
+//!
+//! Token-2022 migration: see `place_order.rs`'s module doc comment -- USDC refunds stay
+//! on the classic `usdc_token_program`; Yes refunds move through whichever program owns
+//! `market.yes_mint` (`yesno_token_program`, checked against `yes_escrow`'s own owner).
 
 use anchor_lang::prelude::*;
 use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::book::escrow;
 use crate::errors::MeridianError;
@@ -16,9 +21,17 @@ use crate::state::book::{
     asks_mut, bids_mut, find_order, read_header, remove_at, sum_ask_escrow, sum_bid_escrow,
     write_header,
 };
-use crate::state::market::{Market, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, SEED as MARKET_SEED};
+
+/// Yes/No mints are always 6 decimals.
+const YES_NO_DECIMALS: u8 = 6;
 
 pub fn handle_cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<()> {
+    require_matching_token_program(
+        ctx.accounts.yes_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
+
     let book_ai = ctx.accounts.book.to_account_info();
     require_keys_eq!(book_ai.key(), ctx.accounts.market.book, MeridianError::InvariantViolated);
     require!(book_ai.owner == &crate::ID, MeridianError::InvariantViolated);
@@ -38,7 +51,9 @@ pub fn handle_cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<(
         &bump,
     ];
     let signer_seeds: &[&[&[u8]]] = &[&seeds];
-    let token_program_key = ctx.accounts.token_program.key();
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
+    let yesno_token_program_key = ctx.accounts.yesno_token_program.key();
+    let yes_mint_ai = ctx.accounts.yes_mint.to_account_info();
     let market_ai = ctx.accounts.market.to_account_info();
 
     let mut data = book_ai.try_borrow_mut_data()?;
@@ -98,7 +113,7 @@ pub fn handle_cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<(
     let refunded = if is_bid {
         let amount = checked_mul_div(price, remaining, 1)?;
         escrow::transfer_escrow_out(
-            token_program_key,
+            usdc_token_program_key,
             &ctx.accounts.usdc_escrow.to_account_info(),
             &ctx.accounts.user_usdc.to_account_info(),
             &market_ai,
@@ -108,13 +123,15 @@ pub fn handle_cancel_order(ctx: Context<CancelOrder>, order_id: u64) -> Result<(
         amount
     } else {
         let amount = pairs_to_usdc(remaining)?;
-        escrow::transfer_escrow_out(
-            token_program_key,
+        escrow::transfer_escrow_out_checked(
+            yesno_token_program_key,
             &ctx.accounts.yes_escrow.to_account_info(),
+            &yes_mint_ai,
             &ctx.accounts.user_yes.to_account_info(),
             &market_ai,
             signer_seeds,
             amount,
+            YES_NO_DECIMALS,
         )?;
         amount
     };
@@ -160,13 +177,17 @@ pub struct CancelOrder<'info> {
     pub usdc_escrow: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, seeds = [b"escrow_yes", market.key().as_ref()], bump)]
-    pub yes_escrow: Box<Account<'info, TokenAccount>>,
+    pub yes_escrow: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
+
+    #[account(address = market.yes_mint @ MeridianError::InvariantViolated)]
+    pub yes_mint: Box<InterfaceAccount<'info, token_interface::Mint>>,
 
     #[account(mut)]
     pub user_usdc: Box<Account<'info, TokenAccount>>,
 
     #[account(mut)]
-    pub user_yes: Box<Account<'info, TokenAccount>>,
+    pub user_yes: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
 }

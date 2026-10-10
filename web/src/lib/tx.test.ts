@@ -1,7 +1,7 @@
 import { Keypair, PublicKey, type Connection } from "@solana/web3.js";
 import { describe, expect, it, vi } from "vitest";
-import { associatedTokenAddress } from "./ata";
-import { fetchConfirmedTransaction, makerAccountsFor } from "./tx";
+import { associatedTokenAddress, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./ata";
+import { fetchConfirmedTransaction, fetchYesNoTokenProgram, makerAccountsFor } from "./tx";
 
 const usdcMint = Keypair.generate().publicKey;
 const yesMint = Keypair.generate().publicKey;
@@ -52,6 +52,35 @@ describe("makerAccountsFor", () => {
 
   it("returns an empty list for zero makers", () => {
     expect(makerAccountsFor([], "bidTaker", mints)).toEqual([]);
+  });
+
+  it("derives the Yes leg under Token-2022 when tokenPrograms.yes is passed (ask taker / buyNoMarket)", () => {
+    const owners = makers(2);
+    const result = makerAccountsFor(owners, "askTaker", mints, { usdc: TOKEN_PROGRAM_ID, yes: TOKEN_2022_PROGRAM_ID });
+    expect(result).toEqual(owners.map((o) => associatedTokenAddress(o, yesMint, TOKEN_2022_PROGRAM_ID)));
+    // Sanity: the Token-2022 derivation differs from the classic default.
+    expect(result).not.toEqual(owners.map((o) => associatedTokenAddress(o, yesMint)));
+  });
+
+  it("keeps the USDC leg classic even when tokenPrograms.yes is Token-2022 (bid taker / sellNoMarket)", () => {
+    const owners = makers(2);
+    const result = makerAccountsFor(owners, "sellNoMarket", mints, { usdc: TOKEN_PROGRAM_ID, yes: TOKEN_2022_PROGRAM_ID });
+    expect(result).toEqual(owners.map((o) => associatedTokenAddress(o, usdcMint, TOKEN_PROGRAM_ID)));
+  });
+});
+
+describe("fetchYesNoTokenProgram", () => {
+  it("resolves the Yes mint's owner via the program's connection", async () => {
+    const owner = TOKEN_2022_PROGRAM_ID;
+    const getAccountInfo = vi.fn().mockResolvedValue({ owner });
+    const program = {
+      provider: { connection: { getAccountInfo } as unknown as Connection },
+    } as unknown as import("@anchor-lang/core").Program;
+    const market = Keypair.generate().publicKey;
+
+    const result = await fetchYesNoTokenProgram(program, market);
+    expect(result.equals(owner)).toBe(true);
+    expect(getAccountInfo).toHaveBeenCalledTimes(1);
   });
 });
 

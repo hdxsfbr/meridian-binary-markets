@@ -4,16 +4,23 @@
 //! "Validation rules carried into instructions" (`mint_pair(qty)`) and
 //! `contracts/program-instructions.md` ("Mint Pair", "Invariant checks executed in
 //! code").
+//!
+//! Token-2022 migration: the USDC leg always uses the classic SPL Token program
+//! (`usdc_token_program`); the Yes/No mint_to CPIs use whichever program actually owns
+//! `yes_mint`/`no_mint` (`yesno_token_program`, checked against each mint's own `owner`
+//! via `require_matching_token_program` -- Token-2022 for markets created after this
+//! migration, classic Token for legacy markets; see `state/market.rs`).
 
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, MintTo, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::errors::MeridianError;
 use crate::events::Minted;
 use crate::math::pairs_to_usdc;
 use crate::state::config::Config;
-use crate::state::market::{Market, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, SEED as MARKET_SEED};
 
 pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
     let accounts = ctx.accounts;
@@ -27,7 +34,8 @@ pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
         &accounts.user_usdc,
         &accounts.user_yes,
         &accounts.user_no,
-        &accounts.token_program,
+        &accounts.usdc_token_program,
+        &accounts.yesno_token_program,
         qty,
     )
 }
@@ -41,12 +49,7 @@ pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
 /// `buy_no_limit` (`contracts/program-instructions.md`: both mint a pair as their first
 /// step before trading the Yes side away) can reuse this logic in-process instead of
 /// issuing a self-CPI back into this program's own `mint_pair` instruction. Any caller
-/// whose accounts fill the same roles (`user: Signer`, `config: Account<Config>`,
-/// `market: Account<Market>` mut, `yes_mint`/`no_mint: Account<Mint>` mut matching
-/// `market.yes_mint`/`market.no_mint`, `vault: Account<TokenAccount>` mut matching
-/// `market.vault`, `user_usdc`: the user's USDC `TokenAccount`, `user_yes`/`user_no`:
-/// the user's Yes/No `TokenAccount`s, `token_program: Program<Token>`) can call this
-/// directly.
+/// whose accounts fill the same roles can reuse this directly.
 ///
 /// Guard order: `!config.paused` (`Paused`), `market.is_open()` (`MarketSettled`), `now < close_ts` (`MarketClosed`),
 /// `qty > 0` (`ZeroQuantity`).
@@ -54,14 +57,15 @@ pub fn handle_mint_pair(ctx: Context<MintPair>, qty: u64) -> Result<()> {
 pub(crate) fn mint_pair_core<'info>(
     config: &Account<'info, Config>,
     market: &mut Account<'info, Market>,
-    yes_mint: &Account<'info, Mint>,
-    no_mint: &Account<'info, Mint>,
+    yes_mint: &InterfaceAccount<'info, token_interface::Mint>,
+    no_mint: &InterfaceAccount<'info, token_interface::Mint>,
     vault: &mut Account<'info, TokenAccount>,
     user: &Signer<'info>,
     user_usdc: &Account<'info, TokenAccount>,
-    user_yes: &Account<'info, TokenAccount>,
-    user_no: &Account<'info, TokenAccount>,
-    token_program: &Program<'info, Token>,
+    user_yes: &InterfaceAccount<'info, token_interface::TokenAccount>,
+    user_no: &InterfaceAccount<'info, token_interface::TokenAccount>,
+    usdc_token_program: &Program<'info, Token>,
+    yesno_token_program: &Interface<'info, TokenInterface>,
     qty: u64,
 ) -> Result<()> {
     require!(!config.paused, MeridianError::Paused);
@@ -72,6 +76,9 @@ pub(crate) fn mint_pair_core<'info>(
     );
     require!(qty > 0, MeridianError::ZeroQuantity);
 
+    require_matching_token_program(yes_mint.to_account_info().owner, &yesno_token_program.key())?;
+    require_matching_token_program(no_mint.to_account_info().owner, &yesno_token_program.key())?;
+
     // Yes/No mints and the USDC vault all use the same 6-decimal scale (data-model.md
     // "All money is `u64` in USDC micro-units (6 decimals)"), so `qty` pairs is
     // `qty * ONE_USDC` base units on every one of the three legs below.
@@ -79,7 +86,7 @@ pub(crate) fn mint_pair_core<'info>(
 
     token::transfer(
         CpiContext::new(
-            token_program.key(),
+            usdc_token_program.key(),
             Transfer {
                 from: user_usdc.to_account_info(),
                 to: vault.to_account_info(),
@@ -105,10 +112,10 @@ pub(crate) fn mint_pair_core<'info>(
     ];
     let signer_seeds: &[&[&[u8]]] = &[&seeds];
 
-    token::mint_to(
+    token_interface::mint_to(
         CpiContext::new_with_signer(
-            token_program.key(),
-            MintTo {
+            yesno_token_program.key(),
+            token_interface::MintTo {
                 mint: yes_mint.to_account_info(),
                 to: user_yes.to_account_info(),
                 authority: market.to_account_info(),
@@ -118,10 +125,10 @@ pub(crate) fn mint_pair_core<'info>(
         usdc_amount,
     )?;
 
-    token::mint_to(
+    token_interface::mint_to(
         CpiContext::new_with_signer(
-            token_program.key(),
-            MintTo {
+            yesno_token_program.key(),
+            token_interface::MintTo {
                 mint: no_mint.to_account_info(),
                 to: user_no.to_account_info(),
                 authority: market.to_account_info(),
@@ -184,10 +191,10 @@ pub struct MintPair<'info> {
     pub market: Account<'info, Market>,
 
     #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Account<'info, TokenAccount>,
@@ -204,18 +211,21 @@ pub struct MintPair<'info> {
         payer = user,
         associated_token::mint = yes_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_yes: Account<'info, TokenAccount>,
+    pub user_yes: InterfaceAccount<'info, token_interface::TokenAccount>,
 
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = no_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_no: Account<'info, TokenAccount>,
+    pub user_no: InterfaceAccount<'info, token_interface::TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

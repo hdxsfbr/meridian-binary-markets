@@ -37,18 +37,24 @@
 //! All rent lamports recovered (escrows, Book, vault, Market) go to `admin`, per
 //! data-model.md's "rent returned to the admin" and DECISIONS §6.
 //!
-//! The Yes/No SPL mints are deliberately left in place by both instructions. An SPL
-//! mint account cannot be closed (there is no `close_account`-style instruction for
-//! mints) while any supply remains outstanding, and even at zero supply the SPL Token
-//! program has no mint-closing instruction at all (closing is a token-account-only
-//! operation) -- a market whose losing side's tokens are still sitting unredeemed in
-//! some wallet (which `redeem_winning`/`redeem_pair` never force) must not block
-//! `close_market`. So the mints simply stay on chain, inert, after their market closes;
-//! their rent is not reclaimed by this pair of instructions.
+//! The Yes/No SPL mints: a classic-Token mint can never be closed (there is no
+//! `close_account`-style instruction for a classic mint, with or without outstanding
+//! supply -- closing is a token-account-only operation there), so `handle_close_market`
+//! leaves a legacy market's mints in place, inert, after its market closes, exactly as
+//! before this file's Token-2022 migration. A Token-2022 mint created by `create_market`
+//! (see that file's module doc comment) carries a `MintCloseAuthority` extension with
+//! authority = market PDA specifically so this instruction *can* reclaim it once
+//! `supply == 0` -- i.e. once every Yes/No token from this market has been burned via
+//! `redeem_pair`/`redeem_winning`/the various trade paths. `handle_close_market` checks
+//! each mint's owner at call time and closes it via `token_interface::close_account`
+//! when it's Token-2022 and empty, or skips it with a `msg!` log otherwise (classic mint,
+//! or Token-2022 mint that still has outstanding supply) -- it never errors either way,
+//! since neither case is a precondition failure, just "nothing to reclaim here yet/ever."
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
-use anchor_spl::token::{self, CloseAccount, Mint, Token, TokenAccount};
+use anchor_spl::token::{self, CloseAccount, Token, TokenAccount};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::errors::MeridianError;
 use crate::state::book::{read_header, BOOK_SEED};
@@ -117,6 +123,58 @@ fn close_raw_book_account<'info>(book_ai: &AccountInfo<'info>, destination: &Acc
     book_ai.resize(0).map_err(Into::into)
 }
 
+/// Closes a Yes/No mint if, and only if, it's a Token-2022 mint (carrying the
+/// `MintCloseAuthority` extension `create_market` always sets, authority = market PDA)
+/// with zero outstanding supply. A classic-Token mint is never closeable this way
+/// regardless of supply (classic Token has no mint-closing instruction at all); a
+/// Token-2022 mint with nonzero supply isn't reclaimable *yet* (some Yes/No token from
+/// this market is still sitting unredeemed in some wallet, which `redeem_pair`/
+/// `redeem_winning` never force). Neither case is an error -- both just log and return.
+/// Lamports go to `admin`, matching this file's convention for every other account this
+/// pair of instructions reclaims.
+fn close_mint_if_reclaimable<'info>(
+    mint_ai: AccountInfo<'info>,
+    mint_label: &str,
+    admin_ai: &AccountInfo<'info>,
+    market_ai: &AccountInfo<'info>,
+    signer_seeds: &[&[&[u8]]],
+) -> Result<()> {
+    if mint_ai.owner != &anchor_spl::token_2022::ID {
+        msg!(
+            "close_market: {} is a classic-Token mint, no close authority extension -- skipping",
+            mint_label
+        );
+        return Ok(());
+    }
+
+    let data = mint_ai.try_borrow_data()?;
+    let mint_state = token_interface::spl_token_2022::extension::StateWithExtensions::<
+        token_interface::spl_token_2022::state::Mint,
+    >::unpack(&data)
+    .map_err(|_| error!(MeridianError::InvariantViolated))?;
+    let supply = mint_state.base.supply;
+    drop(data);
+
+    if supply != 0 {
+        msg!(
+            "close_market: {} still has {} outstanding, not reclaimable yet -- skipping",
+            mint_label,
+            supply
+        );
+        return Ok(());
+    }
+
+    token_interface::close_account(CpiContext::new_with_signer(
+        anchor_spl::token_2022::ID,
+        token_interface::CloseAccount {
+            account: mint_ai,
+            destination: admin_ai.clone(),
+            authority: market_ai.clone(),
+        },
+        signer_seeds,
+    ))
+}
+
 pub fn handle_close_book(ctx: Context<CloseAccounts>) -> Result<()> {
     require!(ctx.accounts.market.is_settled(), MeridianError::MarketNotSettled);
     // Idempotent no-op if `close_book` already ran (mirrors `create_book`'s own
@@ -144,15 +202,16 @@ pub fn handle_close_book(ctx: Context<CloseAccounts>) -> Result<()> {
     // books") -- its header, if any bytes are even allocated yet, was never fully
     // written, so there can be no live order to check for.
 
-    let token_program_key = ctx.accounts.token_program.key();
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
+    let yesno_token_program_key = ctx.accounts.yesno_token_program.key();
     let usdc_escrow_ai = ctx.accounts.usdc_escrow.to_account_info();
     let yes_escrow_ai = ctx.accounts.yes_escrow.to_account_info();
     require!(
-        token_account_amount(&usdc_escrow_ai, &token_program_key)? == 0,
+        token_account_amount(&usdc_escrow_ai, &usdc_token_program_key)? == 0,
         MeridianError::NotEmpty
     );
     require!(
-        token_account_amount(&yes_escrow_ai, &token_program_key)? == 0,
+        token_account_amount(&yes_escrow_ai, &yesno_token_program_key)? == 0,
         MeridianError::NotEmpty
     );
 
@@ -163,7 +222,7 @@ pub fn handle_close_book(ctx: Context<CloseAccounts>) -> Result<()> {
     let admin_ai = ctx.accounts.admin.to_account_info();
 
     token::close_account(CpiContext::new_with_signer(
-        token_program_key,
+        usdc_token_program_key,
         CloseAccount {
             account: usdc_escrow_ai,
             destination: admin_ai.clone(),
@@ -172,9 +231,9 @@ pub fn handle_close_book(ctx: Context<CloseAccounts>) -> Result<()> {
         signer_seeds,
     ))?;
 
-    token::close_account(CpiContext::new_with_signer(
-        token_program_key,
-        CloseAccount {
+    token_interface::close_account(CpiContext::new_with_signer(
+        yesno_token_program_key,
+        token_interface::CloseAccount {
             account: yes_escrow_ai,
             destination: admin_ai.clone(),
             authority: market_ai.clone(),
@@ -243,10 +302,10 @@ pub fn handle_close_market(ctx: Context<CloseAccounts>) -> Result<()> {
     let signer_seeds: &[&[&[u8]]] = &[&seeds];
     let market_ai = ctx.accounts.market.to_account_info();
     let admin_ai = ctx.accounts.admin.to_account_info();
-    let token_program_key = ctx.accounts.token_program.key();
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
 
     token::close_account(CpiContext::new_with_signer(
-        token_program_key,
+        usdc_token_program_key,
         CloseAccount {
             account: ctx.accounts.vault.to_account_info(),
             destination: admin_ai.clone(),
@@ -254,6 +313,26 @@ pub fn handle_close_market(ctx: Context<CloseAccounts>) -> Result<()> {
         },
         signer_seeds,
     ))?;
+
+    // Reclaim the Yes/No mints, Token-2022's `MintCloseAuthority` extension makes
+    // possible but classic Token never does -- see this file's module doc comment.
+    // Both mints are checked and (maybe) closed independently: a market's two mints
+    // are created together and so always share one owning program, but nothing stops
+    // one side's supply from hitting zero before the other's.
+    close_mint_if_reclaimable(
+        ctx.accounts.yes_mint.to_account_info(),
+        "yes_mint",
+        &admin_ai,
+        &market_ai,
+        signer_seeds,
+    )?;
+    close_mint_if_reclaimable(
+        ctx.accounts.no_mint.to_account_info(),
+        "no_mint",
+        &admin_ai,
+        &market_ai,
+        signer_seeds,
+    )?;
 
     // `Account<Market>::close` (from the `AccountsClose` trait, blanket-implemented for
     // any `#[account]` type -- see `anchor_lang::accounts::account`) does exactly what
@@ -318,16 +397,28 @@ pub struct CloseAccounts<'info> {
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Box<Account<'info, TokenAccount>>,
 
-    /// Not closed by either instruction -- see this file's module doc comment ("Mints
-    /// are left in place"). Carried here only so a future reader can see at a glance
-    /// that this instruction pair considered and deliberately left them alone.
-    #[account(address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, Mint>,
+    /// CHECK: closed by `close_market` iff Token-2022 with zero supply; left in place
+    /// otherwise -- see this file's module doc comment and `close_mint_if_reclaimable`.
+    /// Not a `Box<InterfaceAccount<Mint>>`: the handler needs the raw `AccountInfo` to
+    /// read `supply` off either a classic or a Token-2022 mint without the typed
+    /// wrapper's `AccountDeserialize` rejecting a to-be-closed account on a retry, so
+    /// this (like `usdc_escrow`/`yes_escrow` above) stays `UncheckedAccount`, with
+    /// `address` as the one constraint Anchor still checks for us.
+    #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
+    pub yes_mint: UncheckedAccount<'info>,
 
-    #[account(address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, Mint>,
+    /// CHECK: see `yes_mint`'s doc comment; same reasoning for the No mint.
+    #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
+    pub no_mint: UncheckedAccount<'info>,
 
-    pub token_program: Program<'info, Token>,
+    /// Classic SPL Token: owns the USDC vault/escrow. Always classic -- USDC's real
+    /// mint never migrates.
+    pub usdc_token_program: Program<'info, Token>,
+    /// Whichever program owns `yes_escrow`/the Yes/No mints for this market --
+    /// Token-2022 for a market created after this migration, classic Token for a
+    /// legacy market. `token_account_amount`/`close_mint_if_reclaimable` check the
+    /// actual account owner at call time rather than trusting this blindly.
+    pub yesno_token_program: Interface<'info, TokenInterface>,
     /// Needed only by `close_book`'s unfinished-book path, to sweep a prefunded-but-
     /// never-allocated Book PDA's lamports via a signed `system_program::transfer`.
     pub system_program: Program<'info, System>,

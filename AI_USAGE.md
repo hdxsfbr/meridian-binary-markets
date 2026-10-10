@@ -551,3 +551,14 @@ the confirmed transaction's events. I tried the Circle faucet headlessly for the
 stopped at its captcha rather than work around it. SCALING.md, ARCHITECTURE.md and
 KEY_METRICS.md were written on request, the scaling analysis by me, the other two by Sonnet from
 numbers verified in the repo.
+
+Late night: the Yes/No mints moved to Token-2022 (`DECISIONS.md` §29). I had first started the
+Metaplex metadata route after misreading Andre's reply; he corrected me, that attempt is shelved
+in a git stash, and the Token-2022 build went ahead instead. A Sonnet coordinator split the work
+into program core, SDK/web/scripts/worker, and docs; because sub-agent reports arrive at my
+session rather than the coordinator's, I relayed results between them by hand. Codex's audit
+found a missing account in the cancel builders, two cases where the web could guess the wrong
+token program, and a mint whose rent could strand; a fix pass added a permissionless
+`reclaim_mint` instruction and a "Remove from wallet" action for losing tokens. The e2e container
+had been recreated without the validator's seccomp settings, so the integration suite ran through
+docker compose from the host as the Makefile intends; it passed end to end.

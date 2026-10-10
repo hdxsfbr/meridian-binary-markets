@@ -13,10 +13,15 @@
 //! the user Yes out of `yes_escrow` (the ask maker's escrowed Yes) -> decrement/remove
 //! the filled ask makers -> redeem the filled pairs (reusing `redeem_pair_core`) ->
 //! assert the escrow invariant.
+//!
+//! Token-2022 migration: see `mint_pair.rs`'s module doc comment -- USDC stays classic
+//! (`usdc_token_program`); paying the user their Yes fill out of `yes_escrow` uses
+//! whichever program owns `yes_mint` (`yesno_token_program`).
 
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::book::escrow;
 use crate::book::matching::{self, Side};
@@ -26,11 +31,14 @@ use crate::instructions::redeem_pair::redeem_pair_core;
 use crate::math::{checked_mul_div, pairs_to_usdc, PRICE_MAX};
 use crate::state::book::{asks_mut, read_header, remove_at, sum_ask_escrow, write_header};
 use crate::state::config::Config;
-use crate::state::market::{Market, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, SEED as MARKET_SEED};
 
 /// Maximum number of fills matched in a single `sell_no_market` call (R7, same cap as
 /// `place_order`).
 const MAX_FILLS: usize = 8;
+
+/// Yes/No mints are always 6 decimals.
+const YES_NO_DECIMALS: u8 = 6;
 
 // Named lifetime (see `place_order.rs`'s `handle_place_order` doc comment): this
 // handler reads `ctx.remaining_accounts` alongside `ctx.accounts` in the same CPIs
@@ -52,6 +60,11 @@ pub fn handle_sell_no_market<'info>(
         max_yes_price >= 1 && max_yes_price <= PRICE_MAX,
         MeridianError::PriceOutOfRange
     );
+
+    require_matching_token_program(
+        ctx.accounts.yes_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
 
     let book_ai = ctx.accounts.book.to_account_info();
     require_keys_eq!(book_ai.key(), ctx.accounts.market.book, MeridianError::InvariantViolated);
@@ -100,9 +113,11 @@ pub fn handle_sell_no_market<'info>(
         &bump,
     ];
     let signer_seeds: &[&[&[u8]]] = &[&seeds];
-    let token_program_key = ctx.accounts.token_program.key();
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
+    let yesno_token_program_key = ctx.accounts.yesno_token_program.key();
     let market_ai = ctx.accounts.market.to_account_info();
     let usdc_mint_key = ctx.accounts.config.usdc_mint;
+    let yes_mint_ai = ctx.accounts.yes_mint.to_account_info();
 
     for (i, fill) in plan.fills.iter().enumerate() {
         let maker_ai = &ctx.remaining_accounts[i];
@@ -113,7 +128,7 @@ pub fn handle_sell_no_market<'info>(
         let usdc_amt = checked_mul_div(fill.price, fill.qty, 1)?;
         token::transfer(
             CpiContext::new(
-                token_program_key,
+                usdc_token_program_key,
                 Transfer {
                     from: ctx.accounts.user_usdc.to_account_info(),
                     to: maker_ai.clone(),
@@ -125,13 +140,15 @@ pub fn handle_sell_no_market<'info>(
 
         // Yes leg: the ask maker's escrowed Yes pays the taker.
         let yes_amt = pairs_to_usdc(fill.qty)?;
-        escrow::transfer_escrow_out(
-            token_program_key,
+        escrow::transfer_escrow_out_checked(
+            yesno_token_program_key,
             &ctx.accounts.yes_escrow.to_account_info(),
+            &yes_mint_ai,
             &ctx.accounts.user_yes.to_account_info(),
             &market_ai,
             signer_seeds,
             yes_amt,
+            YES_NO_DECIMALS,
         )?;
 
         emit!(Fill {
@@ -180,7 +197,8 @@ pub fn handle_sell_no_market<'info>(
         &ctx.accounts.user_usdc,
         &ctx.accounts.user_yes,
         &ctx.accounts.user_no,
-        &ctx.accounts.token_program,
+        &ctx.accounts.usdc_token_program,
+        &ctx.accounts.yesno_token_program,
         filled,
     )?;
 
@@ -221,10 +239,10 @@ pub struct SellNoMarket<'info> {
     pub market: Account<'info, Market>,
 
     #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Box<Account<'info, TokenAccount>>,
@@ -238,7 +256,7 @@ pub struct SellNoMarket<'info> {
     pub usdc_escrow: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, seeds = [b"escrow_yes", market.key().as_ref()], bump)]
-    pub yes_escrow: Box<Account<'info, TokenAccount>>,
+    pub yes_escrow: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     #[account(mut, token::mint = config.usdc_mint, token::authority = user)]
     pub user_usdc: Box<Account<'info, TokenAccount>>,
@@ -248,18 +266,21 @@ pub struct SellNoMarket<'info> {
         payer = user,
         associated_token::mint = yes_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_yes: Box<Account<'info, TokenAccount>>,
+    pub user_yes: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = no_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_no: Box<Account<'info, TokenAccount>>,
+    pub user_no: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
     // Remaining accounts: ask makers' USDC token accounts, in fill (book priority)

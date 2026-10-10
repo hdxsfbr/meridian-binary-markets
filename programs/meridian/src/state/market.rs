@@ -5,6 +5,25 @@
 
 use anchor_lang::prelude::*;
 
+use crate::errors::MeridianError;
+
+/// Validates that `token_program` is the program that actually owns a Yes/No mint (or
+/// a token account holding Yes/No tokens) before any instruction CPIs into it.
+///
+/// Legacy markets' Yes/No mints are owned by the classic SPL Token program; markets
+/// created after the Token-2022 migration (see `instructions/create_market.rs`) have
+/// theirs owned by Token-2022. Since a market's mints never change owner after
+/// `create_market` runs, and `Market` carries no field recording which program that
+/// is, every instruction that touches a Yes/No mint or token account derives the
+/// program from the account's own `owner` at call time and must check it against
+/// whichever `token_program`/`yesno_token_program` account the caller actually passed
+/// in -- otherwise a caller could supply a mismatched token program account and have
+/// the CPI silently target the wrong program.
+pub fn require_matching_token_program(mint_owner: &Pubkey, token_program: &Pubkey) -> Result<()> {
+    require_keys_eq!(*mint_owner, *token_program, MeridianError::TokenProgramMismatch);
+    Ok(())
+}
+
 /// Seed prefix for the Market PDA. Full seed order is
 /// `[SEED, ticker, trading_day.to_le_bytes(), strike.to_le_bytes()]`.
 pub const SEED: &[u8] = b"market";

@@ -16,10 +16,11 @@
 #![allow(dead_code)]
 
 use anchor_lang::prelude::Pubkey;
-use anchor_lang::{AccountDeserialize, InstructionData, ToAccountMetas};
+use anchor_lang::{AccountDeserialize, AccountSerialize, InstructionData, ToAccountMetas};
 use litesvm::types::{FailedTransactionMetadata, TransactionResult};
 use litesvm::LiteSVM;
 use litesvm_token::CreateMint;
+use solana_account::Account as SolanaAccount;
 use solana_address::Address;
 use solana_clock::Clock;
 use solana_instruction::account_meta::AccountMeta as SdkAccountMeta;
@@ -34,7 +35,7 @@ use solana_transaction_error::TransactionError;
 use meridian::errors::MeridianError;
 use meridian::state::book::{read_header, BookHeader};
 use meridian::state::config::{OracleProvider, TickerInfo};
-use meridian::state::market::Market;
+use meridian::state::market::{Market, MarketState, Outcome};
 
 /// Anchor's custom program error codes start at 6000 (`anchor_lang::error::ERROR_CODE_OFFSET`);
 /// `MeridianError` variants are plain fieldless enum members, so `as u32` gives the
@@ -233,7 +234,8 @@ impl Env {
             usdc_escrow,
             yes_escrow,
             usdc_mint: self.usdc_mint,
-            token_program: anchor_spl::token::ID,
+            token_program: anchor_spl::token_2022::ID,
+            usdc_token_program: anchor_spl::token::ID,
             system_program: anchor_lang::system_program::ID,
             rent: anchor_lang::prelude::rent::ID,
         };
@@ -310,6 +312,148 @@ impl Env {
         let admin_signer = admin_signer.insecure_clone();
         self.send(&[ix], &[&payer, &admin_signer])
     }
+
+    /// Builds a "classic market" fixture by hand, mimicking pre-Token-2022-migration
+    /// on-chain state, *without* ever calling the real `create_market` instruction
+    /// (which, after the migration, only ever creates Token-2022 mints -- see
+    /// `instructions/create_market.rs`'s module doc comment). Proves backward
+    /// compatibility: every instruction touching Yes/No mints derives which token
+    /// program owns them from the mint account's own `owner` at call time
+    /// (`state::market::require_matching_token_program`), so a legacy market whose
+    /// mints were never migrated must keep working unmodified.
+    ///
+    /// Yes/No mints are built via a real transaction (`litesvm_token::CreateMint`,
+    /// classic Token by construction since this crate's `token-2022` feature is never
+    /// enabled -- see `book/escrow.rs`'s `validate_maker_account` doc comment for why
+    /// that feature can't be turned on here); they don't need to be PDAs, since every
+    /// instruction only ever checks them via `address = market.yes_mint` equality,
+    /// never their own `seeds`.
+    ///
+    /// `vault`/`usdc_escrow`/`yes_escrow`, the `Market` account itself, and the one
+    /// field a real `create_market` would let `create_book` fill in (`market.book`)
+    /// *do* need to sit at their real PDAs: `place_order`/`cancel_order`/`close.rs`
+    /// constrain those three token accounts by `seeds`/`bump`, not just address
+    /// equality, and `market` is the same story (every instruction's `market` field
+    /// constrains `seeds`/`bump` against the account's own `ticker`/`trading_day`/
+    /// `strike`). A PDA can't sign its own `system_program::create_account`, so these
+    /// four are built as plain Rust structs/raw SPL byte layouts and injected directly
+    /// via `LiteSVM::set_account` rather than through any instruction. `book`/
+    /// `book_closed` are left at `Pubkey::default()`/`true` (no Book PDA for this
+    /// fixture -- tests exercising it stick to the book-free paths: `mint_pair`,
+    /// `redeem_pair`, `redeem_winning`, `close_market`), which also means `close_market`
+    /// is immediately callable without a separate `close_book` call.
+    pub fn create_classic_market_fixture(&mut self, args: CreateMarketArgs) -> CreateMarketResult {
+        let seeds_owned = Market::seeds(&args.ticker, args.trading_day, args.strike);
+        let seed_refs: Vec<&[u8]> = seeds_owned.iter().map(|s| s.as_slice()).collect();
+        let (market, market_bump) = Pubkey::find_program_address(&seed_refs, &meridian::ID);
+        let market_addr = addr(market);
+
+        let payer = self.payer.insecure_clone();
+
+        let yes_mint = pk(CreateMint::new(&mut self.svm, &payer)
+            .authority(&market_addr)
+            .decimals(6)
+            .send()
+            .expect("create classic yes_mint"));
+        let no_mint = pk(CreateMint::new(&mut self.svm, &payer)
+            .authority(&market_addr)
+            .decimals(6)
+            .send()
+            .expect("create classic no_mint"));
+
+        // `usdc_escrow`/`yes_escrow` are deliberately left nonexistent (system-owned, 0
+        // lamports) rather than injected as live-but-empty token accounts: this
+        // fixture's `book_closed: true`/`book: Pubkey::default()` claims "no book ever
+        // existed for this market," and `close_market` treats a nonexistent escrow as
+        // "already closed" (`lamports() == 0`) exactly like a real market whose
+        // `close_book` already ran -- consistent with that claim, and sufficient for
+        // this fixture's book-free test paths (`mint_pair`/`redeem_pair`/
+        // `redeem_winning`/`close_market`, none of which touch the escrows).
+        let (vault, vault_bump) = Pubkey::find_program_address(&[b"vault", market.as_ref()], &meridian::ID);
+        let (usdc_escrow, _) = Pubkey::find_program_address(&[b"escrow_usdc", market.as_ref()], &meridian::ID);
+        let (yes_escrow, _) = Pubkey::find_program_address(&[b"escrow_yes", market.as_ref()], &meridian::ID);
+        self.inject_classic_token_account(vault, self.usdc_mint, market, 0);
+
+        let market_struct = Market {
+            ticker: args.ticker,
+            strike: args.strike,
+            trading_day: args.trading_day,
+            close_ts: args.close_ts,
+            state: MarketState::Open,
+            outcome: Outcome::Unset,
+            settlement_price: 0,
+            settled_at: 0,
+            settled_by_override: false,
+            yes_mint,
+            no_mint,
+            vault,
+            book: Pubkey::default(),
+            book_closed: true,
+            book_capacity: args.capacity,
+            pairs_outstanding: 0,
+            bump: market_bump,
+            vault_bump,
+        };
+        let mut data = Vec::new();
+        market_struct.try_serialize(&mut data).expect("serialize classic Market fixture");
+        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        self.svm
+            .set_account(
+                market_addr,
+                SolanaAccount {
+                    lamports,
+                    data,
+                    owner: addr(meridian::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("inject classic Market fixture account");
+
+        CreateMarketResult {
+            market,
+            yes_mint,
+            no_mint,
+            vault,
+            usdc_escrow,
+            yes_escrow,
+            book: book_pda(market),
+        }
+    }
+
+    /// Injects a raw classic-SPL-Token `Account` (165 bytes, owned by classic Token)
+    /// directly into the LiteSVM accounts store at `address`, with the given
+    /// `mint`/`owner` and `amount`, bypassing any instruction. Used by
+    /// `create_classic_market_fixture` for `vault`/`usdc_escrow`/`yes_escrow`, which
+    /// need to sit at real PDAs (seeds relative to `market`) that nothing except the
+    /// system program could otherwise sign for.
+    fn inject_classic_token_account(&mut self, address: Pubkey, mint: Pubkey, owner: Pubkey, amount: u64) {
+        use anchor_lang::solana_program::program_pack::Pack;
+        use anchor_spl::token::spl_token::state::{Account as SplTokenAccount, AccountState};
+
+        let account = SplTokenAccount {
+            mint: addr(mint),
+            owner: addr(owner),
+            amount,
+            state: AccountState::Initialized,
+            ..Default::default()
+        };
+        let mut data = vec![0u8; SplTokenAccount::LEN];
+        account.pack_into_slice(&mut data);
+        let lamports = self.svm.minimum_balance_for_rent_exemption(data.len());
+        self.svm
+            .set_account(
+                addr(address),
+                SolanaAccount {
+                    lamports,
+                    data,
+                    owner: addr(anchor_spl::token::ID),
+                    executable: false,
+                    rent_epoch: 0,
+                },
+            )
+            .expect("inject classic token account fixture");
+    }
 }
 
 /// Builds a raw `Instruction` from a typed Anchor `Accounts` struct and instruction-data
@@ -320,6 +464,44 @@ pub fn build_ix<A: ToAccountMetas, I: InstructionData>(program_id: Pubkey, accou
         program_id: addr(program_id),
         accounts: to_sdk_metas(accounts.to_account_metas(None)),
         data: data.data(),
+    }
+}
+
+/// Builds a raw Token-2022 `TransferChecked` instruction (discriminant `12`, data
+/// `[amount_le_u64, decimals]`) for moving a Yes/No token directly between two token
+/// accounts outside of any `meridian` instruction (e.g. simulating a wallet-to-wallet
+/// transfer in a test fixture).
+///
+/// Not built via `litesvm_token::Transfer`/`anchor_spl::token::transfer`: both go
+/// through `spl_token_interface`'s client-side instruction builder, which calls
+/// `check_program_account` and hard-rejects any program id other than classic Token's
+/// own -- there is no way to point it at Token-2022 short of enabling
+/// `litesvm-token`'s `token-2022` Cargo feature, which would flip that crate's *other*
+/// helpers (`CreateMint`, `MintTo`, ...) over to Token-2022 too and break every USDC
+/// (always-classic) call site that uses them. `spl_token_2022_interface::instruction::
+/// transfer_checked`'s own builder calls the lenient `check_spl_token_program_account`
+/// (accepts either program), so building the raw instruction by hand here sidesteps
+/// the problem entirely.
+pub fn yes_no_transfer_checked_ix(
+    mint: Pubkey,
+    source: Pubkey,
+    destination: Pubkey,
+    authority: Pubkey,
+    amount: u64,
+) -> Instruction {
+    let mut data = Vec::with_capacity(10);
+    data.push(12u8); // TokenInstruction::TransferChecked discriminant
+    data.extend_from_slice(&amount.to_le_bytes());
+    data.push(6u8); // Yes/No mints are always 6 decimals
+    Instruction {
+        program_id: addr(anchor_spl::token_2022::ID),
+        accounts: vec![
+            SdkAccountMeta { pubkey: addr(source), is_signer: false, is_writable: true },
+            SdkAccountMeta { pubkey: addr(mint), is_signer: false, is_writable: false },
+            SdkAccountMeta { pubkey: addr(destination), is_signer: false, is_writable: true },
+            SdkAccountMeta { pubkey: addr(authority), is_signer: true, is_writable: false },
+        ],
+        data,
     }
 }
 

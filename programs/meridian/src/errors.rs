@@ -57,4 +57,6 @@ pub enum MeridianError {
     MarketClosed,
     #[msg("Order would cross the book; use a market order instead")]
     WouldCross,
+    #[msg("Token program account does not match the mint's owning program")]
+    TokenProgramMismatch,
 }

@@ -8,14 +8,19 @@
 //! Unlike `redeem_pair`, this instruction has no `Config` account at all: redemption of
 //! the winning side must never be blocked by `config.paused` (FR-006, FR-034), and there
 //! is no other guard that needs `Config`.
+//!
+//! Token-2022 migration: see `mint_pair.rs`'s module doc comment -- USDC stays classic
+//! (`usdc_token_program`), the winning-side burn uses whichever program owns the Yes/No
+//! mints (`yesno_token_program`, checked with `require_matching_token_program`).
 
 use anchor_lang::prelude::*;
-use anchor_spl::token::{self, Burn, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Token, TokenAccount, Transfer};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::errors::MeridianError;
 use crate::events::WinningRedeemed;
 use crate::math::pairs_to_usdc;
-use crate::state::market::{Market, Outcome, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, Outcome, SEED as MARKET_SEED};
 
 pub fn handle_redeem_winning(ctx: Context<RedeemWinning>, side: u8, qty: u64) -> Result<()> {
     require!(ctx.accounts.market.is_settled(), MeridianError::MarketNotSettled);
@@ -26,6 +31,15 @@ pub fn handle_redeem_winning(ctx: Context<RedeemWinning>, side: u8, qty: u64) ->
         (side == 1 || side == 2) && side == outcome_side,
         MeridianError::WrongSide
     );
+
+    require_matching_token_program(
+        ctx.accounts.yes_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
+    require_matching_token_program(
+        ctx.accounts.no_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
 
     // `user_winning` is the single token account this instruction touches (Wave 4
     // review fix: previously both `user_yes`/`user_no` were listed and only one was
@@ -46,22 +60,17 @@ pub fn handle_redeem_winning(ctx: Context<RedeemWinning>, side: u8, qty: u64) ->
 
     // Burn `qty` base units of whichever mint won, from `user_winning`, with the user
     // as burn authority.
-    let (winning_mint_info, winning_user_ata_info) = match ctx.accounts.market.outcome {
-        Outcome::Yes => (
-            ctx.accounts.yes_mint.to_account_info(),
-            ctx.accounts.user_winning.to_account_info(),
-        ),
-        Outcome::No => (
-            ctx.accounts.no_mint.to_account_info(),
-            ctx.accounts.user_winning.to_account_info(),
-        ),
+    let winning_mint_info = match ctx.accounts.market.outcome {
+        Outcome::Yes => ctx.accounts.yes_mint.to_account_info(),
+        Outcome::No => ctx.accounts.no_mint.to_account_info(),
         Outcome::Unset => unreachable!("Unset already handled above"),
     };
+    let winning_user_ata_info = ctx.accounts.user_winning.to_account_info();
 
-    token::burn(
+    token_interface::burn(
         CpiContext::new(
-            ctx.accounts.token_program.key(),
-            Burn {
+            ctx.accounts.yesno_token_program.key(),
+            token_interface::Burn {
                 mint: winning_mint_info,
                 from: winning_user_ata_info,
                 authority: ctx.accounts.user.to_account_info(),
@@ -88,7 +97,7 @@ pub fn handle_redeem_winning(ctx: Context<RedeemWinning>, side: u8, qty: u64) ->
 
     token::transfer(
         CpiContext::new_with_signer(
-            ctx.accounts.token_program.key(),
+            ctx.accounts.usdc_token_program.key(),
             Transfer {
                 from: ctx.accounts.vault.to_account_info(),
                 to: ctx.accounts.user_usdc.to_account_info(),
@@ -154,10 +163,10 @@ pub struct RedeemWinning<'info> {
     // burned from per call; which one that is varies by market, not statically, so
     // both still need to arrive writable.
     #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, anchor_spl::token::Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, anchor_spl::token::Mint>,
+    pub no_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Account<'info, TokenAccount>,
@@ -175,7 +184,8 @@ pub struct RedeemWinning<'info> {
     /// handler (`WrongSide` on mismatch, after the `MarketNotSettled` guard); owner is
     /// validated here via `token::authority`.
     #[account(mut, token::authority = user)]
-    pub user_winning: Account<'info, TokenAccount>,
+    pub user_winning: InterfaceAccount<'info, token_interface::TokenAccount>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
 }

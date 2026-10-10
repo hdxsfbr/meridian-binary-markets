@@ -10,10 +10,15 @@
 //! pairs (reusing `mint_pair_core`) -> escrow the qty Yes the user just minted into
 //! `yes_escrow` -> insert a resting ask owned by the user -> assert the escrow
 //! invariant.
+//!
+//! Token-2022 migration: see `mint_pair.rs`'s module doc comment -- USDC stays classic
+//! (`usdc_token_program`); escrowing the freshly minted Yes uses whichever program owns
+//! `yes_mint` (`yesno_token_program`).
 
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{Mint, Token, TokenAccount};
+use anchor_spl::token::{Token, TokenAccount};
+use anchor_spl::token_interface::{self, TokenInterface};
 
 use crate::book::escrow;
 use crate::book::matching::Side;
@@ -23,7 +28,10 @@ use crate::instructions::mint_pair::mint_pair_core;
 use crate::math::{pairs_to_usdc, PRICE_MAX};
 use crate::state::book::{asks_mut, bids_mut, insert_sorted, read_header, sum_ask_escrow, write_header, Order};
 use crate::state::config::Config;
-use crate::state::market::{Market, SEED as MARKET_SEED};
+use crate::state::market::{require_matching_token_program, Market, SEED as MARKET_SEED};
+
+/// Yes/No mints are always 6 decimals.
+const YES_NO_DECIMALS: u8 = 6;
 
 pub fn handle_buy_no_limit(ctx: Context<BuyNoLimit>, qty: u64, price: u64) -> Result<()> {
     require!(!ctx.accounts.config.paused, MeridianError::Paused);
@@ -34,6 +42,11 @@ pub fn handle_buy_no_limit(ctx: Context<BuyNoLimit>, qty: u64, price: u64) -> Re
     );
     require!(qty > 0, MeridianError::ZeroQuantity);
     require!(price >= 1 && price <= PRICE_MAX, MeridianError::PriceOutOfRange);
+
+    require_matching_token_program(
+        ctx.accounts.yes_mint.to_account_info().owner,
+        &ctx.accounts.yesno_token_program.key(),
+    )?;
 
     let book_ai = ctx.accounts.book.to_account_info();
     require_keys_eq!(book_ai.key(), ctx.accounts.market.book, MeridianError::InvariantViolated);
@@ -71,18 +84,21 @@ pub fn handle_buy_no_limit(ctx: Context<BuyNoLimit>, qty: u64, price: u64) -> Re
         &ctx.accounts.user_usdc,
         &ctx.accounts.user_yes,
         &ctx.accounts.user_no,
-        &ctx.accounts.token_program,
+        &ctx.accounts.usdc_token_program,
+        &ctx.accounts.yesno_token_program,
         qty,
     )?;
 
     // Escrow the qty Yes the user just minted into yes_escrow.
     let yes_amt = pairs_to_usdc(qty)?;
-    escrow::transfer_user_to_escrow(
-        ctx.accounts.token_program.key(),
+    escrow::transfer_user_to_escrow_checked(
+        ctx.accounts.yesno_token_program.key(),
         &ctx.accounts.user_yes.to_account_info(),
+        &ctx.accounts.yes_mint.to_account_info(),
         &ctx.accounts.yes_escrow.to_account_info(),
         &ctx.accounts.user.to_account_info(),
         yes_amt,
+        YES_NO_DECIMALS,
     )?;
 
     // Rest the ask at `price`.
@@ -159,10 +175,10 @@ pub struct BuyNoLimit<'info> {
     pub market: Account<'info, Market>,
 
     #[account(mut, address = market.yes_mint @ MeridianError::InvariantViolated)]
-    pub yes_mint: Account<'info, Mint>,
+    pub yes_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.no_mint @ MeridianError::InvariantViolated)]
-    pub no_mint: Account<'info, Mint>,
+    pub no_mint: InterfaceAccount<'info, token_interface::Mint>,
 
     #[account(mut, address = market.vault @ MeridianError::InvariantViolated)]
     pub vault: Box<Account<'info, TokenAccount>>,
@@ -176,7 +192,7 @@ pub struct BuyNoLimit<'info> {
     pub usdc_escrow: Box<Account<'info, TokenAccount>>,
 
     #[account(mut, seeds = [b"escrow_yes", market.key().as_ref()], bump)]
-    pub yes_escrow: Box<Account<'info, TokenAccount>>,
+    pub yes_escrow: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     #[account(mut, token::mint = config.usdc_mint, token::authority = user)]
     pub user_usdc: Box<Account<'info, TokenAccount>>,
@@ -186,18 +202,21 @@ pub struct BuyNoLimit<'info> {
         payer = user,
         associated_token::mint = yes_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_yes: Box<Account<'info, TokenAccount>>,
+    pub user_yes: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
     #[account(
         init_if_needed,
         payer = user,
         associated_token::mint = no_mint,
         associated_token::authority = user,
+        associated_token::token_program = yesno_token_program,
     )]
-    pub user_no: Box<Account<'info, TokenAccount>>,
+    pub user_no: Box<InterfaceAccount<'info, token_interface::TokenAccount>>,
 
-    pub token_program: Program<'info, Token>,
+    pub usdc_token_program: Program<'info, Token>,
+    pub yesno_token_program: Interface<'info, TokenInterface>,
     pub associated_token_program: Program<'info, AssociatedToken>,
     pub system_program: Program<'info, System>,
 }

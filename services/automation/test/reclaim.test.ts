@@ -51,10 +51,12 @@ interface FakeChainOpts {
   headers?: Map<string, BookHeader | null>;
   balances?: Map<string, bigint>;
   failCloseBookFor?: Set<string>;
+  /** Mints (base58) `reclaimMint` should reject, as `reclaim_mint` would for outstanding supply/a classic mint. */
+  failReclaimMintFor?: Set<string>;
 }
 
 function buildChain(opts: FakeChainOpts) {
-  const calls = { closeBook: [] as string[], closeMarket: [] as string[] };
+  const calls = { closeBook: [] as string[], closeMarket: [] as string[], reclaimMint: [] as string[] };
   const headers = opts.headers ?? new Map<string, BookHeader | null>();
   const balances = opts.balances ?? new Map<string, bigint>();
 
@@ -76,6 +78,11 @@ function buildChain(opts: FakeChainOpts) {
     },
     async closeMarket(market: PublicKey) {
       calls.closeMarket.push(market.toBase58());
+    },
+    async reclaimMint(_ticker, _tradingDay, _strike, _side, mint: PublicKey) {
+      const key = mint.toBase58();
+      if (opts.failReclaimMintFor?.has(key)) throw new Error("NotEmpty");
+      calls.reclaimMint.push(key);
     },
   };
 
@@ -186,6 +193,7 @@ describe("runReclaimJob", () => {
       },
       async closeBook() {},
       async closeMarket() {},
+      async reclaimMint() {},
     };
 
     const fixedNowMs = 1_759_100_000_000;
@@ -215,6 +223,7 @@ describe("runReclaimJob", () => {
       async closeMarket() {
         calls.closeMarket += 1;
       },
+      async reclaimMint() {},
     };
 
     await runReclaimJob({ chain }, { allSettled: true });
@@ -243,6 +252,7 @@ describe("runReclaimJob", () => {
       async closeMarket() {
         calls.closeMarket += 1;
       },
+      async reclaimMint() {},
     };
 
     await runReclaimJob({ chain }, { allSettled: true, dryRun: true });
@@ -259,5 +269,45 @@ describe("runReclaimJob", () => {
     await runReclaimJob({ chain }, { allSettled: true, day: 20261002 });
 
     expect(calls.closeMarket).toEqual([dayB.publicKey.toBase58()]);
+  });
+
+  it("attempts reclaim_mint for both mints right after closing the market", async () => {
+    const yesMint = new PublicKey("11111111111111111111111111111114");
+    const noMint = new PublicKey("11111111111111111111111111111115");
+    const record = marketRecord({ book: PublicKey.default, yesMint, noMint }, "14");
+    const { chain, calls } = buildChain({ markets: [record] });
+
+    await runReclaimJob({ chain }, { allSettled: true });
+
+    expect(calls.closeMarket).toEqual([record.publicKey.toBase58()]);
+    expect(calls.reclaimMint.sort()).toEqual([yesMint.toBase58(), noMint.toBase58()].sort());
+  });
+
+  it("a mint that isn't reclaimable yet (e.g. the loser still has outstanding supply) is skipped, not failed", async () => {
+    const yesMint = new PublicKey("11111111111111111111111111111116");
+    const noMint = new PublicKey("11111111111111111111111111111117");
+    const record = marketRecord({ book: PublicKey.default, yesMint, noMint }, "15");
+    const { chain, calls } = buildChain({
+      markets: [record],
+      // yes_mint was already closed inline by close_market; no_mint still
+      // has outstanding supply (the loser hasn't burned it yet) -- both are
+      // ordinary `reclaim_mint` rejections, not job failures.
+      failReclaimMintFor: new Set([yesMint.toBase58(), noMint.toBase58()]),
+    });
+
+    await runReclaimJob({ chain }, { allSettled: true });
+
+    expect(calls.closeMarket).toEqual([record.publicKey.toBase58()]);
+    expect(calls.reclaimMint).toEqual([]);
+  });
+
+  it("dry-run never attempts reclaim_mint (nothing was actually closed to reclaim from)", async () => {
+    const record = marketRecord({ book: PublicKey.default }, "16");
+    const { chain, calls } = buildChain({ markets: [record] });
+
+    await runReclaimJob({ chain }, { allSettled: true, dryRun: true });
+
+    expect(calls.closeMarket).toEqual([]);
+    expect(calls.reclaimMint).toEqual([]);
   });
 });

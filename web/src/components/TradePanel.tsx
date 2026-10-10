@@ -34,7 +34,15 @@ import { useProgram } from "@/hooks/useProgram";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { useToast } from "@/components/ui/Toast";
-import { fetchConfirmedTransaction, fetchUsdcMint, mapSendError, planToInstruction, sendTx, type BuildCtx } from "@/lib/tx";
+import {
+  fetchConfirmedTransaction,
+  fetchUsdcMint,
+  fetchYesNoTokenProgram,
+  mapSendError,
+  planToInstruction,
+  sendTx,
+  type BuildCtx,
+} from "@/lib/tx";
 import { computeTradeResult, tradeResultToast } from "@/lib/trade-result";
 import {
   ACTION_LABEL,
@@ -216,8 +224,11 @@ export function TradePanel({ market, config }: TradePanelProps) {
     setBusy(key);
     setLastError(null);
     try {
-      const usdcMint = await fetchUsdcMint(program);
-      const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint };
+      const [usdcMint, yesNoTokenProgram] = await Promise.all([
+        fetchUsdcMint(program),
+        fetchYesNoTokenProgram(program, market.pubkey),
+      ]);
+      const ctx: BuildCtx = { program, user: publicKey, market: market.pubkey, usdcMint, yesNoTokenProgram };
       const ix = await planToInstruction(ctx, plan);
       const signature = await sendTx(connection, sendTransaction, [ix], publicKey);
       setQtyInput("1");

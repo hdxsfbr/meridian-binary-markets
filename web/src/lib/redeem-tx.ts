@@ -26,6 +26,8 @@ export type RedeemMarket = {
   yesMint: PublicKey;
   noMint: PublicKey;
   vault: PublicKey;
+  /** The token program that owns `yesMint`/`noMint` -- classic SPL Token for a legacy market, Token-2022 for one created after the migration (see `@meridian/sdk`'s `tokenProgramForMint`). */
+  yesNoTokenProgram: PublicKey;
 };
 
 type RawConfigUsdcMint = { usdcMint: PublicKey };
@@ -77,8 +79,8 @@ export async function mintPair(
 ): Promise<string> {
   const [configAddress] = configPda(PROGRAM_ID);
   const userUsdc = associatedTokenAddress(wallet, usdcMint);
-  const userYes = associatedTokenAddress(wallet, market.yesMint);
-  const userNo = associatedTokenAddress(wallet, market.noMint);
+  const userYes = associatedTokenAddress(wallet, market.yesMint, market.yesNoTokenProgram);
+  const userNo = associatedTokenAddress(wallet, market.noMint, market.yesNoTokenProgram);
 
   return sendTx("Minting pair", connection, sendTransaction, wallet, () =>
     (
@@ -97,7 +99,8 @@ export async function mintPair(
         userUsdc,
         userYes,
         userNo,
-        tokenProgram: TOKEN_PROGRAM_ID,
+        usdcTokenProgram: TOKEN_PROGRAM_ID,
+        yesnoTokenProgram: market.yesNoTokenProgram,
         associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
         systemProgram: SystemProgram.programId,
       })
@@ -119,8 +122,8 @@ export function buildRedeemPairInstruction(
 ): Promise<TransactionInstruction> {
   const [configAddress] = configPda(PROGRAM_ID);
   const userUsdc = associatedTokenAddress(wallet, usdcMint);
-  const userYes = associatedTokenAddress(wallet, market.yesMint);
-  const userNo = associatedTokenAddress(wallet, market.noMint);
+  const userYes = associatedTokenAddress(wallet, market.yesMint, market.yesNoTokenProgram);
+  const userNo = associatedTokenAddress(wallet, market.noMint, market.yesNoTokenProgram);
 
   return (
     program.methods as unknown as {
@@ -138,7 +141,8 @@ export function buildRedeemPairInstruction(
       userUsdc,
       userYes,
       userNo,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: market.yesNoTokenProgram,
       associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
       systemProgram: SystemProgram.programId,
     })
@@ -174,7 +178,11 @@ export function buildRedeemWinningInstruction(
   qty: bigint,
 ): Promise<TransactionInstruction> {
   const userUsdc = associatedTokenAddress(wallet, usdcMint);
-  const userWinning = associatedTokenAddress(wallet, outcome === "yes" ? market.yesMint : market.noMint);
+  const userWinning = associatedTokenAddress(
+    wallet,
+    outcome === "yes" ? market.yesMint : market.noMint,
+    market.yesNoTokenProgram,
+  );
   const side = outcome === "yes" ? 1 : 2;
 
   return (
@@ -194,7 +202,8 @@ export function buildRedeemWinningInstruction(
       vault: market.vault,
       userUsdc,
       userWinning,
-      tokenProgram: TOKEN_PROGRAM_ID,
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: market.yesNoTokenProgram,
     })
     .instruction();
 }

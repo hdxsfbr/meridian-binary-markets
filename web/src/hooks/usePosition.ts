@@ -27,11 +27,62 @@
 
 import { useEffect, useState } from "react";
 import type { Connection, PublicKey } from "@solana/web3.js";
-import { noMintPda, yesMintPda, type Order } from "@meridian/sdk";
+import { noMintPda, tokenProgramForMint, yesMintPda, type Order } from "@meridian/sdk";
 import { associatedTokenAddress } from "@/lib/ata";
 import { PROGRAM_ID } from "@/lib/rpc";
 import { useBook } from "./useBook";
 import { useProgram } from "./useProgram";
+
+/**
+ * Markets' verified Yes/No token program, keyed by market base58 -- module
+ * scoped (not component state) so a transient RPC failure on one poll never
+ * loses a program this hook (or another mounted instance for the same
+ * market) already confirmed. `resolveTokenProgram` only ever writes here on
+ * a successful `tokenProgramForMint` call; a failed lookup reads it but
+ * never overwrites or clears it.
+ */
+const verifiedTokenProgramCache = new Map<string, PublicKey>();
+
+/** Delays (ms) between retry attempts when a mint-owner lookup fails. */
+const LOOKUP_RETRY_DELAYS_MS = [250, 750, 2000];
+
+/**
+ * Resolves `market`'s Yes/No token program with retries, never guessing
+ * classic SPL Token on failure (the audited bug: a transient RPC failure
+ * used to fall back to `TOKEN_PROGRAM_ID`, silently deriving the wrong ATAs
+ * for a Token-2022 market and reporting real holdings as zero).
+ *
+ * Returns `{ tokenProgram: null, unknown: true }` only if every retry
+ * failed *and* no previously verified program exists for this market --
+ * that is the one case callers must not derive ATAs or subscribe from.  If
+ * a previously verified program is cached, it is returned (so a correct,
+ * already-confirmed address keeps being used across a transient blip)
+ * alongside whether *this* attempt actually succeeded.
+ */
+async function resolveTokenProgram(
+  connection: Connection,
+  yesMint: PublicKey,
+  marketKey: string,
+  isCancelled: () => boolean,
+): Promise<{ tokenProgram: PublicKey | null; unknown: boolean }> {
+  for (let attempt = 0; attempt <= LOOKUP_RETRY_DELAYS_MS.length; attempt += 1) {
+    if (isCancelled()) {
+      return { tokenProgram: verifiedTokenProgramCache.get(marketKey) ?? null, unknown: true };
+    }
+    try {
+      const tokenProgram = await tokenProgramForMint(connection, yesMint);
+      verifiedTokenProgramCache.set(marketKey, tokenProgram);
+      return { tokenProgram, unknown: false };
+    } catch {
+      const delay = LOOKUP_RETRY_DELAYS_MS[attempt];
+      if (delay !== undefined) {
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  const cached = verifiedTokenProgramCache.get(marketKey);
+  return { tokenProgram: cached ?? null, unknown: true };
+}
 
 /** Yes/No mints have 6 decimals; one contract is this many base units. */
 export const BASE_UNITS_PER_CONTRACT = 1_000_000n;
@@ -111,27 +162,85 @@ export function usePosition(market: PublicKey | undefined, wallet: PublicKey | u
     const connection = program.provider.connection;
     const [yesMint] = yesMintPda(PROGRAM_ID, market);
     const [noMint] = noMintPda(PROGRAM_ID, market);
-    const yesAta = associatedTokenAddress(wallet, yesMint);
-    const noAta = associatedTokenAddress(wallet, noMint);
+    // Captured as a local so the closures below keep TS's narrowing past the
+    // `wallet === undefined` check above (a narrowed parameter doesn't stay
+    // narrowed inside a nested function).
+    const walletKey = wallet;
 
-    async function load() {
-      const [yes, no] = await Promise.all([tokenBalance(connection, yesAta), tokenBalance(connection, noAta)]);
-      if (!cancelled) {
-        setBalances({ yes: yes.amount, no: no.amount, unknown: yes.unknown || no.unknown });
-        setLoading(false);
+    // The Yes/No ATA address depends on which token program actually owns
+    // the mints (classic for a legacy market, Token-2022 for one created
+    // since the migration) -- resolved once per market/wallet change, not
+    // once per balance poll.
+    let unsubscribed = false;
+    let yesSubscriptionId: number | undefined;
+    let noSubscriptionId: number | undefined;
+    let interval: ReturnType<typeof setInterval> | undefined;
+    let unknownRetryTimeout: ReturnType<typeof setTimeout> | undefined;
+    const marketKey = market.toBase58();
+
+    /** Backs off a fully-unresolved program (no cache hit either) until it resolves. */
+    const UNKNOWN_RETRY_INTERVAL_MS = 5_000;
+
+    async function setup() {
+      const { tokenProgram, unknown: resolutionUnknown } = await resolveTokenProgram(
+        connection,
+        yesMint,
+        marketKey,
+        () => cancelled || unsubscribed,
+      );
+      if (cancelled || unsubscribed) {
+        return;
       }
+
+      // Every retry failed and nothing was ever verified for this market --
+      // there is no address, correct or previously-correct, to derive ATAs
+      // from or subscribe to. Report unknown, gate position-dependent
+      // actions, and keep retrying in the background rather than guessing.
+      if (tokenProgram === null) {
+        setBalances({ yes: 0n, no: 0n, unknown: true });
+        setLoading(false);
+        unknownRetryTimeout = setTimeout(() => void setup(), UNKNOWN_RETRY_INTERVAL_MS);
+        return;
+      }
+
+      const yesAta = associatedTokenAddress(walletKey, yesMint, tokenProgram);
+      const noAta = associatedTokenAddress(walletKey, noMint, tokenProgram);
+
+      async function load() {
+        const [yes, no] = await Promise.all([tokenBalance(connection, yesAta), tokenBalance(connection, noAta)]);
+        if (!cancelled) {
+          // `resolutionUnknown` covers "we're using a previously verified
+          // program because today's lookup failed" -- still surfaced as
+          // unknown so position-gated actions stay disabled until a lookup
+          // actually succeeds again.
+          setBalances({ yes: yes.amount, no: no.amount, unknown: resolutionUnknown || yes.unknown || no.unknown });
+          setLoading(false);
+        }
+      }
+
+      void load();
+      interval = setInterval(load, REFRESH_INTERVAL_MS);
+      yesSubscriptionId = connection.onAccountChange(yesAta, () => void load(), "confirmed");
+      noSubscriptionId = connection.onAccountChange(noAta, () => void load(), "confirmed");
     }
 
-    void load();
-    const interval = setInterval(load, REFRESH_INTERVAL_MS);
-    const yesSubscriptionId = connection.onAccountChange(yesAta, () => void load(), "confirmed");
-    const noSubscriptionId = connection.onAccountChange(noAta, () => void load(), "confirmed");
+    void setup();
 
     return () => {
       cancelled = true;
-      clearInterval(interval);
-      void connection.removeAccountChangeListener(yesSubscriptionId);
-      void connection.removeAccountChangeListener(noSubscriptionId);
+      unsubscribed = true;
+      if (interval !== undefined) {
+        clearInterval(interval);
+      }
+      if (unknownRetryTimeout !== undefined) {
+        clearTimeout(unknownRetryTimeout);
+      }
+      if (yesSubscriptionId !== undefined) {
+        void connection.removeAccountChangeListener(yesSubscriptionId);
+      }
+      if (noSubscriptionId !== undefined) {
+        void connection.removeAccountChangeListener(noSubscriptionId);
+      }
     };
   }, [program, market, wallet]);
 

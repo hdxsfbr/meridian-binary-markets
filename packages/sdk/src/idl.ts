@@ -85,6 +85,11 @@ export const IDL = {
         },
         {
           "name": "yes_mint",
+          "docs": [
+            "Token-2022 mint with `MetadataPointer` (self-pointing) and `MintCloseAuthority`",
+            "(authority = market PDA) extensions, plus on-mint `TokenMetadata` (initialized by",
+            "`init_token_metadata` in the handler -- see this file's module doc comment)."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -110,6 +115,9 @@ export const IDL = {
         },
         {
           "name": "no_mint",
+          "docs": [
+            "See `yes_mint`'s doc comment -- same shape, the No side."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -214,6 +222,16 @@ export const IDL = {
         },
         {
           "name": "token_program",
+          "docs": [
+            "Token-2022: owns the newly created Yes/No mints and the Yes escrow."
+          ]
+        },
+        {
+          "name": "usdc_token_program",
+          "docs": [
+            "Classic SPL Token: owns the USDC vault/escrow and (via `config.usdc_mint`) USDC",
+            "itself. Always classic -- see `usdc_mint`'s doc comment."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
@@ -491,41 +509,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -581,41 +566,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -662,8 +614,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -843,41 +798,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -933,41 +855,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -1014,8 +903,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -1150,6 +1042,9 @@ export const IDL = {
           }
         },
         {
+          "name": "yes_mint"
+        },
+        {
           "name": "user_usdc",
           "writable": true
         },
@@ -1158,8 +1053,11 @@ export const IDL = {
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         }
       ],
       "args": [
@@ -1339,17 +1237,35 @@ export const IDL = {
         {
           "name": "yes_mint",
           "docs": [
-            "Not closed by either instruction -- see this file's module doc comment (\"Mints",
-            "are left in place\"). Carried here only so a future reader can see at a glance",
-            "that this instruction pair considered and deliberately left them alone."
-          ]
+            "otherwise -- see this file's module doc comment and `close_mint_if_reclaimable`.",
+            "Not a `Box<InterfaceAccount<Mint>>`: the handler needs the raw `AccountInfo` to",
+            "read `supply` off either a classic or a Token-2022 mint without the typed",
+            "wrapper's `AccountDeserialize` rejecting a to-be-closed account on a retry, so",
+            "this (like `usdc_escrow`/`yes_escrow` above) stays `UncheckedAccount`, with",
+            "`address` as the one constraint Anchor still checks for us."
+          ],
+          "writable": true
         },
         {
-          "name": "no_mint"
+          "name": "no_mint",
+          "writable": true
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
+          "docs": [
+            "Classic SPL Token: owns the USDC vault/escrow. Always classic -- USDC's real",
+            "mint never migrates."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program",
+          "docs": [
+            "Whichever program owns `yes_escrow`/the Yes/No mints for this market --",
+            "Token-2022 for a market created after this migration, classic Token for a",
+            "legacy market. `token_account_amount`/`close_mint_if_reclaimable` check the",
+            "actual account owner at call time rather than trusting this blindly."
+          ]
         },
         {
           "name": "system_program",
@@ -1532,17 +1448,35 @@ export const IDL = {
         {
           "name": "yes_mint",
           "docs": [
-            "Not closed by either instruction -- see this file's module doc comment (\"Mints",
-            "are left in place\"). Carried here only so a future reader can see at a glance",
-            "that this instruction pair considered and deliberately left them alone."
-          ]
+            "otherwise -- see this file's module doc comment and `close_mint_if_reclaimable`.",
+            "Not a `Box<InterfaceAccount<Mint>>`: the handler needs the raw `AccountInfo` to",
+            "read `supply` off either a classic or a Token-2022 mint without the typed",
+            "wrapper's `AccountDeserialize` rejecting a to-be-closed account on a retry, so",
+            "this (like `usdc_escrow`/`yes_escrow` above) stays `UncheckedAccount`, with",
+            "`address` as the one constraint Anchor still checks for us."
+          ],
+          "writable": true
         },
         {
-          "name": "no_mint"
+          "name": "no_mint",
+          "writable": true
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
+          "docs": [
+            "Classic SPL Token: owns the USDC vault/escrow. Always classic -- USDC's real",
+            "mint never migrates."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program",
+          "docs": [
+            "Whichever program owns `yes_escrow`/the Yes/No mints for this market --",
+            "Token-2022 for a market created after this migration, classic Token for a",
+            "legacy market. `token_account_amount`/`close_mint_if_reclaimable` check the",
+            "actual account owner at call time rather than trusting this blindly."
+          ]
         },
         {
           "name": "system_program",
@@ -1718,6 +1652,11 @@ export const IDL = {
         },
         {
           "name": "yes_mint",
+          "docs": [
+            "Token-2022 mint with `MetadataPointer` (self-pointing) and `MintCloseAuthority`",
+            "(authority = market PDA) extensions, plus on-mint `TokenMetadata` (initialized by",
+            "`init_token_metadata` in the handler -- see this file's module doc comment)."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1743,6 +1682,9 @@ export const IDL = {
         },
         {
           "name": "no_mint",
+          "docs": [
+            "See `yes_mint`'s doc comment -- same shape, the No side."
+          ],
           "writable": true,
           "pda": {
             "seeds": [
@@ -1847,6 +1789,16 @@ export const IDL = {
         },
         {
           "name": "token_program",
+          "docs": [
+            "Token-2022: owns the newly created Yes/No mints and the Yes escrow."
+          ]
+        },
+        {
+          "name": "usdc_token_program",
+          "docs": [
+            "Classic SPL Token: owns the USDC vault/escrow and (via `config.usdc_mint`) USDC",
+            "itself. Always classic -- see `usdc_mint`'s doc comment."
+          ],
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
         },
         {
@@ -2049,41 +2001,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -2139,41 +2058,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -2220,8 +2106,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -2533,41 +2422,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -2614,8 +2470,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -2641,6 +2500,132 @@ export const IDL = {
         },
         {
           "name": "tif",
+          "type": "u8"
+        }
+      ]
+    },
+    {
+      "name": "reclaim_mint",
+      "docs": [
+        "Permissionless cleanup for a Yes/No Token-2022 mint `close_market` could not",
+        "close because it still had outstanding supply (see `reclaim_mint.rs`'s module",
+        "doc comment). `side` is `1` for Yes, `2` for No, matching `redeem_winning`'s",
+        "convention."
+      ],
+      "discriminator": [
+        173,
+        15,
+        194,
+        110,
+        170,
+        166,
+        18,
+        5
+      ],
+      "accounts": [
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "docs": [
+            "seeds alone -- deliberately `UncheckedAccount`, not `Account<Market>`, since",
+            "the whole point of this instruction is to still work once `close_market` has",
+            "already closed it (see module doc comment). `bump` with no explicit value",
+            "makes Anchor compute the canonical bump itself and verify the caller's address",
+            "matches it, exactly like every other Market-PDA constraint in this program --",
+            "a caller cannot substitute an unrelated account here."
+          ],
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "ticker"
+              },
+              {
+                "kind": "arg",
+                "path": "trading_day"
+              },
+              {
+                "kind": "arg",
+                "path": "strike"
+              }
+            ]
+          }
+        },
+        {
+          "name": "mint",
+          "docs": [
+            "prove the address; the handler independently checks owner, supply, and the",
+            "mint's own `MintCloseAuthority` extension before ever closing it."
+          ],
+          "writable": true
+        },
+        {
+          "name": "admin",
+          "docs": [
+            "not a `Signer` -- this instruction is permissionless (anyone -- typically the",
+            "automation worker, or a wallet that just burned its losing tokens -- can",
+            "trigger the cleanup once the preconditions hold), but it always pays the",
+            "configured admin, never whoever happens to submit the transaction."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "docs": [
+            "Must be Token-2022: a classic mint is never reclaimable this way (see module",
+            "doc comment). Checked again against `mint`'s own owner in the handler rather",
+            "than trusted from this account's type alone."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "ticker",
+          "type": {
+            "array": [
+              "u8",
+              8
+            ]
+          }
+        },
+        {
+          "name": "trading_day",
+          "type": "u32"
+        },
+        {
+          "name": "strike",
+          "type": "u64"
+        },
+        {
+          "name": "side",
           "type": "u8"
         }
       ]
@@ -2741,41 +2726,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -2831,41 +2783,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -2912,8 +2831,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -3011,8 +2933,11 @@ export const IDL = {
           "writable": true
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         }
       ],
       "args": [
@@ -3184,41 +3109,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -3274,41 +3166,8 @@ export const IDL = {
                 "path": "user"
               },
               {
-                "kind": "const",
-                "value": [
-                  6,
-                  221,
-                  246,
-                  225,
-                  215,
-                  101,
-                  161,
-                  147,
-                  217,
-                  203,
-                  225,
-                  70,
-                  206,
-                  235,
-                  121,
-                  172,
-                  28,
-                  180,
-                  133,
-                  237,
-                  95,
-                  91,
-                  55,
-                  145,
-                  58,
-                  140,
-                  245,
-                  133,
-                  126,
-                  255,
-                  0,
-                  169
-                ]
+                "kind": "account",
+                "path": "yesno_token_program"
               },
               {
                 "kind": "account",
@@ -3355,8 +3214,11 @@ export const IDL = {
           }
         },
         {
-          "name": "token_program",
+          "name": "usdc_token_program",
           "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program"
         },
         {
           "name": "associated_token_program",
@@ -3822,6 +3684,11 @@ export const IDL = {
       "code": 6024,
       "name": "WouldCross",
       "msg": "Order would cross the book; use a market order instead"
+    },
+    {
+      "code": 6025,
+      "name": "TokenProgramMismatch",
+      "msg": "Token program account does not match the mint's owning program"
     }
   ],
   "types": [
