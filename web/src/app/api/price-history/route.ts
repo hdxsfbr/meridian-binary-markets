@@ -77,7 +77,13 @@ export async function GET(request: Request): Promise<Response> {
     return Response.json({ ticker, points: [] } satisfies PriceHistoryResponse);
   }
 
-  const { from: windowFrom, to } = currentSessionWindow();
+  // Equities get the current (or most recent) US session; assets that trade around the
+  // clock (crypto) get the last six hours up to now, since a weekday session window would
+  // show Friday's prints with a day-long gap before the live tip.
+  const session = currentSessionWindow();
+  const aroundTheClock = pythHistorySymbol(ticker).startsWith("Crypto.");
+  const to = aroundTheClock ? Math.floor(Date.now() / 1000) : session.to;
+  const windowFrom = aroundTheClock ? to - 6 * 3600 : session.from;
   const from = Math.max(windowFrom, to - MAX_WINDOW_SECONDS);
 
   const cached = cache.get(ticker);

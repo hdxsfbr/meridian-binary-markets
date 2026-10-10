@@ -13,7 +13,7 @@ import dynamic from "next/dynamic";
 import { useSearchParams } from "next/navigation";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { useSendTransaction } from "../../../lib/wallet-send";
-import { earliestCloseTs, todayTradingDay } from "@/lib/markets";
+import { earliestCloseTs, todayTradingDay, formatCloseTimeEt } from "@/lib/markets";
 import { useConfig } from "@/hooks/useConfig";
 import { useMarkets, type MarketAccount } from "@/hooks/useMarkets";
 import { useBook } from "@/hooks/useBook";
@@ -144,7 +144,7 @@ export default function TradePage({ params }: { params: Promise<{ ticker: string
           />
         ) : null}
       </div>
-      <p className="mt-1 text-sm text-text-muted">Closes 4:00 PM ET</p>
+      <p className="mt-1 text-sm text-text-muted">Closes {closeTs !== undefined ? `${formatCloseTimeEt(Number(closeTs))} ET` : "4:00 PM ET"}</p>
 
       {error ? (
         <div className="mt-6">
