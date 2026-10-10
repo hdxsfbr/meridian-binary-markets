@@ -82,13 +82,13 @@ fn create_market_mint_metadata_matches_ticker_strike_side_and_date() {
         .expect("create_market should succeed");
 
     let yes_meta = read_token_metadata(&env, market.yes_mint);
-    assert_eq!(yes_meta.name, "AAPL >= $150 Yes 2026-10-07");
-    assert_eq!(yes_meta.symbol, "AAPLY");
+    assert_eq!(yes_meta.name, "AAPL \u{2265} $150 Yes Oct 7");
+    assert_eq!(yes_meta.symbol, "MERIDIAN");
     assert_eq!(yes_meta.uri, "");
 
     let no_meta = read_token_metadata(&env, market.no_mint);
-    assert_eq!(no_meta.name, "AAPL >= $150 No 2026-10-07");
-    assert_eq!(no_meta.symbol, "AAPLN");
+    assert_eq!(no_meta.name, "AAPL \u{2265} $150 No Oct 7");
+    assert_eq!(no_meta.symbol, "MERIDIAN");
     assert_eq!(no_meta.uri, "");
 }
 

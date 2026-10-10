@@ -92,42 +92,59 @@ fn format_strike(strike: u64) -> String {
 }
 
 /// Formats a `YYYYMMDD` `trading_day` as `YYYY-MM-DD`.
+/// `"Oct 10"`: the short wallet-friendly date used in the mint name. The year is
+/// implied by the market (each key is one trading day), and wallets truncate long
+/// names in list views, so the shortest unambiguous form wins.
 fn format_date(trading_day: u32) -> String {
+    const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+    let month = ((trading_day / 100) % 100) as usize;
+    let day = trading_day % 100;
+    let month_s = MONTHS.get(month.wrapping_sub(1)).copied().unwrap_or("???");
+    format!("{month_s} {day}")
+}
+
+/// `"2026-10-10"`: the full ISO date, used only by the last-resort fallback of
+/// `mint_name` where the ticker has been dropped and the day must stay unambiguous.
+fn format_date_iso(trading_day: u32) -> String {
     let year = trading_day / 10_000;
     let month = (trading_day / 100) % 100;
     let day = trading_day % 100;
     format!("{year:04}-{month:02}-{day:02}")
 }
 
-/// Builds a Yes/No mint's on-chain `name` metadata field: `"<TICKER> >= $<strike> <Yes|No>
-/// <YYYY-MM-DD>"`, kept to 32 bytes per this repo's token-name convention when it fits.
-/// If the full form doesn't fit, shortens "Yes"/"No" to "Y"/"N" first, then drops the
-/// ticker -- the strike digits and the date are never truncated, at either step.
+/// Builds a Yes/No mint's on-chain `name` metadata field: `"<TICKER> ≥ $<strike> <Yes|No>
+/// <Mon D>"` (e.g. `"AAPL ≥ $337 Yes Oct 10"`), kept within the 32-byte token-name limit.
+/// Fallbacks, in order, if it does not fit: ASCII `">="` instead of `"≥"`, then `"Y"`/`"N"`
+/// for the side, then the ticker is dropped and the full ISO date used -- the strike
+/// digits and the date are never truncated at any step.
 pub(crate) fn mint_name(ticker: &[u8; 8], strike: u64, trading_day: u32, is_yes: bool) -> String {
     let ticker_s = ticker_str(ticker);
     let strike_s = format_strike(strike);
     let date_s = format_date(trading_day);
-
     let side_long = if is_yes { "Yes" } else { "No" };
-    let full = format!("{ticker_s} >= ${strike_s} {side_long} {date_s}");
-    if full.len() <= 32 {
-        return full;
-    }
-
     let side_short = if is_yes { "Y" } else { "N" };
-    let shortened = format!("{ticker_s} >= ${strike_s} {side_short} {date_s}");
-    if shortened.len() <= 32 {
-        return shortened;
+
+    let candidates = [
+        format!("{ticker_s} \u{2265} ${strike_s} {side_long} {date_s}"),
+        format!("{ticker_s} >= ${strike_s} {side_long} {date_s}"),
+        format!("{ticker_s} >= ${strike_s} {side_short} {date_s}"),
+    ];
+    for candidate in candidates {
+        if candidate.len() <= 32 {
+            return candidate;
+        }
     }
 
     // Drop the ticker rather than ever touch the strike digits or the date.
-    format!(">=${strike_s} {side_short} {date_s}")
+    format!(">=${strike_s} {side_short} {}", format_date_iso(trading_day))
 }
 
-/// Builds a Yes/No mint's on-chain `symbol` metadata field: `"<TICKER>Y"` / `"<TICKER>N"`.
-pub(crate) fn mint_symbol(ticker: &[u8; 8], is_yes: bool) -> String {
-    let ticker_s = ticker_str(ticker);
-    format!("{ticker_s}{}", if is_yes { "Y" } else { "N" })
+/// Builds a Yes/No mint's on-chain `symbol` metadata field. Every Meridian token carries
+/// the brand as its symbol so a wallet list reads "<name> / 1 MERIDIAN": the side and
+/// the market are already in the name, and a non-crypto holder mostly wants to know
+/// where the token came from.
+pub(crate) fn mint_symbol(_ticker: &[u8; 8], _is_yes: bool) -> String {
+    "MERIDIAN".to_string()
 }
 
 /// Reallocs `mint_ai` to fit `TokenMetadata(name, symbol, uri)` on top of whatever space
@@ -436,7 +453,7 @@ mod tests {
     fn mint_name_fits_32_bytes_for_a_typical_market() {
         let ticker = *b"AAPL\0\0\0\0";
         let name = mint_name(&ticker, 150_000_000, 20261006, true);
-        assert_eq!(name, "AAPL >= $150 Yes 2026-10-06");
+        assert_eq!(name, "AAPL \u{2265} $150 Yes Oct 6");
         assert!(name.len() <= 32);
     }
 
@@ -444,7 +461,7 @@ mod tests {
     fn mint_name_trims_strike_fraction_trailing_zeros() {
         let ticker = *b"MSFT\0\0\0\0";
         let name = mint_name(&ticker, 150_500_000, 20261006, false);
-        assert_eq!(name, "MSFT >= $150.5 No 2026-10-06");
+        assert_eq!(name, "MSFT \u{2265} $150.5 No Oct 6");
     }
 
     #[test]
@@ -471,10 +488,10 @@ mod tests {
     }
 
     #[test]
-    fn mint_symbol_appends_side_letter() {
+    fn mint_symbol_is_the_brand() {
         let ticker = *b"AAPL\0\0\0\0";
-        assert_eq!(mint_symbol(&ticker, true), "AAPLY");
-        assert_eq!(mint_symbol(&ticker, false), "AAPLN");
+        assert_eq!(mint_symbol(&ticker, true), "MERIDIAN");
+        assert_eq!(mint_symbol(&ticker, false), "MERIDIAN");
     }
 
     #[test]
@@ -485,7 +502,9 @@ mod tests {
     }
 
     #[test]
-    fn format_date_renders_iso_form() {
-        assert_eq!(format_date(20261006), "2026-10-06");
+    fn format_date_renders_short_and_iso_forms() {
+        assert_eq!(format_date(20261006), "Oct 6");
+        assert_eq!(format_date(20261231), "Dec 31");
+        assert_eq!(format_date_iso(20261006), "2026-10-06");
     }
 }

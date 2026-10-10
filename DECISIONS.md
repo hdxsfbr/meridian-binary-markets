@@ -832,3 +832,11 @@ binary grew from 623,328 bytes (pre-migration) to 732,672 bytes (about 109 KB, ~
 `reclaim_mint`) from the extension/metadata code and the new instruction, which raises the devnet
 program-data rent and means the next upgrade-deploy needs its program-data account extended by
 roughly that size delta before the new binary can be written to it (`docs/deployment.md` §1).
+
+**Update, 2026-10-10 (§29 naming):** Phantom truncates token names at about 20 characters in its
+list view, and Andre wanted a holder to see where a token came from. New mints are named
+`"<TICKER> ≥ $<strike> <Yes|No> <Mon D>"` (for example `AAPL ≥ $337 Yes Oct 10`, with ASCII
+`>=` and `Y`/`N` fallbacks and a last resort that drops the ticker, never the strike or date)
+and every Meridian token's symbol is `MERIDIAN`, so a wallet row reads "AAPL ≥ $337 Yes Oct 10 /
+1 MERIDIAN". The year is implied by the market. Only mints created after this upgrade carry the
+new form.
