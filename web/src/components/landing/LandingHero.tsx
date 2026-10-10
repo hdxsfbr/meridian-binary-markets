@@ -3,7 +3,7 @@
 import Link from "next/link";
 import dynamic from "next/dynamic";
 import { useEffect, useState } from "react";
-import { TICKERS, type Ticker } from "@meridian/sdk";
+import { round10, strikeStepFor, TICKERS, type Ticker } from "@meridian/sdk";
 import { formatStrike } from "@/lib/format";
 import { usePrices } from "@/hooks/usePrices";
 import { useConfig } from "@/hooks/useConfig";
@@ -20,7 +20,7 @@ const WalletMultiButton = dynamic(
 // charting library (see HeroChart.tsx's own top-of-file note).
 const HeroChart = dynamic(() => import("./HeroChart").then((m) => m.HeroChart), { ssr: false });
 
-/** Plain-language company names for the headline ("Will Apple close above…"); the rest of the app shows tickers only. */
+/** Plain-language company/asset names for the headline ("Will Apple close above…"); the rest of the app shows tickers only. */
 const TICKER_NAMES: Partial<Record<Ticker, string>> = {
   AAPL: "Apple",
   AMZN: "Amazon",
@@ -29,15 +29,19 @@ const TICKER_NAMES: Partial<Record<Ticker, string>> = {
   MSFT: "Microsoft",
   NVDA: "Nvidia",
   TSLA: "Tesla",
+  BTC: "Bitcoin",
 };
 
 const CYCLE_MS = 6000;
-const TEN_DOLLARS_MICRO = 10_000_000n;
 
-/** Rounds a micro-USD price to the nearest $10, e.g. $337.40 -> $340. */
-function roundToNearestTen(priceMicro: bigint): bigint {
-  const half = TEN_DOLLARS_MICRO / 2n;
-  return ((priceMicro + half) / TEN_DOLLARS_MICRO) * TEN_DOLLARS_MICRO;
+/**
+ * Rounds a micro-USD price to the nearest strike-grid step for its
+ * magnitude (`strikeStepFor`, DECISIONS.md §30) -- $10 for an equity-priced
+ * ticker (e.g. $337.40 -> $340), $500 for a BTC-magnitude one, same grid
+ * `strikeLadder`/the `extend` job snap to.
+ */
+function roundToNearestStep(priceMicro: bigint): bigint {
+  return round10(priceMicro, strikeStepFor(priceMicro));
 }
 
 /**
@@ -67,7 +71,7 @@ export function LandingHero() {
   const ticker = tickers[index % tickers.length] ?? "META";
   const name = TICKER_NAMES[ticker] ?? ticker;
   const livePrice = prices[ticker]?.priceMicro;
-  const strikeMicro = livePrice !== undefined ? roundToNearestTen(livePrice) : EXAMPLE_STRIKE_MICRO;
+  const strikeMicro = livePrice !== undefined ? roundToNearestStep(livePrice) : EXAMPLE_STRIKE_MICRO;
   const strikeLabel = formatStrike(strikeMicro);
 
   return (

@@ -12,7 +12,7 @@
  */
 
 import type { MicroUsd, Ticker } from "@meridian/sdk";
-import { round10, TICKERS } from "@meridian/sdk";
+import { round10, strikeStepFor, TICKERS } from "@meridian/sdk";
 
 /** $1 in micro-USD. */
 const ONE_DOLLAR_MICRO = 1_000_000n;
@@ -29,6 +29,11 @@ export const DEFAULT_PREV_CLOSE_USD: Record<Ticker, number> = {
   NVDA: 239,
   META: 742,
   TSLA: 379,
+  // BTC replaces TSLA in the SDK's default TICKERS (DECISIONS.md §30); a
+  // round, BTC-magnitude reference price so a synthetic lifecycle day
+  // exercises the $500 strike grid (`strikeStepFor`) rather than the $10
+  // one every equity ticker here lands on.
+  BTC: 100_000,
   QQQ: 752,
   VOO: 712,
   SPY: 650,
@@ -57,13 +62,15 @@ export function previousCloseMicroFor(ticker: Ticker, latestMockPriceMicro?: big
 }
 
 /**
- * The at-the-money strike for a previous close: `round10(prevCloseMicro)`,
- * the same value `strikeLadder`'s first candidate derives (PRD §3.3). A
- * caller that already has the ladder should still assert this value is a
- * member of it (data integrity, not a second derivation path).
+ * The at-the-money strike for a previous close:
+ * `round10(prevCloseMicro, strikeStepFor(prevCloseMicro))`, the same value
+ * `strikeLadder`'s first candidate derives (PRD §3.3; grid-by-magnitude
+ * rule DECISIONS.md §30). A caller that already has the ladder should still
+ * assert this value is a member of it (data integrity, not a second
+ * derivation path).
  */
 export function atTheMoneyStrike(prevCloseMicro: bigint): MicroUsd {
-  return round10(prevCloseMicro) as MicroUsd;
+  return round10(prevCloseMicro, strikeStepFor(prevCloseMicro)) as MicroUsd;
 }
 
 /** `$5` in micro-USD, used for the demo's "price = strike + $5, so Yes wins" publish step. */

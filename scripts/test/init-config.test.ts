@@ -92,6 +92,19 @@ describe("buildInitializeConfigArgs", () => {
     expect(args.overrideDelaySecs).toBe(3600);
   });
 
+  it("accepts BTC via an explicit --tickers list (DECISIONS.md §30)", () => {
+    const args = buildInitializeConfigArgs({
+      oracleProvider: "mock",
+      programId: PROGRAM_ID,
+      publisher: PUBLISHER,
+      demoScale: false,
+      tickers: ["BTC"],
+    });
+    expect(args.tickers).toHaveLength(1);
+    expect(args.tickers[0].enabled).toBe(true);
+    expect(args.tickers[0].feedId).toHaveLength(32);
+  });
+
   it("produces exactly seven enabled tickers", () => {
     const args = buildInitializeConfigArgs({
       oracleProvider: "mock",

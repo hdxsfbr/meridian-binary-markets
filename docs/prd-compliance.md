@@ -57,6 +57,14 @@ reported, not fixed.
 - **Met with noted deviation — listed ticker set churn**: briefly TSLA/QQQ/VOO when the Pyth key only
   covered three equity feeds, switched back to the full PRD seven the same day once the remaining
   feeds were granted (`DECISIONS.md` §20, both entries dated 2026-10-08).
+- **Met with noted deviation — §3.4 underlying assets, BTC replaces TSLA**: the default listed set
+  is now AAPL, MSFT, GOOGL, AMZN, NVDA, META, BTC rather than the PRD's seven stocks (`DECISIONS.md`
+  §30, 2026-10-10) — a crypto feed trades weekends, which a same-day-close equity feed cannot, and
+  Andre needed a weekend settlement filmed. TSLA remains in the SDK's ticker catalogue and its
+  markets/history are unaffected; it is one `init-config -- --update --tickers ...` call away from
+  rejoining the default set. The strike grid became magnitude-dependent ($10/$100/$500,
+  `strikeStepFor`) to keep BTC's ~$100k price from producing a 600-strike ladder on the PRD's $10
+  step; every PRD equity ticker still lands in the $10 bucket, so this is a no-op for them.
 
 ## Requirement-by-requirement table
 
@@ -64,7 +72,7 @@ reported, not fixed.
 
 | ID | Summary | Status | Evidence | Notes |
 |---|---|---|---|---|
-| FR-1 | Daily market creation, all 7 stocks, strike algorithm w/ dedup | Met | `services/automation/src/jobs/morning.ts:141-182` (per-ticker loop, calls `createMarket`); `packages/sdk/src/strikes.ts:59-84` (±3/±6/±9% offsets, round to $10, dedup via `Set`); `docs/deployment.md:198` (all 7 PRD tickers settled on devnet 2026-10-08) | Ticker set is on-chain `Config` data, not hardcoded (DECISIONS §20) |
+| FR-1 | Daily market creation, all 7 stocks, strike algorithm w/ dedup | Met with noted deviation | `services/automation/src/jobs/morning.ts:141-182` (per-ticker loop, calls `createMarket`); `packages/sdk/src/strikes.ts` (±3/±6/±9% offsets, round to the magnitude-dependent grid, dedup via `Set`); `docs/deployment.md:198` (all 7 PRD tickers settled on devnet 2026-10-08) | Ticker set is on-chain `Config` data, not hardcoded (DECISIONS §20). §3.4 deviation: the SDK's default `TICKERS` is now AAPL/MSFT/GOOGL/AMZN/NVDA/META/BTC, not the PRD's seven stocks — BTC replaces TSLA (`DECISIONS.md` §30, 2026-10-10) so a live settlement can be filmed on a weekend, since BTC's Pyth feed trades 24/7 and every PRD equity's doesn't. TSLA stays in the catalogue (`FEED_IDS`); the strike grid is now $10/$100/$500 depending on price magnitude (`strikeStepFor`) rather than always $10, so BTC's ~$100k price still lands on a sensible grid |
 | FR-2 | Mint/redeem, $1.00 invariant | Met | `programs/meridian/src/instructions/mint_pair.rs:54-161`; `programs/meridian/src/instructions/redeem_pair.rs`; invariant property test `programs/meridian/tests/mint_redeem.rs:340-392` (25 random mint/redeem steps, vault == pairs*$1 after every step) | |
 | FR-3 | Order book trading, price-time priority, real-time updates | Met | `programs/meridian/src/book/matching.rs:67-108` (price-time priority); `web/src/hooks/useBook.ts:5,78` (`onAccountChange` live subscription, not polling); `web/e2e/trade.spec.ts:42` (cross-browser-context book update visible within 1s) | |
 | FR-4 | Four trade paths, atomic Buy No market, rest-only Buy No limit | Met | `programs/meridian/src/instructions/buy_no_market.rs:91-104,123-163` (mint+sell one tx); `buy_no_limit.rs:51-61` (`WouldCross` guard, rest-only); tests `programs/meridian/tests/trade_paths.rs` (per-path tests, e.g. L513-548, L797-816, L866-895) | |

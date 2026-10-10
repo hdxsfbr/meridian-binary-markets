@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { dollarsToMicroString, mergeByTimestamp, parseUdfHistory } from "./price-history-remote";
+import { dollarsToMicroString, mergeByTimestamp, parseUdfHistory, pythHistorySymbol } from "./price-history-remote";
+
+describe("pythHistorySymbol", () => {
+  it("maps BTC to the crypto symbol (DECISIONS.md §30)", () => {
+    expect(pythHistorySymbol("BTC")).toBe("Crypto.BTC/USD");
+  });
+
+  it("maps every equity ticker to the Equity.US symbol", () => {
+    for (const ticker of ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA", "QQQ", "VOO", "SPY"]) {
+      expect(pythHistorySymbol(ticker)).toBe(`Equity.US.${ticker}/USD`);
+    }
+  });
+});
 
 describe("dollarsToMicroString", () => {
   it("scales a dollar price to micro-USD, rounding to the nearest micro-dollar", () => {

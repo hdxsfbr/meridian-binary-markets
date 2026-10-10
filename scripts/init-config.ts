@@ -12,7 +12,8 @@
  *   `PUBLISHER_KEYPAIR_PATH`),
  * - thresholds 300s staleness / 25 bps confidence / 60s publish offset /
  *   3600s override delay (tasks.md T085),
- * - the seven tickers with their `Equity.US` feed ids from `@meridian/sdk`,
+ * - the default tickers with their Pyth feed ids from `@meridian/sdk`
+ *   (`Equity.US` for equities, `Crypto.BTC/USD` for BTC — DECISIONS.md §30),
  * - `default_book_capacity` 16 if `DEMO_SCALE=1`, else 128,
  * - the USDC mint: from `USDC_MINT` on devnet (required, must be 6
  *   decimals), or a freshly created 6-decimal test mint on localnet if

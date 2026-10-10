@@ -46,6 +46,19 @@ describe("TICKER_MARKS", () => {
       expect(svg).not.toContain("<title>");
     }
   });
+
+  it("keeps TSLA's mark even though BTC replaced it in the default TICKERS set (DECISIONS.md §30)", () => {
+    const svg = TICKER_MARKS.TSLA ?? "";
+    expect(svg).toContain("<svg");
+    expect(svg).not.toContain("<title>");
+  });
+
+  it("has a Simple Icons mark for BTC with no <title> element", () => {
+    const svg = TICKER_MARKS.BTC ?? "";
+    expect(svg).toContain("<svg");
+    expect(svg).toContain("</svg>");
+    expect(svg).not.toContain("<title>");
+  });
 });
 
 describe("TICKER_COLORS", () => {
@@ -55,5 +68,9 @@ describe("TICKER_COLORS", () => {
 
   it("leaves MSFT uncolored since its mark carries its own four fills", () => {
     expect(TICKER_COLORS.MSFT).toBeUndefined();
+  });
+
+  it("gives BTC its brand orange", () => {
+    expect(TICKER_COLORS.BTC).toBe("#F7931A");
   });
 });

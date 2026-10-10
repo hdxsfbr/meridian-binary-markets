@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { round10, STRIKE_OFFSETS_BPS, strikeLadder } from "../src/strikes";
+import { round10, STRIKE_OFFSETS_BPS, strikeLadder, strikeStepFor } from "../src/strikes";
 
 const DOLLAR = 1_000_000n;
 const dollars = (n: number): bigint => BigInt(n) * DOLLAR;
@@ -7,6 +7,31 @@ const dollars = (n: number): bigint => BigInt(n) * DOLLAR;
 describe("STRIKE_OFFSETS_BPS", () => {
   it("is 3%, 6%, 9% in basis points", () => {
     expect(STRIKE_OFFSETS_BPS).toEqual([300, 600, 900]);
+  });
+});
+
+describe("strikeStepFor", () => {
+  it("is $10 for prices under $5,000", () => {
+    expect(strikeStepFor(dollars(1))).toBe(dollars(10));
+    expect(strikeStepFor(dollars(680))).toBe(dollars(10));
+    expect(strikeStepFor(dollars(4_999))).toBe(dollars(10));
+  });
+
+  it("is $100 for prices from $5,000 up to (but not including) $50,000", () => {
+    expect(strikeStepFor(dollars(5_000))).toBe(dollars(100));
+    expect(strikeStepFor(dollars(12_345))).toBe(dollars(100));
+    expect(strikeStepFor(dollars(49_999))).toBe(dollars(100));
+  });
+
+  it("is $500 for prices at or above $50,000", () => {
+    expect(strikeStepFor(dollars(50_000))).toBe(dollars(500));
+    expect(strikeStepFor(dollars(100_000))).toBe(dollars(500));
+    expect(strikeStepFor(dollars(1_000_000))).toBe(dollars(500));
+  });
+
+  it("throws on a non-bigint input", () => {
+    // @ts-expect-error -- deliberately wrong type for the runtime check.
+    expect(() => strikeStepFor(100)).toThrow();
   });
 });
 
@@ -28,6 +53,20 @@ describe("round10", () => {
 
   it("leaves an exact multiple of $10 unchanged", () => {
     expect(round10(dollars(680))).toBe(dollars(680));
+  });
+
+  it("rounds to a passed-in step other than $10", () => {
+    // $100 step: $97,000 is exact, $97,060 rounds down, $97,250 is exact
+    // half and rounds up.
+    expect(round10(dollars(97_000), dollars(100))).toBe(dollars(97_000));
+    expect(round10(dollars(97_060), dollars(100))).toBe(dollars(97_100));
+    expect(round10(dollars(97_150), dollars(500))).toBe(dollars(97_000));
+    expect(round10(dollars(97_250), dollars(500))).toBe(dollars(97_500));
+  });
+
+  it("throws on a non-positive step", () => {
+    expect(() => round10(dollars(100), 0n)).toThrow();
+    expect(() => round10(dollars(100), -dollars(10))).toThrow();
   });
 });
 
@@ -66,6 +105,31 @@ describe("strikeLadder", () => {
     for (const strike of ladder) {
       expect(strike > 0n).toBe(true);
     }
+  });
+
+  it("BTC-like prev close $100,000 -> seven strikes on the $500 grid (DECISIONS.md §30)", () => {
+    const ladder = strikeLadder(dollars(100_000));
+    expect(ladder).toEqual([
+      dollars(91_000),
+      dollars(94_000),
+      dollars(97_000),
+      dollars(100_000),
+      dollars(103_000),
+      dollars(106_000),
+      dollars(109_000),
+    ]);
+    for (const strike of ladder) {
+      expect(strike % dollars(500)).toBe(0n);
+    }
+  });
+
+  it("a mid-magnitude prev close ($12,345) lands on the $100 grid", () => {
+    const ladder = strikeLadder(dollars(12_345));
+    for (const strike of ladder) {
+      expect(strike % dollars(100)).toBe(0n);
+    }
+    // At-the-money candidate: 12345 rounded to the nearest $100 is 12300.
+    expect(ladder).toContain(dollars(12_300));
   });
 
   it("throws on a non-positive prevCloseMicro", () => {

@@ -871,3 +871,57 @@ litesvm) -- the extra realloc/rent top-up and TLV write for a longer `uri` strin
 budget -- and the compiled binary grew from 732,672 to 734,400 bytes (+1,728 bytes, ~0.2%) for
 the new constant/formatting code. `cargo test -p meridian --tests` stays green (now asserting the
 exact expected `uri` string in the existing metadata test rather than `""`).
+
+## 30. BTC replaces TSLA in the default listed set, on a magnitude-dependent strike grid
+
+**Date:** 2026-10-10 (decided by Andre).
+**Context:** Andre needs to film a live settlement on a weekend. Every equity feed (`Equity.US.*`)
+only trades Monday-Friday during the regular session, so a market built on TSLA (or any of the
+other six PRD names) cannot settle on a Saturday or Sunday -- there is no fresh closing price to
+read. Pyth's crypto feeds, in contrast, publish 24/7; BTC's is `Crypto.BTC/USD`.
+**Decision:** The SDK's default `TICKERS` (`packages/sdk/src/types.ts`) becomes `AAPL, MSFT,
+GOOGL, AMZN, NVDA, META, BTC` -- BTC replaces TSLA as the seventh listed ticker. TSLA is not
+removed from the catalogue: it stays in `FEED_IDS`/`KNOWN_TICKERS` so existing TSLA markets and
+their history keep resolving by ticker; it is simply no longer part of the set `init-config`
+lists by default. BTC's feed id, `e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43`,
+was verified directly against Hermes (`GET /v2/price_feeds?query=btc&asset_type=crypto`, matching
+the entry whose `attributes.symbol` is `"Crypto.BTC/USD"`) rather than trusted from memory --
+it's the same id widely published for this feed. As with TSLA/QQQ/VOO in §20, the project's
+current Pyth key grant does not yet accept this feed (`Not entitled: feed ... (asset type
+'crypto', instrument type 'spot')`); that's an ops/entitlement follow-up, not a code blocker, and
+mirrors the precedent where equity feeds were added to the code before the key was entitled to
+them.
+
+Because BTC trades at roughly $100,000 while every equity ticker here trades under $1,000, a flat
+$10 strike grid would either be meaningless for BTC (a $10 move is noise) or, if widened globally,
+too coarse for the PRD's equities. The strike grid is instead keyed off the previous close's
+magnitude: $10 under $5,000 (every equity ticker, unchanged), $100 from $5,000 up to $50,000, $500
+at or above $50,000 (BTC). `strikeStepFor(priceMicro)` (`packages/sdk/src/strikes.ts`, exported
+alongside `strikeLadder`/`round10`) is the single source of this rule; `round10` now takes an
+optional `step` parameter (defaulting to $10, so every existing caller is unaffected) rather than
+always rounding to $10. `strikeLadder` derives its grid from the previous close once and rounds
+every candidate (including the at-the-money one) to it. The `extend` job
+(`services/automation/src/jobs/extend.ts`, §27) derives the same grid from the ladder's own top
+strike instead of its old hardcoded `$10` constant, so an intraday extension for BTC adds a $500
+strike, not a $10 one. `scripts/lib/lifecycle/prices.ts`'s `atTheMoneyStrike` and the lifecycle
+demo's fixed previous-close table (`DEFAULT_PREV_CLOSE_USD`, now carrying a $100,000 BTC reference
+price) use the same helper, so a synthetic demo day for BTC lands on the $500 grid too. The web's
+landing-page headline (`LandingHero.tsx`), which rounds the live price shown next to "Will X close
+above $Y" to the nearest grid step, switched from its own hardcoded $10 rounding to
+`round10(price, strikeStepFor(price))` for the same reason.
+
+Price history (`/api/price-history`) needed its own small mapping: equities read Pyth's
+`Equity.US.<TICKER>/USD` history symbol, but BTC's is `Crypto.BTC/USD`. `pythHistorySymbol(ticker)`
+(`web/src/lib/price-history-remote.ts`) picks the right one from a small crypto-ticker set (just
+`BTC` today); `hermes-prices.ts`'s live-price path needed no change since it already keys purely
+by feed id, which `FEED_IDS`/`usePrices` already resolve for BTC like any other ticker. The ticker
+mark (`web/public/brand/tickers/BTC.svg`, Simple Icons' `bitcoin` slug, `<title>` stripped,
+`fill="currentColor"`) and its brand color (`#F7931A` in `TICKER_COLORS`) follow the same pattern
+as every other ticker's mark.
+
+**Trade-off:** This is a deliberate deviation from PRD §3.4's "AAPL, MSFT, GOOGL, AMZN, NVDA,
+META, TSLA" (acknowledged in `docs/prd-compliance.md`'s §3.4 row) -- one of the seven PRD names is
+temporarily traded for a bonus asset so a weekend demo is possible at all. TSLA is one config call
+away from returning to the default set (`init-config -- --update --tickers ...`), and every
+equity-priced ticker's behavior (grid, ladder, extension) is bit-for-bit unchanged by the new
+magnitude rule, since they all fall in the same sub-$5,000 bucket the old fixed $10 step covered.

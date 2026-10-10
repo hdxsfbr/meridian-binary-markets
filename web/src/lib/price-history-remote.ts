@@ -21,6 +21,23 @@ export type UdfHistoryResponse = {
 export type RemotePoint = { ts: number; priceMicro: string };
 
 /**
+ * Tickers whose Pyth Pro History API symbol is `Crypto.<T>/USD` rather than
+ * the `Equity.US.<T>/USD` regular-session symbol (DECISIONS.md §30: BTC's
+ * 24/7 feed is what makes a weekend settlement possible). Extend this set
+ * alongside `@meridian/sdk`'s `FEED_IDS` if another crypto ticker is added.
+ */
+const CRYPTO_TICKERS = new Set(["BTC"]);
+
+/**
+ * The Pyth Pro History API symbol for `ticker`: `Crypto.<T>/USD` for a
+ * crypto ticker (`CRYPTO_TICKERS`), else the equities' `Equity.US.<T>/USD`
+ * regular-session symbol (verified 1:1 against `/v1/symbols`).
+ */
+export function pythHistorySymbol(ticker: string): string {
+  return CRYPTO_TICKERS.has(ticker) ? `Crypto.${ticker}/USD` : `Equity.US.${ticker}/USD`;
+}
+
+/**
  * A dollar price (e.g. UDF's `c` close, a JSON number) as a micro-USD
  * integer string. Rounds to the nearest micro-dollar rather than
  * truncating, so repeated round-trips don't drift.

@@ -1,7 +1,8 @@
 /**
  * Shared value types for the Meridian SDK: branded integer types for the
- * money path, the seven-ticker universe with their Pyth "Equity.US" feed
- * ids (research.md R4), and enums mirroring the on-chain program.
+ * money path, the ticker universe with their Pyth feed ids (research.md R4;
+ * equities use "Equity.US", BTC uses the 24/7 "Crypto.BTC/USD" feed, see
+ * DECISIONS.md §30), and enums mirroring the on-chain program.
  *
  * No floats anywhere on the money path (FR-008): `MicroUsd`/`MicroUsdc` are
  * `bigint` brands, never `number`.
@@ -40,6 +41,7 @@ export const Ticker = {
   MSFT: "MSFT",
   NVDA: "NVDA",
   TSLA: "TSLA",
+  BTC: "BTC",
   QQQ: "QQQ",
   VOO: "VOO",
   SPY: "SPY",
@@ -52,15 +54,22 @@ export type Ticker = string;
 export type KnownTicker = (typeof Ticker)[keyof typeof Ticker];
 
 /**
- * Default listed set: the PRD's seven stocks, all entitled on the project's
- * Pyth key since 2026-10-08. `FEED_IDS` also carries QQQ, VOO and SPY for
+ * Default listed set (DECISIONS.md §30, 2026-10-10): BTC replaces TSLA so a
+ * live settlement can be filmed on a weekend, since Pyth's crypto feed
+ * trades 24/7 and TSLA's equity feed doesn't. TSLA stays in `FEED_IDS`/
+ * `KNOWN_TICKERS` for existing markets and history; it's just no longer in
+ * the default init set. `FEED_IDS` also carries QQQ, VOO and SPY for
  * deployments that list ETFs instead (`init-config -- --tickers ...`).
  */
-export const TICKERS: readonly Ticker[] = ["AAPL", "AMZN", "GOOGL", "META", "MSFT", "NVDA", "TSLA"] as const;
+export const TICKERS: readonly Ticker[] = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "BTC"] as const;
 
 /**
- * Pyth `Equity.US.<SYM>/USD` regular-session feed ids (research.md R4), as
- * lowercase 64-character hex strings (32 bytes), without a `0x` prefix.
+ * Pyth feed ids (research.md R4), as lowercase 64-character hex strings (32
+ * bytes), without a `0x` prefix. Equities use the `Equity.US.<SYM>/USD`
+ * regular-session feed; `BTC` uses the 24/7 `Crypto.BTC/USD` feed (verified
+ * against Hermes `/v2/price_feeds?query=btc&asset_type=crypto`, 2026-10-10 —
+ * see DECISIONS.md §30; not yet entitled on the project's current Pyth key
+ * grant, same as other tickers before their grant arrived, DECISIONS §20).
  */
 export const FEED_IDS: Record<string, string> = {
   AAPL: "49f6b65cb1de6b10eaf75e7c03ca029c306d0357e91b5311b175084a5ad55688",
@@ -70,6 +79,7 @@ export const FEED_IDS: Record<string, string> = {
   MSFT: "d0ca23c1cc005e004ccf1db5bf76aeb6a49218f43dac3d4b275e92de12ded4d1",
   NVDA: "b1073854ed24cbc755dc527418f52b7d271f6cc967bbf8d8129112b18860a593",
   TSLA: "16dad506d7db8da01c87581c87ca897a012a153557d4d578c3b9c9e1bc0632f1",
+  BTC: "e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43",
   QQQ: "9695e2b96ea7b3859da9ed25b7a46a920a776e2fdae19a7bcfdf2b219230452d",
   VOO: "236b30dd09a9c00dfeec156c7b1efd646c0f01825a1758e3e4a0679e3bdff179",
   SPY: "19e09bb805456ada3979a7d1cbb4b6d63babc3a0f8e8a9509f68afa5c4c11cd5",

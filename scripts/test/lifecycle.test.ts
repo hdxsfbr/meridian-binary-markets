@@ -39,6 +39,16 @@ describe("previousCloseMicroFor / atTheMoneyStrike (fixed table + strike selecti
     expect(atTheMoneyStrike(333_000_000n)).toBe(330_000_000n);
   });
 
+  it("BTC's ATM strike rounds on the $500 grid, not the $10 grid (DECISIONS.md §30)", () => {
+    expect(DEFAULT_PREV_CLOSE_USD.BTC).toBe(100_000);
+    expect(atTheMoneyStrike(100_000_000_000n)).toBe(100_000_000_000n);
+    const ladder = strikeLadder(100_000_000_000n as MicroUsd);
+    expect(ladder).toContain(atTheMoneyStrike(100_000_000_000n));
+    for (const strike of ladder) {
+      expect(strike % 500_000_000n).toBe(0n);
+    }
+  });
+
   it("every fixed-table ticker's ATM strike is a member of its own ladder", () => {
     for (const [ticker, usd] of Object.entries(DEFAULT_PREV_CLOSE_USD)) {
       const prevClose = BigInt(usd) * 1_000_000n;

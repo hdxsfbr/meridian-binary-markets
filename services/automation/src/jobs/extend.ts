@@ -3,9 +3,11 @@
  * 09:35-15:45 ET on trading days, checks whether the live price has drifted up to (or
  * past) the top of a ticker's existing strike ladder for today, or down to (or past) the
  * bottom, and -- if that condition holds on two *consecutive, scheduled* ticks -- adds
- * one strike above or below, using the same $10 grid `strikeLadder` (packages/sdk/src/strikes.ts)
- * rounds to. This never removes a strike; "Add strike" on the Admin page remains the
- * manual, operator-driven path for anything this heuristic doesn't cover.
+ * one strike above or below, using the same magnitude-dependent grid `strikeLadder`
+ * (packages/sdk/src/strikes.ts's `strikeStepFor`) rounds to -- $10/$100/$500 depending on the
+ * ladder's price level (DECISIONS.md section 30). This never removes a strike; "Add strike" on
+ * the Admin page remains the manual, operator-driven path for anything this heuristic doesn't
+ * cover.
  *
  * A ticker with no markets for today is left alone entirely -- `morning` (jobs/morning.ts)
  * owns initial creation, this job only ever extends an already-created ladder.
@@ -49,6 +51,7 @@ import { dirname } from "node:path";
 import type { PublicKey } from "@solana/web3.js";
 import { PublicKey as PublicKeyCtor } from "@solana/web3.js";
 import type { Ticker } from "@meridian/sdk";
+import { strikeStepFor } from "@meridian/sdk";
 import { withRetry } from "../chain.js";
 import { ET_ZONE, isTradingDay, staticHolidaysFor, tradingDayOf } from "../calendar.js";
 import { log, logError } from "../log.js";
@@ -57,12 +60,6 @@ import { DateTime } from "luxon";
 
 /** Same demo book capacity as `jobs/morning.ts`'s `DEMO_BOOK_CAPACITY`. */
 const DEMO_BOOK_CAPACITY = 16;
-
-/** $10 in micro-USD -- the same grid `strikeLadder`'s `round10` snaps to (packages/sdk/src/strikes.ts). */
-const STEP_MICRO = 10_000_000n;
-
-/** Half a step ($5): the live-price buffer around the ladder's top/bottom strike. */
-const HALF_STEP_MICRO = STEP_MICRO / 2n;
 
 /** Cap on strikes this job will add per ticker per trading day (DECISIONS §27). */
 export const MAX_EXTENSIONS_PER_DAY = 2;
@@ -446,6 +443,13 @@ export async function runExtendTick(deps: ExtendJobDeps, opts: ExtendTickOptions
         // Same close time as the rest of today's ladder for this ticker -- never recomputed.
         const closeTs = completeMarkets.find((m) => m.account.strike === highest)!.account.closeTs;
 
+        // Same grid `strikeLadder` derived this ticker's ladder on (packages/sdk/src/strikes.ts's
+        // `strikeStepFor`), keyed off the ladder's own top strike -- every strike in `strikes` is
+        // already a multiple of this step, so deriving it from any of them (the highest, here)
+        // is equivalent to deriving it from the original previous close (DECISIONS.md §30).
+        const stepMicro = strikeStepFor(highest);
+        const halfStepMicro = stepMicro / 2n;
+
         let livePrice: bigint;
         try {
           livePrice = await deps.provider.currentPrice(ticker);
@@ -458,17 +462,17 @@ export async function runExtendTick(deps: ExtendJobDeps, opts: ExtendTickOptions
           return;
         }
 
-        const aboveCondition = livePrice + HALF_STEP_MICRO >= highest;
-        const belowCondition = livePrice <= lowest + HALF_STEP_MICRO;
+        const aboveCondition = livePrice + halfStepMicro >= highest;
+        const belowCondition = livePrice <= lowest + halfStepMicro;
 
         let direction: "above" | "below" | null = null;
         let targetStrike: bigint | null = null;
         if (aboveCondition) {
           direction = "above";
-          targetStrike = highest + STEP_MICRO;
+          targetStrike = highest + stepMicro;
         } else if (belowCondition) {
           direction = "below";
-          targetStrike = lowest - STEP_MICRO;
+          targetStrike = lowest - stepMicro;
         }
 
         if (!direction || targetStrike === null) {

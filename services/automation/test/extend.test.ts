@@ -191,6 +191,28 @@ describe("runExtendTick", () => {
     expect(chain.calls.createMarket[0][1]).toBe(660_000_000n);
   });
 
+  it("extends a BTC-magnitude ladder on the $500 grid, not the $10 grid (DECISIONS.md §30)", async () => {
+    const DOLLAR = 1_000_000n;
+    const chain = buildChain(
+      [
+        { ticker: "BTC" as Ticker, strike: 97_000n * DOLLAR, closeTs: CLOSE_TS },
+        { ticker: "BTC" as Ticker, strike: 100_000n * DOLLAR, closeTs: CLOSE_TS },
+      ],
+      [{ symbol: "BTC" as Ticker, enabled: true }],
+    );
+    // Within half a $500 step ($250) of the $100,000 top.
+    const provider = fakeProvider(() => 99_900n * DOLLAR);
+    const state = createExtendState();
+    const tickOnce = () =>
+      runExtendTick({ chain, provider, demoScale: false, state, retry: (fn) => fn() }, { day: DAY, force: true });
+
+    await tickOnce();
+    await tickOnce();
+
+    expect(chain.calls.createMarket.length).toBe(1);
+    expect(chain.calls.createMarket[0][1]).toBe(100_500n * DOLLAR);
+  });
+
   it("caps at 2 added strikes per ticker per trading day", async () => {
     const chain = buildChain(
       [{ ticker: "META" as Ticker, strike: 680_000_000n, closeTs: CLOSE_TS }],

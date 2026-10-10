@@ -18,7 +18,7 @@
 
 import { KNOWN_TICKERS } from "@meridian/sdk";
 import { currentSessionWindow } from "@/lib/markets";
-import { parseUdfHistory, type RemotePoint, type UdfHistoryResponse } from "@/lib/price-history-remote";
+import { parseUdfHistory, pythHistorySymbol, type RemotePoint, type UdfHistoryResponse } from "@/lib/price-history-remote";
 import { pythApiKey } from "@/lib/pyth-key";
 
 export const dynamic = "force-dynamic";
@@ -39,17 +39,12 @@ const inFlight = new Map<string, Promise<RemotePoint[]>>();
 
 export type PriceHistoryResponse = { ticker: string; points: RemotePoint[]; stale?: true };
 
-/** `Equity.US.<TICKER>/USD`, the Pyth Pro symbol for every ticker in `KNOWN_TICKERS` (verified 1:1 against `/v1/symbols`). */
-function pythSymbol(ticker: string): string {
-  return `Equity.US.${ticker}/USD`;
-}
-
 async function fetchFromUpstream(ticker: string, from: number, to: number): Promise<RemotePoint[]> {
   const key = pythApiKey();
   if (key === undefined) {
     throw new Error("price-history: no Pyth API key configured");
   }
-  const url = `${HISTORY_URL}/real_time/history?symbol=${encodeURIComponent(pythSymbol(ticker))}&resolution=1&from=${from}&to=${to}`;
+  const url = `${HISTORY_URL}/real_time/history?symbol=${encodeURIComponent(pythHistorySymbol(ticker))}&resolution=1&from=${from}&to=${to}`;
   const upstream = await fetch(url, {
     headers: { Authorization: `Bearer ${key}` },
     cache: "no-store",

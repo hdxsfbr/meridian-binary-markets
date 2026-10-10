@@ -26,6 +26,23 @@ describe("FEED_IDS", () => {
   });
 });
 
+describe("TICKERS default set (DECISIONS.md §30: BTC replaces TSLA)", () => {
+  it("includes BTC and excludes TSLA from the default init set", () => {
+    expect(TICKERS).toContain("BTC");
+    expect(TICKERS).not.toContain("TSLA");
+    expect(TICKERS).toHaveLength(7);
+  });
+
+  it("keeps TSLA in the catalogue (FEED_IDS/KNOWN_TICKERS) for existing markets and history", () => {
+    expect(KNOWN_TICKERS).toContain("TSLA");
+    expect(FEED_IDS.TSLA).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("BTC's feed id is the verified Crypto.BTC/USD Pyth feed", () => {
+    expect(FEED_IDS.BTC).toBe("e62df6c8b4a85fe1a67db44dc12de5db330f7ac66b72dc658afedf0f4a415b43");
+  });
+});
+
 describe("feedIdBytes", () => {
   it("decodes to exactly 32 bytes and round-trips to the original hex", () => {
     for (const ticker of TICKERS) {
