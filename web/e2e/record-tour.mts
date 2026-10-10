@@ -16,9 +16,11 @@ const TICKER = process.env.TICKER ?? "BTC";
 const STRIKE = process.env.STRIKE ?? "83400";
 const MAKER = process.env.MAKER ?? "";
 const VIEWPORT = { width: 1440, height: 900 };
+const ONLY = (process.env.SCENES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
 mkdirSync(join(OUT, "raw"), { recursive: true });
 
 async function scene(browser: Browser, name: string, secret: string | undefined, run: (page: Page) => Promise<void>): Promise<void> {
+  if (ONLY.length > 0 && !ONLY.some((o) => name.startsWith(o))) return;
   const context = await browser.newContext({ viewport: VIEWPORT, recordVideo: { dir: join(OUT, "raw"), size: VIEWPORT } });
   const page = await context.newPage();
   if (secret) {
@@ -104,16 +106,16 @@ await scene(browser, "02c-trade", MAKER || undefined, async (page) => {
   const noBtn = page.getByRole("button", { name: "No", exact: true }).first();
   // (order-book perspective toggle)
   if (await noBtn.count()) {
-    await noBtn.click();
+    await noBtn.click({ timeout: 4000 }).catch(() => {});
     await page.waitForTimeout(2500);
-    await page.getByRole("button", { name: "Yes", exact: true }).first().click();
+    await page.getByRole("button", { name: "Yes", exact: true }).first().click({ timeout: 4000 }).catch(() => {});
     await page.waitForTimeout(1500);
   }
   // Trade panel: quantity presets change the "You pay" line (no order is sent).
   for (const q of ["5", "10", "1"]) {
     const chip = page.getByRole("button", { name: q, exact: true }).first();
     if (await chip.count()) {
-      await chip.click();
+      await chip.click({ timeout: 4000 }).catch(() => {});
       await page.waitForTimeout(1600);
     }
   }
