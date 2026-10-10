@@ -925,3 +925,11 @@ temporarily traded for a bonus asset so a weekend demo is possible at all. TSLA 
 away from returning to the default set (`init-config -- --update --tickers ...`), and every
 equity-priced ticker's behavior (grid, ladder, extension) is bit-for-bit unchanged by the new
 magnitude rule, since they all fall in the same sub-$5,000 bucket the old fixed $10 step covered.
+
+**Update, 2026-10-10 (§30, feed entitlement):** the first Pyth key is entitled to US equities
+only; crypto, FX and metals return "not entitled". A second key Andre had requested under a
+different email turned out to carry the BTC/USD grant, so the deployment uses that key for every
+service. Two consequences were fixed the same day: the price proxy now drops any feed Hermes
+refuses as not entitled and returns the rest (one ungranted feed had blanked every price on the
+public site), and the chart backfill uses the last six hours for assets that trade around the
+clock rather than the most recent US equity session.

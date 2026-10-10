@@ -562,3 +562,20 @@ token program, and a mint whose rent could strand; a fix pass added a permission
 `reclaim_mint` instruction and a "Remove from wallet" action for losing tokens. The e2e container
 had been recreated without the validator's seccomp settings, so the integration suite ran through
 docker compose from the host as the Makefile intends; it passed end to end.
+
+### 2026-10-10 — Saturday: Token-2022 landing, BTC, the demo video
+
+The weekend was for the deliverables that need no market: the Token-2022 upgrade went to devnet
+(three upgrades across the day: the migration, the wallet-friendly names, the logo metadata), the
+polish list was cleared (collapsed market cards, 90 s confirmations, logo in wallets), and the
+demo video was planned around the one constraint the deadline imposed: no equity feed publishes
+on a weekend, so a settlement on camera needs an asset that does. BTC replaced TSLA in the listed
+set (`DECISIONS.md` §30); it only became usable once a second Pyth key with a crypto grant was
+found. Two bugs surfaced from that path and were fixed and deployed: an unentitled feed blanked
+every price on the site, and the BTC chart glued a live tip onto Friday's equity session.
+
+The recording itself is a Playwright harness (`web/e2e/record-demo.mts`) driving two fresh wallets
+through the lifecycle with title cards, stitched by ffmpeg. Devnet confirmations ran a minute or
+more each all day, so the first two BTC ladders closed before their order books and quotes were
+ready; they were used as settle-job rehearsals and the real take moved to a third ladder with a
+90-minute runway. Codex reviews ran on every code change as before.
