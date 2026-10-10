@@ -138,8 +138,12 @@ export function getHistory(ticker: string): readonly PricePoint[] {
  * oldest. Persists and returns the resulting buffer, same as `push`.
  */
 export function mergeSeed(ticker: string, remote: readonly RemotePoint[]): readonly PricePoint[] {
-  const existing = bufferFor(ticker);
   const remoteParsed: PricePoint[] = remote.map((p) => ({ priceMicro: BigInt(p.priceMicro), ts: p.ts }));
+  // The backfill defines the chart's window: anything this tab still holds from before its
+  // first point (an earlier session, or a window that has since moved on) is dropped, so a
+  // stale series never sits to the left of the fresh one.
+  const windowStart = remoteParsed.length > 0 ? remoteParsed[0].ts - 60 : undefined;
+  const existing = bufferFor(ticker).filter((p) => windowStart === undefined || p.ts >= windowStart);
   const merged = mergeByTimestamp(existing, remoteParsed);
   const capped = merged.length > MAX_POINTS ? merged.slice(merged.length - MAX_POINTS) : merged;
   buffers.set(ticker, capped);
