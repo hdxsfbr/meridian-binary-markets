@@ -64,7 +64,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ mint
     return notFound("mint has no on-chain token metadata");
   }
 
-  const origin = new URL(request.url).origin;
+  // Behind Railway's proxy `request.url` is the internal address (localhost:8080), so the
+  // public origin comes from the forwarded headers first, then an explicit override, then
+  // the request itself (local dev).
+  const forwardedHost = request.headers.get("x-forwarded-host");
+  const forwardedProto = request.headers.get("x-forwarded-proto") ?? "https";
+  const origin =
+    process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ??
+    (forwardedHost !== null ? `${forwardedProto}://${forwardedHost}` : new URL(request.url).origin);
   const body = buildTokenMetadataJson({ name: metadata.name, symbol: metadata.symbol, origin });
 
   return Response.json(body, {
