@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { Book, Ticker } from "@meridian/sdk";
 import { formatPrice, formatStrike, impliedProbability, oppositePrice } from "@/lib/format";
-import { nearestStrikes } from "@/lib/markets";
+import { groupStrikesBySettlement, nearestStrikes } from "@/lib/markets";
 import { representativeYesQuote } from "@/lib/book-quote";
 import type { MarketAccount } from "@/hooks/useMarkets";
 import { Card } from "./ui/Card";
@@ -17,7 +17,11 @@ export type FeaturedLadderProps = {
 
 /** The Markets page's top-of-page ladder: every strike for the most active open ticker, at-the-money row highlighted. */
 export function FeaturedLadder({ ticker, markets, books, priceMicro }: FeaturedLadderProps) {
-  const sorted = [...markets].sort((a, b) => (a.strike < b.strike ? -1 : a.strike > b.strike ? 1 : 0));
+  // Open strikes only while any are open; settled ones are counted below the table so a
+  // decided outcome never sits between live quotes. After the close, every row is settled.
+  const groups = groupStrikesBySettlement(markets);
+  const sorted = groups.allSettled ? groups.settled : groups.open;
+  const hiddenSettled = groups.allSettled ? 0 : groups.settled.length;
   const atmKey = priceMicro !== undefined ? nearestStrikes(sorted, priceMicro, 1)[0]?.pubkey.toBase58() : undefined;
 
   return (
@@ -89,6 +93,11 @@ export function FeaturedLadder({ ticker, markets, books, priceMicro }: FeaturedL
           })}
         </tbody>
       </table>
+      {hiddenSettled > 0 ? (
+        <p className="mt-2 text-xs text-text-muted">
+          {hiddenSettled} settled strike{hiddenSettled === 1 ? "" : "s"} today
+        </p>
+      ) : null}
     </Card>
   );
 }
