@@ -85,7 +85,12 @@ await scene(browser, "02b-markets", undefined, async (page) => {
 // Trade: chart crosshair sweep, strike selection, order book toggle, trade panel estimate.
 await scene(browser, "02c-trade", MAKER || undefined, async (page) => {
   await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "load" });
-  await page.waitForTimeout(6000);
+  await page.waitForTimeout(4000);
+  if (MAKER) {
+    await page.getByRole("button", { name: "Select Wallet", exact: true }).click({ timeout: 5000 }).catch(() => {});
+    await page.getByRole("button", { name: /^Test Wallet/ }).click({ timeout: 5000 }).catch(() => {});
+    await page.waitForTimeout(4000);
+  }
   // Sweep the crosshair across the chart (chart box sits under the "Price history" heading).
   const chart = page.locator("canvas").first();
   const cb = await chart.boundingBox();
