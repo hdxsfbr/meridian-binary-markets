@@ -112,3 +112,7 @@ of replaying the chain; or index by wallet. Not part of the restyle waves.
   ladder (Kalshi-style collapse). Offered 2026-10-09, not yet approved.
 - Worker: raise the transaction confirmation timeout from 30 s to about 90 s (settlement on
   2026-10-09 needed nine retries because devnet confirmations exceeded 30 s).
+- Token logo in wallets: give each new mint a metadata URI pointing at a JSON file served by the
+  app (name, symbol, image = the Meridian mark as PNG) so Phantom shows the logo instead of a
+  "MERI" placeholder. Needs a URL we keep stable (the Railway address for the demo); program
+  change in create_market plus a small web route. Andre, 2026-10-10.
