@@ -109,9 +109,14 @@ of replaying the chain; or index by wallet. Not part of the restyle waves.
   before redemption (the Buy No path books the sold Yes half against its $0.50 share, so the row
   shows a small negative realized P&L until the $1.00-per-token redemption lands). Andre, 2026-10-09.
 - Markets cards: show only the at-the-money row by default with "N more strikes" expanding the
-  ladder (Kalshi-style collapse). Offered 2026-10-09, not yet approved.
+  ladder (Kalshi-style collapse). Offered 2026-10-09, not yet approved. **Done 2026-10-10:**
+  `TickerCard` collapses to the at-the-money row with an accessible "N more strikes" / "Show fewer"
+  toggle, remembered per ticker in sessionStorage; the featured ladder stays fully expanded.
 - Worker: raise the transaction confirmation timeout from 30 s to about 90 s (settlement on
-  2026-10-09 needed nine retries because devnet confirmations exceeded 30 s).
+  2026-10-09 needed nine retries because devnet confirmations exceeded 30 s). **Done 2026-10-10:**
+  set `confirmTransactionInitialTimeout: 90_000` on the `Connection` in both the automation
+  service and `scripts/lib/client.ts` (the actual 30 s wait came from `@solana/web3.js`'s legacy
+  `confirmTransaction` fallback that Anchor's `.rpc()` hits, which that option raises).
 - Token logo in wallets: give each new mint a metadata URI pointing at a JSON file served by the
   app (name, symbol, image = the Meridian mark as PNG) so Phantom shows the logo instead of a
   "MERI" placeholder. Needs a URL we keep stable (the Railway address for the demo); program

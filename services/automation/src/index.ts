@@ -23,7 +23,7 @@ import { schedule } from "node-cron";
 
 import { loadConfig, type AppConfig } from "./config.js";
 import { loadAdminKeypair, loadPublisherKeypair } from "./keys.js";
-import { assertGenesisHash, ChainClient } from "./chain.js";
+import { assertGenesisHash, ChainClient, CONFIRM_TRANSACTION_TIMEOUT_MS } from "./chain.js";
 import { MockPythProvider } from "./providers/MockPythProvider.js";
 import { PythReceiverProvider } from "./providers/PythReceiverProvider.js";
 import type { PriceProvider } from "./providers/PriceProvider.js";
@@ -78,6 +78,7 @@ function buildRuntime(cfg: AppConfig): Runtime {
   const connection = new Connection(cfg.solanaRpcUrl, {
     wsEndpoint: cfg.solanaWsUrl,
     commitment: "confirmed",
+    confirmTransactionInitialTimeout: CONFIRM_TRANSACTION_TIMEOUT_MS,
   });
   const adminKeypair = loadAdminKeypair(cfg.adminKeypairPath);
   const publisherKeypair = loadPublisherKeypair(cfg.publisherKeypairPath);

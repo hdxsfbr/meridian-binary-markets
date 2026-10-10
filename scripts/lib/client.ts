@@ -45,10 +45,25 @@ export const TOKEN_ACCOUNT_SPACE = 165;
 /** The commitment level every script in this package confirms against. */
 export const DEFAULT_COMMITMENT: Commitment = "confirmed";
 
+/**
+ * How long a transaction's confirmation is allowed to wait before a script
+ * gives up on it, in milliseconds -- same value and same reasoning as
+ * `services/automation/src/chain.ts`'s `CONFIRM_TRANSACTION_TIMEOUT_MS`
+ * (`@solana/web3.js`'s legacy signature-only `confirmTransaction` overload,
+ * which Anchor's `.rpc()` and this file's own `confirm`/`sendAndConfirm`
+ * fall back to, defaults to just 30s for `"confirmed"`; `Connection`'s
+ * `confirmTransactionInitialTimeout` is the only way to override that, and
+ * it's a `Connection`-wide setting rather than a per-call option).
+ */
+export const CONFIRM_TRANSACTION_TIMEOUT_MS = 90_000;
+
 export { PROGRAM_ID };
 
 export function createConnection(rpcUrl: string): Connection {
-  return new Connection(rpcUrl, DEFAULT_COMMITMENT);
+  return new Connection(rpcUrl, {
+    commitment: DEFAULT_COMMITMENT,
+    confirmTransactionInitialTimeout: CONFIRM_TRANSACTION_TIMEOUT_MS,
+  });
 }
 
 /** mainnet-beta's well-known genesis hash. Refused outright, regardless of `CLUSTER`. */

@@ -52,6 +52,30 @@ import {
   type Ticker,
 } from "@meridian/sdk";
 
+/**
+ * How long a transaction's confirmation is allowed to wait before the
+ * worker gives up on it, in milliseconds.
+ *
+ * `AnchorProvider.sendAndConfirm` (used by every `.rpc()` call below) never
+ * passes `opts.blockhash` through to `@solana/web3.js`'s `sendAndConfirmRawTransaction`,
+ * so it falls back to the deprecated signature-only `confirmTransaction`
+ * overload. That overload's own default timeout for `"confirmed"` is just
+ * 30s (`Connection.confirmTransactionUsingLegacyTimeoutStrategy`), which is
+ * tight enough on a congested devnet RPC that transactions which later
+ * landed fine were being reported as failed. `Connection`'s own
+ * `confirmTransactionInitialTimeout` option overrides that fallback for
+ * every confirm on the connection (there is no per-call override), so it's
+ * set once here, when the `Connection` is constructed in `index.ts`, and
+ * reused by `scripts/lib/client.ts`'s `createConnection` for the same
+ * reason.
+ *
+ * A transaction's blockhash is itself only valid for roughly 60-90s of
+ * slots, so this is already in the range past which polling longer
+ * couldn't help: either the transaction lands within that window or its
+ * blockhash expires and it never will.
+ */
+export const CONFIRM_TRANSACTION_TIMEOUT_MS = 90_000;
+
 /** mainnet-beta's well-known genesis hash. Refused outright, regardless of `SOLANA_CLUSTER`. */
 export const MAINNET_GENESIS_HASH = "5eykt4UsFv8P8NJdTREpY1vzqKqZKvdpKuc147dw2N9d";
 /** devnet's well-known genesis hash. Required when `SOLANA_CLUSTER=devnet`. */
