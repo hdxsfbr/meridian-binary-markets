@@ -92,7 +92,6 @@ export function TickerCard({ ticker, priceMicro, markets, books, now }: TickerCa
   // Same rule as the featured ladder: while any strike is open, the card shows only open ones.
   const groups = groupStrikesBySettlement(markets);
   const sorted = groups.allSettled ? groups.settled : groups.open;
-  const hiddenSettled = groups.allSettled ? 0 : groups.settled.length;
   const atmMarket = nearestStrikes(sorted, priceMicro, 1)[0];
   const otherStrikes = atmMarket === undefined ? [] : sorted.filter((m) => !m.pubkey.equals(atmMarket.pubkey));
   const [expanded, setExpanded] = useState(() => isCardExpanded(ticker));
@@ -171,11 +170,6 @@ export function TickerCard({ ticker, priceMicro, markets, books, now }: TickerCa
                 atm={market.pubkey.equals(atmMarket.pubkey)}
               />
             ))}
-            {hiddenSettled > 0 ? (
-              <p className="text-xs text-text-muted">
-                {hiddenSettled} settled strike{hiddenSettled === 1 ? "" : "s"} today
-              </p>
-            ) : null}
             {otherStrikes.length > 0 ? (
               <button
                 type="button"

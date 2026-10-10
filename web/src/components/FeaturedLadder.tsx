@@ -21,7 +21,6 @@ export function FeaturedLadder({ ticker, markets, books, priceMicro }: FeaturedL
   // decided outcome never sits between live quotes. After the close, every row is settled.
   const groups = groupStrikesBySettlement(markets);
   const sorted = groups.allSettled ? groups.settled : groups.open;
-  const hiddenSettled = groups.allSettled ? 0 : groups.settled.length;
   const atmKey = priceMicro !== undefined ? nearestStrikes(sorted, priceMicro, 1)[0]?.pubkey.toBase58() : undefined;
 
   return (
@@ -93,11 +92,6 @@ export function FeaturedLadder({ ticker, markets, books, priceMicro }: FeaturedL
           })}
         </tbody>
       </table>
-      {hiddenSettled > 0 ? (
-        <p className="mt-2 text-xs text-text-muted">
-          {hiddenSettled} settled strike{hiddenSettled === 1 ? "" : "s"} today
-        </p>
-      ) : null}
     </Card>
   );
 }

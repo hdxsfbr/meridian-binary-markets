@@ -110,7 +110,10 @@ export function StrikeList({ markets, selected, onSelect, lastPriceMicro }: Stri
   // it to separate; once every strike has settled (the trading day is done)
   // there's nothing left to separate it from, so the list renders flat, same
   // as before this grouping existed.
-  const showDivider = !groups.allSettled && groups.open.length > 0 && groups.settled.length > 0;
+  // While any strike is open, settled ones are not shown at all: on a normal trading day every
+  // strike shares one close, so the two states never coexist; when they do (synthetic test
+  // days), the decided rows would only confuse. Once every strike has settled, all are shown.
+  const showDivider = false;
 
   function selectRow(market: MarketAccount) {
     onSelect(market);
