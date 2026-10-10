@@ -56,3 +56,5 @@ test-results/
 .claude/worktrees/
 
 # generated from the Anchor build
+design/demo/raw/
+design/demo-dryrun/
