@@ -26,16 +26,16 @@ describe("FEED_IDS", () => {
   });
 });
 
-describe("TICKERS default set (DECISIONS.md §30: BTC replaces TSLA)", () => {
-  it("includes BTC and excludes TSLA from the default init set", () => {
-    expect(TICKERS).toContain("BTC");
-    expect(TICKERS).not.toContain("TSLA");
+describe("TICKERS default set (DECISIONS.md §30: the PRD seven; BTC stays in the catalogue)", () => {
+  it("is the PRD seven, TSLA included and BTC excluded", () => {
+    expect(TICKERS).toContain("TSLA");
+    expect(TICKERS).not.toContain("BTC");
     expect(TICKERS).toHaveLength(7);
   });
 
-  it("keeps TSLA in the catalogue (FEED_IDS/KNOWN_TICKERS) for existing markets and history", () => {
-    expect(KNOWN_TICKERS).toContain("TSLA");
-    expect(FEED_IDS.TSLA).toMatch(/^[0-9a-f]{64}$/);
+  it("keeps BTC in the catalogue (FEED_IDS/KNOWN_TICKERS) for weekend demos and existing markets", () => {
+    expect(KNOWN_TICKERS).toContain("BTC");
+    expect(FEED_IDS.BTC).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("BTC's feed id is the verified Crypto.BTC/USD Pyth feed", () => {

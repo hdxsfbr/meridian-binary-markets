@@ -933,3 +933,10 @@ service. Two consequences were fixed the same day: the price proxy now drops any
 refuses as not entitled and returns the rest (one ungranted feed had blanked every price on the
 public site), and the chart backfill uses the last six hours for assets that trade around the
 clock rather than the most recent US equity session.
+
+**Update, 2026-10-10 evening (§30, reverted for weekdays):** the video was recorded on a BTC market
+with a live settlement at 20:53 UTC. Andre decided TSLA returns for Monday: the config has seven
+slots and the PRD seven is the product. The on-chain list is back to AAPL, MSFT, GOOGL, AMZN,
+NVDA, META, TSLA and the SDK default matches. BTC stays in the catalogue, with its feed id, the
+price-scaled strike grid and the crypto chart window, so a one-command config update lists it
+again whenever a weekend demo needs an asset that trades.

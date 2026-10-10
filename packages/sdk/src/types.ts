@@ -61,7 +61,7 @@ export type KnownTicker = (typeof Ticker)[keyof typeof Ticker];
  * the default init set. `FEED_IDS` also carries QQQ, VOO and SPY for
  * deployments that list ETFs instead (`init-config -- --tickers ...`).
  */
-export const TICKERS: readonly Ticker[] = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "BTC"] as const;
+export const TICKERS: readonly Ticker[] = ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"] as const;
 
 /**
  * Pyth feed ids (research.md R4), as lowercase 64-character hex strings (32
