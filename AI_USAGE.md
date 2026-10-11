@@ -648,3 +648,10 @@ payoff wording, owner-initiated burns, admin-supplied close time). Codex reviewe
 caught one more: a blank `PYTH_API_KEY_FILE=` in the example would disable the mounted-key
 fallback. Fixed; worker 196 tests, scripts 75.
 
+## 2026-10-11 (evening) — daily demo quotes
+
+Andre wanted the ladders to show quotes every morning without anyone remembering, and preferred
+the simpler host-cron option over a worker job. Claude wrote `scripts/seed-daily.ts` (pricing
+helper unit-tested, dry run verified against devnet config), committed the maker cleanup script
+that had lived in /tmp, and scheduled both on the lab machine (7:15 AM and 6:30 PM CT, weekdays).
+

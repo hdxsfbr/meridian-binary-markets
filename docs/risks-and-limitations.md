@@ -197,3 +197,10 @@ exception is invisible to the operator unless the user reports it), no external 
 tracing (a slow or failing RPC call is diagnosed from the structured logs, not a trace span). None
 of this is a regulatory or compliance claim (§10); it is a statement of what a reviewer can and
 cannot observe about this build today.
+
+## 13. Demo liquidity
+
+The quotes visible on devnet each morning come from a test wallet driven by a cron on the project
+machine (`DECISIONS.md` §33), not from the deployed system and not from users. A real deployment
+would have no such wallet; liquidity there depends on market makers choosing to quote.
+

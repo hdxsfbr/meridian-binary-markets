@@ -471,3 +471,21 @@ project rename, moving to a different service) silently breaks the logo for ever
 before the change, with no error surfaced anywhere -- a wallet just shows no image. Before doing
 either, build the `update_mint_uri` instruction described in DECISIONS.md §29 and a one-time job
 to call it for every existing mint.
+
+## Demo liquidity (devnet)
+
+Nothing in the system quotes its own markets: an operator trading against users would be wrong
+in production. On devnet, so that a visitor sees a live market instead of "No offers yet", a test
+wallet (`user-a`) posts one two-sided quote per stock every trading morning and is cleaned up after
+settlement. Both steps are scripts in this repo, run by a cron on the lab machine inside the dev
+container (which has the keys mounted):
+
+| When (CT) | Command | What it does |
+|---|---|---|
+| 7:15 AM, Mon–Fri | `scripts/seed-daily.ts` | For each enabled ticker with open markets today: live Pyth price, strike nearest the price, Yes probability from a flat 1.5 % daily move (`scripts/lib/quote-pricing.ts`), mint 2 pairs, post bid and ask 3 cents either side. Skips a strike that already has orders. `--dry-run` prints the plan. |
+| 6:30 PM, Mon–Fri | `scripts/maker-cleanup.ts` | On every settled market: cancel the test wallets' remaining orders, redeem pairs and winning tokens, so the USDC returns and the 7:00 PM reclaim can close the market. |
+
+Host wrapper: `~/.local/bin/meridian-demo-quotes.sh seed|cleanup`, log `/tmp/meridian-demo-quotes.log`.
+If the machine is off at 7:15 AM the day simply has no demo quotes; markets, settlement and
+redemption are unaffected. `DECISIONS.md` §33.
+

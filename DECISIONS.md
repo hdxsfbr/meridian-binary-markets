@@ -1010,3 +1010,22 @@ by an unsolicited amount, redeems every winning token, and asserts the surplus i
 the vault afterward, untouched. `mint_redeem.rs`'s
 `unsolicited_vault_deposit_is_tolerated_and_never_paid_out` covers the `mint_pair`/`redeem_pair`
 side of the same guarantee.
+
+## 33. Demo liquidity is seeded from a test wallet by a host cron, not by the worker
+
+**Decision (2026-10-11).** Every trading morning a cron on the lab machine runs
+`scripts/seed-daily.ts`, which quotes the strike nearest each stock's live price from the `user-a`
+test wallet (two pairs, three cents either side of a rough probability), and every evening
+`scripts/maker-cleanup.ts` redeems it. The worker does not do this.
+
+**Why.** Markets with no orders look dead to anyone visiting between interviews, and nobody else
+makes markets on devnet. Putting a quoting loop in the worker would mean the operator's own
+service trades against users, which is exactly what a real deployment must not do; a clearly
+separate test wallet driven from outside the deployed system keeps that line. The cron is the
+simplest thing that runs without anyone remembering (Andre: the lab machine is always on). If it
+misses a morning, nothing breaks: markets exist, settle and pay out without quotes.
+
+**Pricing.** Not a model: a normal-CDF guess from the distance between price and strike with a
+flat 1.5 % daily move, clamped to 5–95 cents, so quotes are plausible rather than accurate. The
+maker will lose money on some days by construction; it is funded with faucet USDC.
+
