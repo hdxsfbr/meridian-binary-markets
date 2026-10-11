@@ -591,3 +591,14 @@ BTC ladders shared one synthetic day; both fixed and deployed (settled strikes a
 wherever any strike is open). BTC comes off the listed set tonight and TSLA returns; the BTC
 tour ladder is override-settled at its Pyth close by a scheduled job, and Monday's checks are
 armed. Thumbnail, title and description were produced for the YouTube upload.
+
+## 2026-10-10 (late evening) — re-recording the transaction scenes
+
+Andre: the cut still had shots with settled strikes mixed in and visible confirmation stalls.
+Claude found the three transaction scenes predated the "hide settled strikes" fix, re-recorded
+them on the existing BTC ladder before its 10:30 PM CT close (one scene failed first because the
+maker form's Yes balance lags the mint; fixed with a retry), added click-to-confirmation cuts
+instead of time-compression, a same-origin proxy for the event index so the recording server
+resolves cost basis, and aligned the nav strip prices on the text baseline. Settled with the live
+Pyth price at 10:31 PM CT, recorded the redeem scene, re-muxed (5 min 50 s).
+

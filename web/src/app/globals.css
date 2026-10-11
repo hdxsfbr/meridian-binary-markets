@@ -449,6 +449,10 @@ body {
   display: inline-flex;
   align-items: flex-end;
   white-space: nowrap;
+  /* The container is exactly one glyph box tall, so when a parent aligns it by
+   * baseline (the nav ticker strip, stat rows) the digits' baseline is the one
+   * used -- not the bottom of a taller inherited line box. */
+  line-height: 1;
 }
 /* Every character, rolling or static, lives in the same 1em-tall box so the
  * baseline never shifts between the two kinds. */

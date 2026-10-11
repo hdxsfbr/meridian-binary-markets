@@ -13,6 +13,7 @@ FFMPEG="${FFMPEG:-/usr/bin/ffmpeg}"
 FFPROBE="${FFPROBE:-/usr/bin/ffprobe}"
 TAIL_AIR="${TAIL_AIR:-0.4}"
 SLACK="${SLACK:-2.0}"
+MAX_SLOW="${MAX_SLOW:-1.3}"
 cd "$DIR"
 : > narrated.txt
 for f in $(ls *.webm | LC_ALL=C sort); do
@@ -33,12 +34,16 @@ for f in $(ls *.webm | LC_ALL=C sort); do
         -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
       echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s (compressed x$(python3 -c "print(round(1/float('$factor'),2))"))"
     else
+      # Footage shorter than its narration is first slowed (at most MAX_SLOW x, so
+      # cursor moves still look natural), then held on the last frame for the rest.
       need=$(python3 -c "print(max(float('$vdur'), float('$adur') + float('$TAIL_AIR')))")
-      pad=$(python3 -c "print(max(0.0, float('$need') - float('$vdur')))")
+      slow=$(python3 -c "print(min(float('$MAX_SLOW'), float('$need') / float('$vdur')))")
+      slowed=$(python3 -c "print(float('$vdur') * float('$slow'))")
+      pad=$(python3 -c "print(max(0.0, float('$need') - float('$slowed')))")
       "$FFMPEG" -y -loglevel error -i "$f" -i "$clip" \
-        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,fps=30,tpad=stop_mode=clone:stop_duration=${pad}[v];[1:a]aresample=48000,apad[a]" \
+        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p,setpts=PTS*${slow},fps=30,tpad=stop_mode=clone:stop_duration=${pad}[v];[1:a]aresample=48000,apad[a]" \
         -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
-      echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s"
+      echo "scene $n video ${vdur}s narration ${adur}s -> ${need}s (slowed x${slow}, held ${pad}s)"
     fi
   else
     "$FFMPEG" -y -loglevel error -i "$f" -f lavfi -i anullsrc=r=48000:cl=stereo \

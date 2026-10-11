@@ -18,7 +18,7 @@
  */
 
 import { chromium, type Browser, type Page } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 const BASE = process.env.BASE_URL ?? "http://127.0.0.1:3000";
@@ -29,8 +29,33 @@ const PHASE = process.env.PHASE ?? "pre";
 const MAKER = process.env.MAKER ?? "";
 const TAKER = process.env.TAKER ?? "";
 const VIEWPORT = { width: 1440, height: 900 };
+/** SCENES=04-maker,06-taker records only those scenes (prefix match); empty records the whole phase. */
+const ONLY = (process.env.SCENES ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+const want = (name: string): boolean => ONLY.length === 0 || ONLY.some((o) => name.startsWith(o));
+const ASK = process.env.ASK ?? "0.55";
+const BID = process.env.BID ?? "0.45";
+const QTY = process.env.QTY ?? "3";
 
 mkdirSync(OUT, { recursive: true });
+
+/**
+ * Confirmation waits (devnet can take 20-60 s to confirm) are recorded in full and
+ * then cut out in post by web/e2e/cut-waits.sh: every `skip()` block records the
+ * footage interval it covered, relative to the scene's recording start, into
+ * <OUT>/cuts.json. The click and the first second of the pending state stay in;
+ * the footage resumes just before the confirmation toast lands.
+ */
+const cuts: Record<string, Array<[number, number]>> = {};
+const sceneStart = new WeakMap<Page, number>();
+const KEEP_AFTER_CLICK = 1.2;
+const RESUME_BEFORE_TOAST = 0.3;
+async function skip(page: Page, name: string, fn: () => Promise<void>): Promise<void> {
+  const t0 = sceneStart.get(page) ?? Date.now();
+  const from = (Date.now() - t0) / 1000 + KEEP_AFTER_CLICK;
+  await fn();
+  const to = (Date.now() - t0) / 1000 - RESUME_BEFORE_TOAST;
+  if (to > from + 0.5) (cuts[name] ??= []).push([Number(from.toFixed(2)), Number(to.toFixed(2))]);
+}
 
 function titleCardHtml(title: string, subtitle: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
@@ -51,6 +76,7 @@ async function newPage(browser: Browser, name: string, secret?: string): Promise
     reducedMotion: "no-preference",
   });
   const page = await context.newPage();
+  sceneStart.set(page, Date.now());
   if (secret) {
     await page.addInitScript((s: string) => {
       (window as unknown as { __MERIDIAN_E2E_SECRET__?: string }).__MERIDIAN_E2E_SECRET__ = s;
@@ -73,6 +99,7 @@ async function finish(page: Page, name: string): Promise<void> {
 }
 
 async function card(browser: Browser, name: string, title: string, subtitle: string, seconds = 3): Promise<void> {
+  if (!want(name)) return;
   const page = await newPage(browser, name);
   await page.setContent(titleCardHtml(title, subtitle));
   await page.waitForTimeout(seconds * 1000);
@@ -100,8 +127,8 @@ async function waitForToast(page: Page, text: RegExp, timeout = 180_000): Promis
 async function pre(browser: Browser): Promise<void> {
   await card(browser, "01-title", "Meridian", "Binary markets on the daily close. Yes or No, every contract pays $1.00 to the side that wins.");
 
-  // Scene 2: landing + markets.
-  {
+  // Scene 2: landing + markets (superseded by record-tour.mts's 02a/02b/02c scenes in the showcase cut).
+  if (want("02-markets") && ONLY.length > 0) {
     const page = await newPage(browser, "02-markets");
     await page.goto(`${BASE}/`, { waitUntil: "load" });
     await page.waitForTimeout(7000);
@@ -120,7 +147,7 @@ async function pre(browser: Browser): Promise<void> {
   await card(browser, "03-card", "Making a market", "A maker deposits $1.00 to mint a Yes/No pair, then quotes both sides on the order book.");
 
   // Scene 4: maker mints and quotes on Portfolio.
-  {
+  if (want("04-maker")) {
     const page = await newPage(browser, "04-maker", MAKER);
     await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await connect(page);
@@ -136,10 +163,13 @@ async function pre(browser: Browser): Promise<void> {
     await page.waitForTimeout(600);
     for (let attempt = 0; attempt < 4; attempt += 1) {
       await page.getByRole("button", { name: "Mint pair", exact: true }).click();
-      const outcome = await Promise.race([
-        page.getByRole("status").filter({ hasText: /Minted/ }).first().waitFor({ timeout: 120_000 }).then(() => "ok"),
-        page.getByText("Still checking this market").waitFor({ timeout: 120_000 }).then(() => "retry"),
-      ]).catch(() => "timeout");
+      let outcome = "timeout";
+      await skip(page, "04-maker", async () => {
+        outcome = await Promise.race([
+          page.getByRole("status").filter({ hasText: /Minted/ }).first().waitFor({ timeout: 120_000 }).then(() => "ok"),
+          page.getByText("Still checking this market").waitFor({ timeout: 120_000 }).then(() => "retry"),
+        ]).catch(() => "timeout");
+      });
       if (outcome === "ok") break;
       if (outcome === "retry") { await page.waitForTimeout(5000); continue; }
       break;
@@ -153,24 +183,29 @@ async function pre(browser: Browser): Promise<void> {
     if (strikeLabel) await strikeSelect.selectOption({ label: strikeLabel });
     const addButton = form.getByRole("button", { name: "Add to queue" });
     await addButton.waitFor({ state: "visible" });
-    for (let i = 0; i < 60 && !(await addButton.isEnabled()); i += 1) await page.waitForTimeout(1000);
-    for (const [side, price, rowText] of [["Offer to sell Yes at", "0.55", "Sell Yes"], ["Offer to buy Yes at", "0.45", "Buy Yes"]] as const) {
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        await form.getByLabel(/^Side/).selectOption({ label: side });
-        await page.waitForTimeout(400);
-        await form.getByLabel(/^Price/).fill(price);
-        await form.getByLabel(/^Quantity/).fill("5");
-        await page.waitForTimeout(700);
+    await skip(page, "04-maker", async () => {
+      for (let i = 0; i < 60 && !(await addButton.isEnabled()); i += 1) await page.waitForTimeout(1000);
+    });
+    // The ask needs the freshly minted Yes to show up in the form's balance, which
+    // lags the mint confirmation by a few seconds; the retries (and their wait) are
+    // cut from the footage, so only the attempt that queues is seen.
+    for (const [side, price, rowText] of [["Offer to sell Yes at", ASK, "Sell Yes"], ["Offer to buy Yes at", BID, "Buy Yes"]] as const) {
+      await form.getByLabel(/^Side/).selectOption({ label: side });
+      await page.waitForTimeout(400);
+      await form.getByLabel(/^Price/).fill(price);
+      await form.getByLabel(/^Quantity/).fill("5");
+      await page.waitForTimeout(700);
+      let queued = false;
+      for (let attempt = 0; attempt < 20 && !queued; attempt += 1) {
         await addButton.click();
-        const queued = await page.locator("tr", { hasText: rowText }).filter({ hasText: `$${price}` }).first()
-          .waitFor({ timeout: 5000 }).then(() => true).catch(() => false);
-        if (queued) break;
-        await page.waitForTimeout(1500);
+        queued = await page.locator("tr", { hasText: rowText }).filter({ hasText: `$${price}` }).first()
+          .waitFor({ timeout: 2500 }).then(() => true).catch(() => false);
+        if (!queued) await skip(page, "04-maker", () => page.waitForTimeout(3000));
       }
       await page.waitForTimeout(900);
     }
     await page.getByRole("button", { name: "Submit queued quotes" }).click();
-    await waitForToast(page, /Quotes placed/).catch(() => page.waitForTimeout(120_000));
+    await skip(page, "04-maker", () => waitForToast(page, /Quotes placed/).catch(() => page.waitForTimeout(120_000)));
     await page.waitForTimeout(2500);
     await finish(page, "04-maker");
   }
@@ -178,16 +213,16 @@ async function pre(browser: Browser): Promise<void> {
   await card(browser, "05-card", "Taking a side", "A second wallet buys Yes at the quoted price. Chance is the Yes price; payout is $1.00 if right.");
 
   // Scene 6: taker buys Yes on the Trade page.
-  {
+  if (want("06-taker")) {
     const page = await newPage(browser, "06-taker", TAKER);
     await page.goto(`${BASE}/trade/${TICKER}?strike=${STRIKE}`, { waitUntil: "load" });
     await page.waitForTimeout(5000);
     await connect(page);
     await page.waitForTimeout(2500);
-    await page.getByLabel(/Quantity/).fill("3");
+    await page.getByLabel(/Quantity/).fill(QTY);
     await page.waitForTimeout(1200);
     await page.getByRole("button", { name: "Buy Yes", exact: true }).click();
-    await waitForToast(page, /Bought/).catch(() => page.waitForTimeout(90_000));
+    await skip(page, "06-taker", () => waitForToast(page, /Bought/).catch(() => page.waitForTimeout(90_000)));
     await page.waitForTimeout(2000);
     await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await page.waitForTimeout(5000);
@@ -199,7 +234,7 @@ async function pre(browser: Browser): Promise<void> {
 
 async function post(browser: Browser): Promise<void> {
   // Scene 8: settled markets and redemption.
-  {
+  if (want("08-settled")) {
     const page = await newPage(browser, "08-settled", TAKER);
     await page.goto(`${BASE}/markets`, { waitUntil: "load" });
     await page.waitForTimeout(4000);
@@ -213,7 +248,7 @@ async function post(browser: Browser): Promise<void> {
       await redeem.scrollIntoViewIfNeeded();
       await page.waitForTimeout(800);
       await redeem.click();
-      await waitForToast(page, /Collected/).catch(() => page.waitForTimeout(90_000));
+      await skip(page, "08-settled", () => waitForToast(page, /Collected/).catch(() => page.waitForTimeout(90_000)));
     }
     await page.waitForTimeout(2500);
     await page.goto(`${BASE}/history`, { waitUntil: "load" });
@@ -227,5 +262,9 @@ const browser = await chromium.launch();
 if (PHASE === "pre") await pre(browser);
 else await post(browser);
 await browser.close();
+const cutsPath = join(OUT, "cuts.json");
+const existing = existsSync(cutsPath) ? (JSON.parse(readFileSync(cutsPath, "utf8")) as Record<string, Array<[number, number]>>) : {};
+writeFileSync(cutsPath, JSON.stringify({ ...existing, ...cuts }, null, 2));
+console.log("cuts", JSON.stringify(cuts));
 writeFileSync(join(OUT, `phase-${PHASE}.done`), new Date().toISOString());
 console.log("phase", PHASE, "recorded to", OUT);

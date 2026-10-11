@@ -85,12 +85,14 @@ export function Nav() {
                   className="flex shrink-0 items-center gap-1.5 text-xs text-text-muted hover:text-text"
                 >
                   <TickerMark ticker={ticker} size={16} />
-                  <span className="font-medium">{ticker}</span>
-                  {prices[ticker]?.priceMicro !== undefined ? (
-                    <AnimatedPrice valueMicro={prices[ticker]!.priceMicro} />
-                  ) : (
-                    <span className="num">—</span>
-                  )}
+                  <span className="flex items-baseline gap-1.5">
+                    <span className="font-medium">{ticker}</span>
+                    {prices[ticker]?.priceMicro !== undefined ? (
+                      <AnimatedPrice valueMicro={prices[ticker]!.priceMicro} />
+                    ) : (
+                      <span className="num">—</span>
+                    )}
+                  </span>
                 </Link>
               ))}
             </div>

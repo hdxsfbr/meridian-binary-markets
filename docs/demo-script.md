@@ -49,8 +49,18 @@ docker exec -e MAKER="$(cat /tmp/demomaker.b58)" -e TAKER="$(cat /tmp/demotaker.
   -w /work/web meridian-web-devnet-e2e /work/scripts/node_modules/.bin/tsx e2e/record-demo.mts
 # ... market closes; run the settle job; then:
 docker exec ... -e PHASE=post ... e2e/record-demo.mts
-docker exec -w /work/web meridian-web-devnet-e2e bash e2e/stitch-demo.sh /work/design/demo
+# Devnet confirmation waits are recorded in full; the recorder logs each wait's interval to
+# design/demo/cuts.json and this removes them (hard cut from click to confirmation), on the host:
+bash web/e2e/cut-waits.sh design/demo
+bash web/e2e/mux-narration.sh design/demo <narration wav dir>   # narrated cut
+docker exec -w /work/web meridian-web-devnet-e2e bash e2e/stitch-demo.sh /work/design/demo   # silent cut
 ```
+
+`SCENES=04-maker,06-taker` (prefix match) re-records only those scenes. The recording web
+server needs the trade-history index reachable from its own origin: `web/.env.local` with
+`EVENTS_INDEX_UPSTREAM=<worker url>` and `NEXT_PUBLIC_EVENTS_INDEX_URL=/api` routes it through
+`web/src/app/api/events/route.ts`, otherwise Portfolio shows "Cost basis updating…" for minutes
+while the browser pages the chain itself.
 
 ## Narration for the recorded cut (2 min 44 s)
 
