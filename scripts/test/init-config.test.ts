@@ -73,11 +73,11 @@ describe("buildInitializeConfigArgs", () => {
     expect(args.publishers[0].equals(PUBLISHER)).toBe(true);
   });
 
-  it("applies the T085 thresholds: 300s / 25bps / 60s / 3600s", () => {
+  it("applies the thresholds: 300s staleness / 25bps confidence / 0s publish offset (quote at or after the close) / 3600s override delay", () => {
     expect(THRESHOLDS).toEqual({
       maxStalenessSecs: 300,
       maxConfBps: 25,
-      minPublishOffsetSecs: 60,
+      minPublishOffsetSecs: 0,
       overrideDelaySecs: 3600,
     });
     const args = buildInitializeConfigArgs({
@@ -88,7 +88,7 @@ describe("buildInitializeConfigArgs", () => {
     });
     expect(args.maxStalenessSecs).toBe(300);
     expect(args.maxConfBps).toBe(25);
-    expect(args.minPublishOffsetSecs).toBe(60);
+    expect(args.minPublishOffsetSecs).toBe(0);
     expect(args.overrideDelaySecs).toBe(3600);
   });
 

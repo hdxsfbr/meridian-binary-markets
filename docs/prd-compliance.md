@@ -55,6 +55,33 @@ met, with one partial noted first below.
 
 ## Deliberate deviations (disclosed, not gaps)
 
+- **§3.3 "read previous closing price from the oracle"**: the morning job reads the previous
+  day's close from Pyth's history API over HTTPS (with a Finnhub fallback), not from an on-chain
+  Pyth account. Pyth posts no price history on chain, so there is no account to read; the data is
+  the same oracle's, by a different path. Settlement itself reads the oracle on chain inside the
+  settle transaction.
+- **§4 timeline**: one job at 08:00 ET reads the previous close and creates the markets and books
+  in the same pass; they are visible and mintable as soon as they exist rather than at 08:30 and
+  09:00. Settlement starts at 16:00:30 ET (a 30 s buffer after the close) rather than ~16:05
+  (`DECISIONS.md` §12).
+- **§5.1 "only after 4:00 PM ET"**: the on-chain settle guard originally accepted a quote published
+  up to 60 s before the close (`min_publish_offset_secs`); the worker never used that slack (it
+  discards any pre-close observation), and on 2026-10-11 the config value was set to 0 so the
+  program itself requires a publish time at or after the close.
+- **§3.3 "optionally the rounded previous close as a 7th strike"**: always included.
+- **§5.4 payoff line**: reads "You win $1.00 if META closes at or above $680" rather than the PRD's
+  "closes above", because ties go to Yes (§3.1); with no offer on the book the first clause is
+  "No offers yet." instead of a price.
+- **§5.2 "tokens only destroyed via Redeem"**: creation is enforced (mint authority is the market).
+  A holder can still burn their own tokens through the token program directly; Token-2022 offers no
+  way to forbid an owner's burn. Doing so only forfeits that holder's own claim; the dollar stays in
+  the vault and is never paid to anyone else.
+- **Close time is an admin argument**: `create_market` requires `close_ts` to be in the future but
+  does not derive it from the trading day on chain; the worker computes 16:00:00 ET for the day.
+  Admin-only input, not reachable by users.
+- **Integration test gating**: `tests/integration/lifecycle.test.ts` skips itself unless
+  `CLUSTER=localnet`, which `make test-integration` sets; running the file any other way reports a
+  skip, not a pass.
 - **§5.2 vault invariant uses `>=`, not `==`** (`mint_pair.rs`): the vault check tolerates unsolicited
   direct USDC transfers to the vault so a stranger cannot brick minting by sending dust; redemptions
   pay exactly `qty × $1.00`, so a surplus is never paid out and the PRD's property (every pair backed
@@ -126,6 +153,7 @@ met, with one partial noted first below.
 |---|---|---|
 | Morning: previous close, strikes, create per strike, log, alert, retry with backoff | Met (alert added 2026-10-11) | `jobs/morning.ts`, `chain.ts` (`withRetry`), `alert.ts`; cron 08:00 ET in `index.ts` |
 | Settlement: settle every open contract, 30 s retry for 15 min, then alert | Met | `jobs/settle.ts`, `alert.ts`; cron 16:00:30 ET |
+| Both jobs on trading days only | Met (settle guard added 2026-10-11) | `morning.ts` and `settle.ts` both check `isTradingDay` against the NYSE calendar; `--force` for manual runs |
 | Also shipped | — | intraday `extend` job (`DECISIONS.md` §27), nightly `reclaim` job, a `reconcile` audit every 30 minutes (vault and supply invariants per market, overdue settlement, today's ladder, job heartbeats; one summary alert), `/status` and `/events` servers |
 
 ### §5.4 Frontend
@@ -159,7 +187,7 @@ met, with one partial noted first below.
 | Rust + Anchor, TypeScript + Next.js, Node worker | Met | `programs/meridian`, `web`, `services/automation` |
 | One book per strike; build or reuse a CLOB, justified | Met | in-program book; `DECISIONS.md` §6 and the Phoenix spike |
 | Oracle with previous close, 4 PM close, on-chain read, staleness and confidence checks, justified | Met | Pyth pull oracle via the receiver program; `oracle/mod.rs`; `DECISIONS.md` §4 and later Pyth entries |
-| Secrets via env, `.env.example` | Met | `.env.example` |
+| Secrets via env, `.env.example` | Met | `.env.example` lists every variable read by the program scripts, the worker and the web app (audited 2026-10-11) |
 | Never mainnet / real funds | Met | `services/automation/src/config.ts` and `chain.ts` refuse mainnet-beta; `scripts/deploy.ts` |
 | Risks / limitations note, no compliance claims | Met | `docs/risks-and-limitations.md` |
 

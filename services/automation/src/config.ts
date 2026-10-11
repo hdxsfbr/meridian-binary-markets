@@ -95,8 +95,7 @@ const rawConfigSchema = z.object({
   AUTOMATION_STATUS_PORT: z.preprocess((v) => (typeof v === "string" && v.trim() === "" ? undefined : v), portNumber.default("8787")),
   DEMO_SCALE: booleanFromFlag,
   // Fix #22: CORS origin for the status endpoint. Optional URL, defaulting to the local web
-  // dev server (`.env.example` needs a `WEB_ORIGIN=` line documenting this; not added here --
-  // out of scope for this file).
+  // dev server (documented as `WEB_ORIGIN=` in `.env.example`).
   WEB_ORIGIN: optionalHttpUrlFor("WEB_ORIGIN"),
   // Event index (worker-served program event history, see events-index.ts): snapshot file path
   // (Railway's disk is ephemeral, but a missing file just means a cold-start rebuild from the

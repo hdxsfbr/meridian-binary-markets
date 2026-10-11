@@ -36,7 +36,7 @@ import { resolveAdminKeypair, resolveKeypair } from "./lib/keys.js";
 export const THRESHOLDS = {
   maxStalenessSecs: 300,
   maxConfBps: 25,
-  minPublishOffsetSecs: 60,
+  minPublishOffsetSecs: 0, // the settle quote must be published at or after the close (PRD §5.1 "only after 4:00 PM ET")
   overrideDelaySecs: 3600,
 } as const;
 
@@ -181,6 +181,7 @@ async function main(): Promise<void> {
   const isUpdate = argv.includes("--update");
   const providerFlag = parseFlag(argv, "--provider");
   const capacityFlag = parseFlag(argv, "--capacity");
+  const minPublishOffsetFlag = parseFlag(argv, "--min-publish-offset");
   const tickersFlag = parseTickersFlag(argv);
   const pausedFlag = argv.includes("--paused");
   const unpausedFlag = argv.includes("--no-paused");
@@ -217,6 +218,13 @@ async function main(): Promise<void> {
 
     if (tickersFlag !== undefined) {
       args.tickers = tickerInfoArgs(tickersFlag);
+    }
+    if (minPublishOffsetFlag !== undefined) {
+      const secs = Number(minPublishOffsetFlag);
+      if (!Number.isInteger(secs) || secs < 0) {
+        throw new Error(`init-config: --min-publish-offset must be a non-negative integer of seconds, got "${minPublishOffsetFlag}"`);
+      }
+      args.minPublishOffsetSecs = secs;
     }
     if (capacityFlag !== undefined) {
       const capacity = Number(capacityFlag);

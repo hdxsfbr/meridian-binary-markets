@@ -63,3 +63,5 @@ recorded devnet lifecycle with a live Pyth settlement.
 - The integration target was killed twice on 2026-10-11 when it ran alongside a program build in
   another container; alone it passes in about a minute with under 800 MB of container memory.
 - `automation`'s one skipped test is the Pyth live-network check, skipped without a key.
+- The integration test skips itself unless `CLUSTER=localnet` is set; `make test-integration` sets it. A
+  run that reports "pending" rather than "passing" did not execute.

@@ -61,6 +61,45 @@ afterEach(() => {
 });
 
 describe("runSettleJob", () => {
+  it("does nothing on a weekend or holiday: no market scan, no settlement, no alert", async () => {
+    const fetchOpenMarkets = vi.fn().mockResolvedValue([marketRecord()]);
+    const chain: SettleChain = {
+      fetchOpenMarkets,
+      async fetchConfig() {
+        return { overrideDelaySecs: 3600 };
+      },
+      async settleMarket() {
+        throw new Error("must not be called");
+      },
+      fetchMarket: alwaysOpenFetchMarket,
+    };
+    const provider = fakeProvider(async () => ({ priceAccount: PRICE_ACCOUNT, publishTime: 1_759_780_900 }));
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+    // 2026-10-10 is a Saturday; 2026-11-26 is Thanksgiving (a weekday holiday).
+    for (const day of [20261010, 20261126]) {
+      await runSettleJob({ chain, provider, alertFn, alertWebhookUrl: "https://example.test/webhook" }, { day, once: true });
+    }
+    expect(fetchOpenMarkets).not.toHaveBeenCalled();
+    expect(alertFn).not.toHaveBeenCalled();
+  });
+
+  it("--force runs the settlement pass on a non-trading day (manual runs against synthetic days)", async () => {
+    const fetchOpenMarkets = vi.fn().mockResolvedValue([]);
+    const chain: SettleChain = {
+      fetchOpenMarkets,
+      async fetchConfig() {
+        return { overrideDelaySecs: 3600 };
+      },
+      async settleMarket() {
+        throw new Error("must not be called: no open markets");
+      },
+      fetchMarket: alwaysOpenFetchMarket,
+    };
+    const provider = fakeProvider(async () => ({ priceAccount: PRICE_ACCOUNT, publishTime: 1_759_780_900 }));
+    await runSettleJob({ chain, provider, alertFn: vi.fn(), alertWebhookUrl: undefined }, { day: 20261010, once: true, force: true });
+    expect(fetchOpenMarkets).toHaveBeenCalledTimes(1);
+  });
+
   it("retries a guard failure every 30s and alerts exactly once after 15 minutes", async () => {
     const record = marketRecord();
     const chain: SettleChain = {

@@ -72,7 +72,7 @@ export interface MorningJobOptions {
 }
 
 /** The static-fallback NYSE holiday set for `tradingDay`'s year (fix #10). */
-function holidaysForYear(tradingDay: number): Set<string> {
+export function holidaysForYear(tradingDay: number): Set<string> {
   const year = Number(String(tradingDay).slice(0, 4));
   try {
     // The Pyth feed schedule is the primary source for holidays (R9); fetching it is not wired

@@ -636,3 +636,15 @@ remaining items (Anchor's camel-cased account name, which Claude confirmed again
 and a wrong surplus rule in Claude's own spec: losing tokens never explain collateral). Both fixed
 by hand. Worker tests 194.
 
+## 2026-10-11 (late afternoon) — second full PRD audit
+
+Andre asked for one more detailed read of the PRD against the code. An Opus agent audited
+adversarially (code as evidence, our own docs excluded) and found no blockers: three small fixes
+(the on-chain settle guard tolerated a quote up to 60 s before the close, now 0; the settle job
+had no trading-day check; `.env.example` missed eight variables) and a set of deliberate
+deviations that the compliance doc now discloses (previous close from Pyth's history API, the
+08:00 single job and 16:00:30 settlement, the always-included centre strike, the "at or above"
+payoff wording, owner-initiated burns, admin-supplied close time). Codex reviewed the fixes and
+caught one more: a blank `PYTH_API_KEY_FILE=` in the example would disable the mounted-key
+fallback. Fixed; worker 196 tests, scripts 75.
+

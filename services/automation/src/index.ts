@@ -155,7 +155,7 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
     case "settle": {
       await runSettleJob(
         { chain: runtime.chain, provider: runtime.provider, alertWebhookUrl: cfg.alertWebhookUrl },
-        { day, once: flagBoolean(flags, "once") },
+        { day, once: flagBoolean(flags, "once"), force: flagBoolean(flags, "force") },
       );
       return;
     }

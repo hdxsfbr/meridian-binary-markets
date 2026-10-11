@@ -28,7 +28,8 @@
 import type { PublicKey } from "@solana/web3.js";
 import type { Ticker } from "@meridian/sdk";
 import { isAlreadySettledError, type MarketAccount, type MarketRecord } from "../chain.js";
-import { tradingDayOf } from "../calendar.js";
+import { isTradingDay, tradingDayOf } from "../calendar.js";
+import { holidaysForYear } from "./morning.js";
 import { log } from "../log.js";
 import { alert as defaultAlert, type AlertInput } from "../alert.js";
 import type { PriceProvider } from "../providers/PriceProvider.js";
@@ -90,6 +91,8 @@ export interface SettleJobDeps {
 export interface SettleJobOptions {
   day?: number;
   once?: boolean;
+  /** Run even on a weekend/holiday (manual runs against synthetic days, e.g. the demo's BTC ladders). */
+  force?: boolean;
 }
 
 function defaultSleep(ms: number): Promise<void> {
@@ -328,6 +331,20 @@ export async function runSettleJob(deps: SettleJobDeps, opts: SettleJobOptions =
 
   const tradingDay = opts.day ?? tradingDayOf(Math.floor(now() / 1000));
   const start = now();
+
+  // PRD §5.3: both scheduled jobs run on US trading days. The weekday cron also fires on NYSE
+  // holidays; mirror the morning job's calendar check so a holiday is an explicit no-op rather
+  // than a pass that only happens to find no markets. `--force` keeps manual runs against
+  // synthetic days (weekend demo ladders) working.
+  if (!opts.force && !isTradingDay(tradingDay, holidaysForYear(tradingDay))) {
+    log({
+      job: "settle",
+      step: "trading_day_check",
+      ok: true,
+      error: `${tradingDay} is not a trading day; exiting without settling (use --force to override)`,
+    });
+    return;
+  }
 
   let config: { overrideDelaySecs: number };
   let openMarkets: MarketRecord[];
