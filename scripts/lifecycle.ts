@@ -58,6 +58,7 @@ import {
   TRADE_4_SELL_NO,
   usdcForFill,
 } from "./lib/lifecycle/trading-math.js";
+import { formatLatencySummary, summarizeLatencies, type LatencySummary } from "./lib/lifecycle/latency.js";
 import { IDL, PROGRAM_ID, configPda, decodeBook, plannedFills, type Ticker } from "@meridian/sdk";
 import { buildInitializeConfigArgs } from "./init-config.js";
 
@@ -155,6 +156,8 @@ export interface RunLifecycleReport {
   pnlMicroUsdc: { maker: bigint; taker: bigint };
   reportText: string;
   wallClockMs: number;
+  /** Confirmation-latency summary across every transaction this run sent (KEY_METRICS.md "Transaction confirmation latency"). */
+  confirmationLatency: LatencySummary;
 }
 
 /** Ensures `Config` exists (brief step 2): idempotent, reuses `init-config.ts`'s pure builder. */
@@ -472,6 +475,19 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
   assertEqualBigint(vaultFinal, 0n, "traded market vault must be 0 after all winners redeem");
   logDetail("final P&L and vault-zero assertions passed");
 
+  // docs/PRD.md §7 "Performance benchmarks" lists "sub-second transaction
+  // finality" with nothing in the repo measuring it -- every transaction
+  // this run sent went through `bootstrapChain`/`chain`'s `timeRpc`
+  // (`lib/lifecycle/chain.ts`), which recorded its own send-to-confirm
+  // elapsed time; `bootstrapChain` only ever sends anything via
+  // `ensureConfig`'s `initializeConfig` call (empty array otherwise).
+  logStep("confirmation latency summary");
+  const confirmationLatency = summarizeLatencies([
+    ...bootstrapChain.confirmationLatenciesMs,
+    ...chain.confirmationLatenciesMs,
+  ]);
+  logDetail(formatLatencySummary(confirmationLatency));
+
   const reportText = formatLifecycleReport({
     cluster: env.cluster,
     programId: PROGRAM_ID.toBase58(),
@@ -513,6 +529,7 @@ export async function runLifecycle(opts: RunLifecycleOptions = {}): Promise<RunL
     pnlMicroUsdc: { maker: pnlA, taker: pnlB },
     reportText,
     wallClockMs: Date.now() - startedAt,
+    confirmationLatency,
   };
 }
 

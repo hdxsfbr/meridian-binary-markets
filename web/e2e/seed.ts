@@ -87,7 +87,27 @@ const MAKER_MINT_QTY = 20n;
 const MAKER_ASK_PRICE = 600_000n; // $0.60
 const MAKER_ASK_QTY = 5n;
 const MAKER_BID_PRICE = 400_000n; // $0.40
-const MAKER_BID_QTY = 5n;
+// Deliberately different from MAKER_ASK_QTY: trade.spec.ts's order-book
+// perspective test asserts that toggling Yes/No swaps which side each
+// size renders under, and $0.40 + $0.60 = $1.00 exactly (each is the
+// other's `oppositePrice`) -- with equal ask/bid sizes, toggling the
+// perspective would display the exact same numbers either way, so an
+// unswapped book (toggle silently doing nothing) would still pass. Unequal
+// sizes make the swap observable.
+const MAKER_BID_QTY = 4n;
+
+/**
+ * A second, dedicated strike on the open ticker's own ladder (never the
+ * ATM strike `openMarket` points at), seeded with its own small resting
+ * bid, purely so `portfolio.spec.ts`'s cost-basis/P&L test has a
+ * counterparty to sell into without touching `openMarket`'s book --
+ * `trade.spec.ts`'s flows (and its order-book perspective test) depend on
+ * `openMarket`'s Ask/Bid being exactly `MAKER_ASK_QTY`/`MAKER_BID_QTY`
+ * regardless of execution order, so nothing else may ever rest or fill
+ * there.
+ */
+const PNL_MAKER_BID_PRICE = 400_000n; // $0.40
+const PNL_MAKER_BID_QTY = 5n;
 
 /** Minted directly on the settled market so the taker has something to redeem once it settles (flow 4). */
 const TAKER_SETTLED_MINT_QTY = 10n;
@@ -115,6 +135,8 @@ export interface SeedResult {
   programId: string;
   rpcUrl: string;
   openMarket: SeedMarket;
+  /** A different strike on `openMarket.ticker`'s own ladder, with its own resting bid, dedicated to `portfolio.spec.ts`'s cost-basis/P&L test (see `PNL_MAKER_BID_PRICE`'s doc comment) -- never touched by `trade.spec.ts`. */
+  pnlMarket: SeedMarket;
   settledMarket: SeedSettledMarket;
   /** Config.admin -- the only identity `/admin` accepts (admin.spec.ts). Also holds a minted pair on the settled market. */
   admin: SeedIdentity & { settledPairsMinted: string };
@@ -273,6 +295,27 @@ export async function runSeed(): Promise<SeedResult> {
   await chain.placeOrder(maker.keypair, openMarketAddress, openMarket, 0, MAKER_BID_PRICE, MAKER_BID_QTY, 0, []);
   log(`maker rests Bid ${MAKER_BID_PRICE} x ${MAKER_BID_QTY} on open market (flow 3's Buy No market crosses this)`);
 
+  // --- Dedicated P&L market: a different strike on the same ladder, so portfolio.spec.ts's
+  // cost-basis/P&L test has its own resting bid to sell into without ever touching
+  // openMarket's book (see PNL_MAKER_BID_PRICE's doc comment above). `createTodaysMarkets`
+  // already created every strike's Market+Book for this ticker (not just the ATM one), so
+  // this only needs to pick a different strike out of the same ladder already in `openDay`.
+  const openTickerDay = openDay.byTicker.get(OPEN_TICKER)!;
+  const pnlStrike = openTickerDay.ladder.find((strike) => strike !== openTickerDay.atmStrike);
+  if (pnlStrike === undefined) {
+    throw new Error(`seed: ${OPEN_TICKER}'s ladder has no strike other than the ATM one`);
+  }
+  const pnlMarketAddress = openTickerDay.strikesToMarkets.get(pnlStrike.toString())!;
+  const pnlMarket = await chain.fetchMarket(pnlMarketAddress);
+  if (!pnlMarket) {
+    throw new Error(`seed: pnl market ${pnlMarketAddress.toBase58()} does not exist on chain`);
+  }
+  // Only a resting Bid is needed here (it escrows USDC, not Yes/No tokens --
+  // unlike an Ask, placing it needs no mint_pair first); the maker is
+  // already funded with USDC via `fundDemoUsers` above.
+  await chain.placeOrder(maker.keypair, pnlMarketAddress, pnlMarket, 0, PNL_MAKER_BID_PRICE, PNL_MAKER_BID_QTY, 0, []);
+  log(`maker rests Bid ${PNL_MAKER_BID_PRICE} x ${PNL_MAKER_BID_QTY} on dedicated pnl market (portfolio.spec.ts's flow 6 sells into this)`);
+
   // --- Settled market: taker mints a pair up front, then this script waits it out and settles it ---
   log(`creating settled market ${SETTLED_TICKER} (closes in ${SETTLED_CLOSE_IN_SECONDS}s)`);
   // On-chain clock, not `Date.now()`: `close_ts`/`settle_market`'s guard are
@@ -324,6 +367,12 @@ export async function runSeed(): Promise<SeedResult> {
       ticker: OPEN_TICKER,
       strike: openMarket.strike.toString(),
       pubkey: openMarketAddress.toBase58(),
+      closeTs: openDay.closeTs,
+    },
+    pnlMarket: {
+      ticker: OPEN_TICKER,
+      strike: pnlMarket.strike.toString(),
+      pubkey: pnlMarketAddress.toBase58(),
       closeTs: openDay.closeTs,
     },
     settledMarket: {

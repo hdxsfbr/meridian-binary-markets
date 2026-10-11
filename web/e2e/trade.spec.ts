@@ -17,7 +17,7 @@
 
 import { test, expect } from "@playwright/test";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, noMintPda, yesMintPda } from "@meridian/sdk";
+import { PROGRAM_ID, TOKEN_2022_PROGRAM_ID, noMintPda, yesMintPda } from "@meridian/sdk";
 import { associatedTokenAddress } from "../src/lib/ata";
 import { formatStrike } from "../src/lib/format";
 import { clickConnect, connectAs, loadSeed } from "./fixtures";
@@ -39,6 +39,61 @@ async function rpcTokenBalance(connection: Connection, ata: PublicKey): Promise<
 }
 
 test.describe("trade", () => {
+  test("order book renders correctly from both the Yes and the No perspective", async ({ page }) => {
+    test.setTimeout(60_000);
+    const seed = loadSeed();
+    const strikeLabel = formatStrike(BigInt(seed.openMarket.strike));
+
+    await connectAs(page, seed.taker.secretKeyBase58);
+    await page.goto(`/trade/${seed.openMarket.ticker}`);
+    await clickConnect(page);
+    await page.locator("tr", { hasText: strikeLabel }).first().click();
+
+    // The order book table (the second `<table>` on the page -- the first
+    // is the strike list; see trade.spec.ts's other flows for the same
+    // `.last()` convention). This test never sends a transaction (read-only:
+    // it only clicks the Yes/No perspective toggle, never a trade action),
+    // and `seed.ts`'s dedicated `pnlMarket` keeps `portfolio.spec.ts`'s own
+    // mint/sell test off of this market entirely -- so the book here is
+    // always exactly what `seed.ts` seeded: Ask $0.60 x 5 (`MAKER_ASK_QTY`),
+    // Bid $0.40 x 4 (`MAKER_BID_QTY`), regardless of which spec file runs
+    // first.
+    const bookTable = page.locator("table").last();
+    const row = bookTable.locator("tbody tr").first();
+    await expect(row).toBeVisible({ timeout: 20_000 });
+
+    // --- Yes perspective (default on load): best bid $0.40 x 4, best ask $0.60 x 5 ---
+    await expect(page.getByText("Best bid $0.40", { exact: false })).toBeVisible();
+    await expect(page.getByText("Best ask $0.60", { exact: false })).toBeVisible();
+    const cells = row.locator("td");
+    await expect(cells.nth(0)).toHaveText("4"); // bid size
+    await expect(cells.nth(1)).toHaveText("$0.40"); // bid price
+    await expect(cells.nth(3)).toHaveText("$0.60"); // ask price
+    await expect(cells.nth(4)).toHaveText("5"); // ask size
+
+    // --- Toggle to the No perspective: every price becomes $1.00 minus its Yes
+    // price, and each level's size stays attached to the same underlying
+    // order -- the Yes ask (price $0.60, size 5) becomes the No bid (price
+    // $0.40, size 5); the Yes bid (price $0.40, size 4) becomes the No ask
+    // (price $0.60, size 4). ---
+    await page.getByRole("button", { name: "No", exact: true }).click();
+    await expect(page.getByRole("button", { name: "No", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText("Best bid $0.40", { exact: false })).toBeVisible();
+    await expect(page.getByText("Best ask $0.60", { exact: false })).toBeVisible();
+    await expect(cells.nth(0)).toHaveText("5"); // No bid size == Yes ask size
+    await expect(cells.nth(1)).toHaveText("$0.40"); // No bid price == $1.00 - Yes ask price ($1.00 - $0.60)
+    await expect(cells.nth(3)).toHaveText("$0.60"); // No ask price == $1.00 - Yes bid price ($1.00 - $0.40)
+    await expect(cells.nth(4)).toHaveText("4"); // No ask size == Yes bid size
+
+    // --- Toggle back to Yes: the original view is restored exactly. ---
+    await page.getByRole("button", { name: "Yes", exact: true }).click();
+    await expect(page.getByRole("button", { name: "Yes", exact: true })).toHaveAttribute("aria-pressed", "true");
+    await expect(cells.nth(0)).toHaveText("4");
+    await expect(cells.nth(1)).toHaveText("$0.40");
+    await expect(cells.nth(3)).toHaveText("$0.60");
+    await expect(cells.nth(4)).toHaveText("5");
+  });
+
   test("flow 2: a limit Buy Yes appears in a second browser context's book within 1s, no reload", async ({ browser }) => {
     test.setTimeout(90_000);
     const seed = loadSeed();
@@ -146,8 +201,13 @@ test.describe("trade", () => {
     const [noMint] = noMintPda(PROGRAM_ID, market);
     const taker = new PublicKey(seed.taker.publicKey);
     const connection = new Connection(seed.rpcUrl, "confirmed");
-    const yesAta = associatedTokenAddress(taker, yesMint);
-    const noAta = associatedTokenAddress(taker, noMint);
+    // Every market `createMarket` creates uses Token-2022 Yes/No mints (see
+    // `chain.ts`'s doc comment on `createMarket`) -- `associatedTokenAddress`
+    // defaults to classic SPL Token when its third argument is omitted, which
+    // derives a *different* (and in this case never-created) account, so the
+    // token program must be passed explicitly here.
+    const yesAta = associatedTokenAddress(taker, yesMint, TOKEN_2022_PROGRAM_ID);
+    const noAta = associatedTokenAddress(taker, noMint, TOKEN_2022_PROGRAM_ID);
 
     await expect
       .poll(async () => rpcTokenBalance(connection, noAta), { timeout: 20_000 })
@@ -156,7 +216,15 @@ test.describe("trade", () => {
     expect(yesBalanceBaseUnits).toBe(0n);
 
     await page.goto("/portfolio");
-    const heading = page.getByText(`${seed.openMarket.ticker} ${strikeLabel}`, { exact: true });
+    // Scoped to the "Positions" section specifically -- `PositionRow`'s own
+    // heading always renders a trailing "· <trading day>" span alongside the
+    // ticker/strike text (so an `exact: true` match against just the
+    // ticker/strike never matches anything), and "Your quotes"' own summary
+    // table repeats the same ticker/strike text in a visible `<td>`
+    // elsewhere on the page, which an unscoped substring search would
+    // ambiguously match too.
+    const positionsSection = page.locator("section", { hasText: "Positions" });
+    const heading = positionsSection.getByText(`${seed.openMarket.ticker} ${strikeLabel}`);
     const row = heading.locator("xpath=ancestor::div[contains(@class,'rounded')][1]");
     await expect(row.getByText(`No — qty ${FLOW3_QTY}`, { exact: true })).toBeVisible();
     await expect(row.getByText(/^Yes — qty/)).toHaveCount(0);

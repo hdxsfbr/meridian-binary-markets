@@ -78,6 +78,24 @@ after a fresh `anchor build` for the current binary size.
 are the single source of truth the service runs); re-read `docs/deployment.md` §2 after any new
 settlement day is recorded there.
 
+### Transaction confirmation latency
+
+`docs/PRD.md` §7 "Performance benchmarks" lists "sub-second transaction finality" as a target,
+but nothing in the repo measured it until now. `scripts/lifecycle.ts` (`make test-integration`'s
+driver) now times every transaction it sends -- `LifecycleChain`'s `timeRpc` wrapper in
+`scripts/lib/lifecycle/chain.ts` records the elapsed milliseconds from just before each
+`.rpc()`/`sendRawTransaction` call to the moment it resolves with a confirmed signature -- and
+prints a count/median/p95/max summary (`scripts/lib/lifecycle/latency.ts`'s
+`summarizeLatencies`) as its final "confirmation latency summary" step.
+
+| Metric | Value | Source |
+| --- | --- | --- |
+| Transaction confirmation latency | localnet, 2026-10-11: 155 transactions, median 416 ms, p95 436 ms, max 475 ms (send to confirmed, one validator on the dev container); devnet confirmations observed during the 2026-10-10 recordings ranged from about 2 s to over 60 s under load, which is the public cluster, not this program | `make test-integration`'s `scripts/lifecycle.ts` output, "confirmation latency summary" step |
+
+**How to refresh:** `make test-integration` (localnet) and read the "confirmation latency
+summary" line it prints near the end, or call `runLifecycle()` programmatically and read
+`.confirmationLatency` off the returned report.
+
 ## E. Frontend metrics
 
 Routes below are from running the web build inside the container today

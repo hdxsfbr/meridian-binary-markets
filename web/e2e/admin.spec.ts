@@ -13,7 +13,7 @@
 
 import { test, expect } from "@playwright/test";
 import { Connection, PublicKey } from "@solana/web3.js";
-import { PROGRAM_ID, noMintPda, yesMintPda } from "@meridian/sdk";
+import { PROGRAM_ID, TOKEN_2022_PROGRAM_ID, noMintPda, yesMintPda } from "@meridian/sdk";
 import { associatedTokenAddress } from "../src/lib/ata";
 import { formatStrike } from "../src/lib/format";
 import { clickConnect, connectAs, loadSeed } from "./fixtures";
@@ -88,7 +88,11 @@ test("flow 5: paused disables trading but leaves redeem enabled", async ({ page 
     const winningMint = seed.settledMarket.outcome === "yes" ? yesMint : noMint;
     const admin = new PublicKey(seed.admin.publicKey);
     const connection = new Connection(seed.rpcUrl, "confirmed");
-    const winningAta = associatedTokenAddress(admin, winningMint);
+    // Every market `createMarket` creates uses Token-2022 Yes/No mints --
+    // `associatedTokenAddress` defaults to classic SPL Token when its third
+    // argument is omitted, which derives a different (never-created)
+    // account, so the token program must be passed explicitly here.
+    const winningAta = associatedTokenAddress(admin, winningMint, TOKEN_2022_PROGRAM_ID);
     const minted = BigInt(seed.admin.settledPairsMinted);
 
     const balanceBeforeRedeem = await rpcTokenBalance(connection, winningAta);

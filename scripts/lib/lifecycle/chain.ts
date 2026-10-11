@@ -167,6 +167,17 @@ export class LifecycleChain {
   readonly program: any;
 
   /**
+   * Finality measurement (KEY_METRICS.md "Transaction confirmation
+   * latency"): one entry per transaction this instance has sent, in
+   * milliseconds from the moment `.rpc()` (or, for `fundUsdc`, `sendRawTransaction`)
+   * was called to the moment it resolved with a confirmed signature --
+   * i.e. every `timeRpc`-wrapped call site below, in the order they
+   * completed. `scripts/lifecycle.ts` reads this back at the end of a run
+   * to print the summary (`lib/lifecycle/latency.ts`'s `summarizeLatencies`).
+   */
+  readonly confirmationLatenciesMs: number[] = [];
+
+  /**
    * Delay inserted between consecutive on-chain steps (market creation, book
    * growth polling). 0 on localnet; `lifecycle.ts` sets it on devnet, where the
    * public RPC rate-limits bursts of the same call and web3.js's own retries
@@ -178,6 +189,21 @@ export class LifecycleChain {
     if (this.paceMs > 0) {
       await new Promise((resolve) => setTimeout(resolve, this.paceMs));
     }
+  }
+
+  /**
+   * Times one send-and-confirm call (`rpcCall`, almost always `() =>
+   * this.program.methods....rpc()`) from just before it's invoked to the
+   * moment it resolves, and records the elapsed milliseconds into
+   * `confirmationLatenciesMs`. Every instruction method below routes its
+   * `.rpc()` call through this so no transaction this class sends goes
+   * unmeasured.
+   */
+  private async timeRpc<T>(rpcCall: () => Promise<T>): Promise<T> {
+    const start = Date.now();
+    const result = await rpcCall();
+    this.confirmationLatenciesMs.push(Date.now() - start);
+    return result;
   }
 
   constructor(connection: Connection, admin: Keypair, publisher: Keypair, usdcMint: PublicKey) {
@@ -221,17 +247,19 @@ export class LifecycleChain {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async initializeConfig(args: Record<string, unknown>, usdcMint: PublicKey): Promise<void> {
     const [config] = configPda(PROGRAM_ID);
-    await this.program.methods
-      .initializeConfig(args)
-      .accountsStrict({
-        payer: this.admin.publicKey,
-        admin: this.admin.publicKey,
-        config,
-        usdcMint,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([this.admin])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .initializeConfig(args)
+        .accountsStrict({
+          payer: this.admin.publicKey,
+          admin: this.admin.publicKey,
+          config,
+          usdcMint,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([this.admin])
+        .rpc(),
+    );
   }
 
   async fetchConfig(): Promise<ConfigAccountDecoded | null> {
@@ -292,30 +320,32 @@ export class LifecycleChain {
   async createMarket(ticker: Ticker, strike: bigint, tradingDay: number, closeTs: number, capacity: number): Promise<PublicKey> {
     const market = this.marketAddress(ticker, tradingDay, strike);
     const accts = this.marketAccounts(market);
-    await this.program.methods
-      .createMarket(Array.from(tickerSymbolBytes(ticker)), new BN(strike.toString()), tradingDay, new BN(closeTs), capacity)
-      .accountsStrict({
-        payer: this.admin.publicKey,
-        admin: this.admin.publicKey,
-        config: accts.config,
-        market,
-        yesMint: accts.yesMint,
-        noMint: accts.noMint,
-        vault: accts.vault,
-        usdcEscrow: accts.usdcEscrow,
-        yesEscrow: accts.yesEscrow,
-        usdcMint: this.usdcMint,
-        // `createMarket` always creates Token-2022 Yes/No mints (every
-        // market created from the migration on; see create_market.rs's
-        // module doc) -- there is no existing mint to resolve a token
-        // program from here.
-        tokenProgram: TOKEN_2022_PROGRAM_ID,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-        rent: SYSVAR_RENT_PUBKEY,
-      })
-      .signers([this.admin])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .createMarket(Array.from(tickerSymbolBytes(ticker)), new BN(strike.toString()), tradingDay, new BN(closeTs), capacity)
+        .accountsStrict({
+          payer: this.admin.publicKey,
+          admin: this.admin.publicKey,
+          config: accts.config,
+          market,
+          yesMint: accts.yesMint,
+          noMint: accts.noMint,
+          vault: accts.vault,
+          usdcEscrow: accts.usdcEscrow,
+          yesEscrow: accts.yesEscrow,
+          usdcMint: this.usdcMint,
+          // `createMarket` always creates Token-2022 Yes/No mints (every
+          // market created from the migration on; see create_market.rs's
+          // module doc) -- there is no existing mint to resolve a token
+          // program from here.
+          tokenProgram: TOKEN_2022_PROGRAM_ID,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+          rent: SYSVAR_RENT_PUBKEY,
+        })
+        .signers([this.admin])
+        .rpc(),
+    );
     return market;
   }
 
@@ -325,18 +355,20 @@ export class LifecycleChain {
     const [book] = bookPda(PROGRAM_ID, market);
     for (let i = 0; i < 32; i += 1) {
       await this.pace();
-      await this.program.methods
-        .createBook()
-        .accountsStrict({
-          payer: this.admin.publicKey,
-          admin: this.admin.publicKey,
-          config,
-          market,
-          book,
-          systemProgram: SystemProgram.programId,
-        })
-        .signers([this.admin])
-        .rpc();
+      await this.timeRpc(() =>
+        this.program.methods
+          .createBook()
+          .accountsStrict({
+            payer: this.admin.publicKey,
+            admin: this.admin.publicKey,
+            config,
+            market,
+            book,
+            systemProgram: SystemProgram.programId,
+          })
+          .signers([this.admin])
+          .rpc(),
+      );
       const fresh = await this.fetchMarket(market);
       if (fresh && fresh.book.toBase58() !== PublicKey.default.toBase58()) {
         return book;
@@ -348,26 +380,30 @@ export class LifecycleChain {
   async mockWritePrice(feedId: Uint8Array, price: bigint, conf: bigint, expo: number, publishTime: number): Promise<PublicKey> {
     const [config] = configPda(PROGRAM_ID);
     const [priceAccount] = mockPricePda(PROGRAM_ID, feedId);
-    await this.program.methods
-      .mockWritePrice(Array.from(feedId), new BN(price.toString()), new BN(conf.toString()), expo, new BN(publishTime))
-      .accountsStrict({
-        publisher: this.publisher.publicKey,
-        config,
-        price: priceAccount,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([this.publisher])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .mockWritePrice(Array.from(feedId), new BN(price.toString()), new BN(conf.toString()), expo, new BN(publishTime))
+        .accountsStrict({
+          publisher: this.publisher.publicKey,
+          config,
+          price: priceAccount,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([this.publisher])
+        .rpc(),
+    );
     return priceAccount;
   }
 
   async settleMarket(market: PublicKey, priceAccount: PublicKey): Promise<void> {
     const [config] = configPda(PROGRAM_ID);
-    await this.program.methods
-      .settleMarket()
-      .accountsStrict({ caller: this.admin.publicKey, config, market, priceAccount })
-      .signers([this.admin])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .settleMarket()
+        .accountsStrict({ caller: this.admin.publicKey, config, market, priceAccount })
+        .signers([this.admin])
+        .rpc(),
+    );
   }
 
   /** Funds `destination` (an existing USDC ATA) with `amountMicro` test USDC; admin must be the mint authority. */
@@ -377,8 +413,10 @@ export class LifecycleChain {
     const { blockhash, lastValidBlockHeight } = await this.connection.getLatestBlockhash("confirmed");
     tx.recentBlockhash = blockhash;
     tx.sign(this.admin);
+    const start = Date.now();
     const sig = await this.connection.sendRawTransaction(tx.serialize());
     const result = await this.connection.confirmTransaction({ signature: sig, blockhash, lastValidBlockHeight }, "confirmed");
+    this.confirmationLatenciesMs.push(Date.now() - start);
     if (result.value.err) {
       throw new Error(`fundUsdc: transaction ${sig} failed: ${JSON.stringify(result.value.err)}`);
     }
@@ -407,25 +445,27 @@ export class LifecycleChain {
     const userUsdc = await this.usdcAta(user.publicKey);
     const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
     const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .mintPair(new BN(qty.toString()))
-      .accountsStrict({
-        user: user.publicKey,
-        config: accts.config,
-        market,
-        yesMint: m.yesMint,
-        noMint: m.noMint,
-        vault: m.vault,
-        userUsdc,
-        userYes,
-        userNo,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([user])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .mintPair(new BN(qty.toString()))
+        .accountsStrict({
+          user: user.publicKey,
+          config: accts.config,
+          market,
+          yesMint: m.yesMint,
+          noMint: m.noMint,
+          vault: m.vault,
+          userUsdc,
+          userYes,
+          userNo,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc(),
+    );
   }
 
   /** `place_order(side, price, qty, tif)`: `side` 0=Bid 1=Ask, `tif` 0=Limit 1=IOC. */
@@ -442,26 +482,28 @@ export class LifecycleChain {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(user.publicKey);
     const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .placeOrder(side, new BN(price.toString()), new BN(qty.toString()), tif)
-      .accountsStrict({
-        user: user.publicKey,
-        config: accts.config,
-        market,
-        book: m.book,
-        usdcEscrow: accts.usdcEscrow,
-        yesEscrow: accts.yesEscrow,
-        userUsdc,
-        yesMint: m.yesMint,
-        userYes,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(remainingAccounts)
-      .signers([user])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .placeOrder(side, new BN(price.toString()), new BN(qty.toString()), tif)
+        .accountsStrict({
+          user: user.publicKey,
+          config: accts.config,
+          market,
+          book: m.book,
+          usdcEscrow: accts.usdcEscrow,
+          yesEscrow: accts.yesEscrow,
+          userUsdc,
+          yesMint: m.yesMint,
+          userYes,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(remainingAccounts)
+        .signers([user])
+        .rpc(),
+    );
   }
 
   /** `buy_no_market(qty, min_yes_price)`: mint qty pairs, IOC-sell the Yes leg into resting bids. */
@@ -477,29 +519,31 @@ export class LifecycleChain {
     const userUsdc = await this.usdcAta(user.publicKey);
     const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
     const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .buyNoMarket(new BN(qty.toString()), new BN(minYesPrice.toString()))
-      .accountsStrict({
-        user: user.publicKey,
-        config: accts.config,
-        market,
-        yesMint: m.yesMint,
-        noMint: m.noMint,
-        vault: m.vault,
-        book: m.book,
-        usdcEscrow: accts.usdcEscrow,
-        yesEscrow: accts.yesEscrow,
-        userUsdc,
-        userYes,
-        userNo,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(remainingAccounts)
-      .signers([user])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .buyNoMarket(new BN(qty.toString()), new BN(minYesPrice.toString()))
+        .accountsStrict({
+          user: user.publicKey,
+          config: accts.config,
+          market,
+          yesMint: m.yesMint,
+          noMint: m.noMint,
+          vault: m.vault,
+          book: m.book,
+          usdcEscrow: accts.usdcEscrow,
+          yesEscrow: accts.yesEscrow,
+          userUsdc,
+          userYes,
+          userNo,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(remainingAccounts)
+        .signers([user])
+        .rpc(),
+    );
   }
 
   /** `sell_no_market(qty, max_yes_price)`: IOC-buy the Yes leg from resting asks, then redeem the filled pairs. */
@@ -515,29 +559,31 @@ export class LifecycleChain {
     const userUsdc = await this.usdcAta(user.publicKey);
     const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
     const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .sellNoMarket(new BN(qty.toString()), new BN(maxYesPrice.toString()))
-      .accountsStrict({
-        user: user.publicKey,
-        config: accts.config,
-        market,
-        yesMint: m.yesMint,
-        noMint: m.noMint,
-        vault: m.vault,
-        book: m.book,
-        usdcEscrow: accts.usdcEscrow,
-        yesEscrow: accts.yesEscrow,
-        userUsdc,
-        userYes,
-        userNo,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .remainingAccounts(remainingAccounts)
-      .signers([user])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .sellNoMarket(new BN(qty.toString()), new BN(maxYesPrice.toString()))
+        .accountsStrict({
+          user: user.publicKey,
+          config: accts.config,
+          market,
+          yesMint: m.yesMint,
+          noMint: m.noMint,
+          vault: m.vault,
+          book: m.book,
+          usdcEscrow: accts.usdcEscrow,
+          yesEscrow: accts.yesEscrow,
+          userUsdc,
+          userYes,
+          userNo,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .remainingAccounts(remainingAccounts)
+        .signers([user])
+        .rpc(),
+    );
   }
 
   /** `cancel_order(order_id)`. */
@@ -545,22 +591,24 @@ export class LifecycleChain {
     const accts = this.marketAccounts(market);
     const userUsdc = await this.usdcAta(owner.publicKey);
     const userYes = this.yesAtaAddress(owner.publicKey, m.yesMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .cancelOrder(new BN(orderId.toString()))
-      .accountsStrict({
-        owner: owner.publicKey,
-        market,
-        book: m.book,
-        usdcEscrow: accts.usdcEscrow,
-        yesEscrow: accts.yesEscrow,
-        yesMint: m.yesMint,
-        userUsdc,
-        userYes,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-      })
-      .signers([owner])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .cancelOrder(new BN(orderId.toString()))
+        .accountsStrict({
+          owner: owner.publicKey,
+          market,
+          book: m.book,
+          usdcEscrow: accts.usdcEscrow,
+          yesEscrow: accts.yesEscrow,
+          yesMint: m.yesMint,
+          userUsdc,
+          userYes,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+        })
+        .signers([owner])
+        .rpc(),
+    );
   }
 
   /** `redeem_winning(side, qty)`: `side` 1=Yes 2=No, must match the settled outcome. */
@@ -573,21 +621,24 @@ export class LifecycleChain {
   ): Promise<void> {
     const winningMint = side === 1 ? m.yesMint : m.noMint;
     const userWinning = associatedTokenAddress(user.publicKey, winningMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .redeemWinning(side, new BN(qty.toString()))
-      .accountsStrict({
-        user: user.publicKey,
-        market,
-        yesMint: m.yesMint,
-        noMint: m.noMint,
-        vault: m.vault,
-        userUsdc: await this.usdcAta(user.publicKey),
-        userWinning,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-      })
-      .signers([user])
-      .rpc();
+    const userUsdcAta = await this.usdcAta(user.publicKey);
+    await this.timeRpc(() =>
+      this.program.methods
+        .redeemWinning(side, new BN(qty.toString()))
+        .accountsStrict({
+          user: user.publicKey,
+          market,
+          yesMint: m.yesMint,
+          noMint: m.noMint,
+          vault: m.vault,
+          userUsdc: userUsdcAta,
+          userWinning,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+        })
+        .signers([user])
+        .rpc(),
+    );
   }
 
   /** `redeem_pair(qty)`: Yes+No in, USDC out, in any market state. */
@@ -596,24 +647,26 @@ export class LifecycleChain {
     const userUsdc = await this.usdcAta(user.publicKey);
     const userYes = this.yesAtaAddress(user.publicKey, m.yesMint, m.yesNoTokenProgram);
     const userNo = this.noAtaAddress(user.publicKey, m.noMint, m.yesNoTokenProgram);
-    await this.program.methods
-      .redeemPair(new BN(qty.toString()))
-      .accountsStrict({
-        user: user.publicKey,
-        config: accts.config,
-        market,
-        yesMint: m.yesMint,
-        noMint: m.noMint,
-        vault: m.vault,
-        userUsdc,
-        userYes,
-        userNo,
-        usdcTokenProgram: TOKEN_PROGRAM_ID,
-        yesnoTokenProgram: m.yesNoTokenProgram,
-        associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
-        systemProgram: SystemProgram.programId,
-      })
-      .signers([user])
-      .rpc();
+    await this.timeRpc(() =>
+      this.program.methods
+        .redeemPair(new BN(qty.toString()))
+        .accountsStrict({
+          user: user.publicKey,
+          config: accts.config,
+          market,
+          yesMint: m.yesMint,
+          noMint: m.noMint,
+          vault: m.vault,
+          userUsdc,
+          userYes,
+          userNo,
+          usdcTokenProgram: TOKEN_PROGRAM_ID,
+          yesnoTokenProgram: m.yesNoTokenProgram,
+          associatedTokenProgram: ASSOCIATED_TOKEN_PROGRAM_ID,
+          systemProgram: SystemProgram.programId,
+        })
+        .signers([user])
+        .rpc(),
+    );
   }
 }
