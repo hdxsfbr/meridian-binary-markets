@@ -579,3 +579,15 @@ through the lifecycle with title cards, stitched by ffmpeg. Devnet confirmations
 more each all day, so the first two BTC ladders closed before their order books and quotes were
 ready; they were used as settle-job rehearsals and the real take moved to a third ladder with a
 90-minute runway. Codex reviews ran on every code change as before.
+
+Evening: the video. The first cut (2 min 44 s, silent) became a narrated cut with Andre's own
+voice clone through the local Chatterbox setup (CPU, because an apt upgrade that morning left
+the NVIDIA kernel module and libraries mismatched), then a showcase cut for the hiring partner:
+landing, markets, a Trade page tour on a fresh BTC ladder, the maker and taker footage, a
+Portfolio tour, the operator's view, the live settlement, Docs, three "under the hood" cards,
+5 min 57 s. Along the way Andre caught two product problems from the recording environment:
+odometer digits losing their baseline, and settled strikes mixed with open ones because several
+BTC ladders shared one synthetic day; both fixed and deployed (settled strikes are now hidden
+wherever any strike is open). BTC comes off the listed set tonight and TSLA returns; the BTC
+tour ladder is override-settled at its Pyth close by a scheduled job, and Monday's checks are
+armed. Thumbnail, title and description were produced for the YouTube upload.
