@@ -60,6 +60,10 @@ recorded devnet lifecycle with a live Pyth settlement.
 
 ## Notes
 
+- There is no continuous-integration pipeline: every suite above was run by hand from the project
+  machine in the Docker dev container, and the numbers are from that dated run. Deploys to devnet
+  and Railway are manual as well (`docs/deployment.md`).
+
 - The integration target was killed twice on 2026-10-11 when it ran alongside a program build in
   another container; alone it passes in about a minute with under 800 MB of container memory.
 - `automation`'s one skipped test is the Pyth live-network check, skipped without a key.
