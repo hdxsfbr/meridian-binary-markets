@@ -157,6 +157,16 @@ pub mod meridian {
         instructions::handle_close_market(ctx)
     }
 
+    /// Admin-only strike removal for an *Open* market (PRD FR-10 "adjust strikes"; see
+    /// DECISIONS.md "Adjusting a strike means replacing an unused one" and
+    /// `instructions/close.rs`'s module doc comment, "`remove_strike`"). Reuses
+    /// `CloseAccounts` unchanged -- the same accounts a `close_market` call builds --
+    /// so a client can chain this with `create_market`/`add_strike` using one shared
+    /// account-derivation helper.
+    pub fn remove_strike(ctx: Context<CloseAccounts>) -> Result<()> {
+        instructions::handle_remove_strike(ctx)
+    }
+
     /// Permissionless cleanup for a Yes/No Token-2022 mint `close_market` could not
     /// close because it still had outstanding supply (see `reclaim_mint.rs`'s module
     /// doc comment). `side` is `1` for Yes, `2` for No, matching `redeem_winning`'s

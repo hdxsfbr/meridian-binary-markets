@@ -366,4 +366,127 @@ describe("runMorningJob", () => {
       ),
     ).rejects.toThrow(/real current trading day/);
   });
+
+  it("alerts once for a ticker whose ladder could not be completed, with ticker/day/strikes/last error", async () => {
+    const failingStrikeIndex = 2;
+    let strikeCallCount = 0;
+    const chain = buildChain({
+      async fetchConfig() {
+        return { tickers: [{ symbol: "META" as Ticker, enabled: true }], defaultBookCapacity: 128 };
+      },
+      async createMarket(ticker, strike, tradingDay, closeTs, capacity) {
+        const idx = strikeCallCount;
+        strikeCallCount += 1;
+        chain.calls.createMarket.push([ticker, strike, tradingDay, closeTs, capacity]);
+        if (idx === failingStrikeIndex) {
+          throw new Error("Allocate: account X already in use");
+        }
+        return fakeMarketAddress(ticker, tradingDay, strike);
+      },
+    });
+    const provider = fakeProvider({ META: 680_000_000n });
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+
+    await runMorningJob(
+      { chain, provider, demoScale: false, retry: (fn) => fn(), alertFn, alertWebhookUrl: "https://example.test/webhook" },
+      { day: 20261006 },
+    );
+
+    expect(alertFn).toHaveBeenCalledTimes(1);
+    const [input, webhookUrl] = alertFn.mock.calls[0] as [
+      { ticker: string; error: string; summary?: string; job?: string },
+      string | undefined,
+    ];
+    expect(input.ticker).toBe("META");
+    expect(input.job).toBe("morning");
+    expect(input.summary).toContain("20261006");
+    expect(input.error).toContain("strike key was used by an earlier closed market");
+    expect(webhookUrl).toBe("https://example.test/webhook");
+  });
+
+  it("does not alert when every ticker's ladder completes successfully", async () => {
+    const chain = buildChain();
+    const provider = fakeProvider(Object.fromEntries(SEVEN_TICKERS.map((t) => [t, 680_000_000n])));
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+
+    await runMorningJob(
+      { chain, provider, demoScale: false, retry: (fn) => fn(), alertFn, alertWebhookUrl: "https://example.test/webhook" },
+      { day: 20261006 },
+    );
+
+    expect(alertFn).not.toHaveBeenCalled();
+  });
+
+  it("alerts separately per failed ticker and still completes every other ticker", async () => {
+    const chain = buildChain({
+      async createMarket(ticker, strike, tradingDay, closeTs, capacity) {
+        chain.calls.createMarket.push([ticker, strike, tradingDay, closeTs, capacity]);
+        if (ticker === "META") {
+          throw new Error("Allocate: account X already in use");
+        }
+        return fakeMarketAddress(ticker, tradingDay, strike);
+      },
+    });
+    const prevClose: Record<string, bigint | Error> = Object.fromEntries(
+      SEVEN_TICKERS.map((t) => [t, 680_000_000n]),
+    );
+    prevClose.NVDA = new Error("source outage");
+    const provider = fakeProvider(prevClose);
+    const alertFn = vi.fn().mockResolvedValue(undefined);
+
+    await runMorningJob(
+      { chain, provider, demoScale: false, retry: (fn) => fn(), alertFn, alertWebhookUrl: "https://example.test/webhook" },
+      { day: 20261006 },
+    );
+
+    // META (every strike fails create_market) and NVDA (previousClose throws) each alert once;
+    // the other five tickers succeed and never alert.
+    expect(alertFn).toHaveBeenCalledTimes(2);
+    const alertedTickers = alertFn.mock.calls.map(([input]) => (input as { ticker: string }).ticker).sort();
+    expect(alertedTickers).toEqual(["META", "NVDA"]);
+
+    const nvdaCall = alertFn.mock.calls.find(([input]) => (input as { ticker: string }).ticker === "NVDA")![0] as {
+      error: string;
+    };
+    expect(nvdaCall.error).toContain("previous-close read failed");
+    expect(nvdaCall.error).toContain("source outage");
+
+    // The other five tickers (not META, not NVDA) still got their full ladder created.
+    const otherTickers = SEVEN_TICKERS.filter((t) => t !== "META" && t !== "NVDA");
+    for (const ticker of otherTickers) {
+      const calls = chain.calls.createMarket.filter((args) => args[0] === ticker);
+      expect(calls.length).toBe(7);
+    }
+  });
+
+  it("a throwing alertFn is caught and logged, and does not fail the job", async () => {
+    const chain = buildChain({
+      async fetchConfig() {
+        return { tickers: [{ symbol: "META" as Ticker, enabled: true }], defaultBookCapacity: 128 };
+      },
+      async createMarket() {
+        throw new Error("Allocate: account X already in use");
+      },
+    });
+    const provider = fakeProvider({ META: 680_000_000n });
+    const alertFn = vi.fn().mockRejectedValue(new Error("webhook host unreachable"));
+
+    const logErrorSpy = vi.spyOn(logModule, "logError");
+
+    await expect(
+      runMorningJob(
+        { chain, provider, demoScale: false, retry: (fn) => fn(), alertFn, alertWebhookUrl: "https://example.test/webhook" },
+        { day: 20261006 },
+      ),
+    ).resolves.toBeUndefined();
+
+    expect(alertFn).toHaveBeenCalledTimes(1);
+    const alertFailureLogs = logErrorSpy.mock.calls
+      .map(([event]) => event)
+      .filter((event) => event.step === "alert" && event.ok === false);
+    expect(alertFailureLogs.length).toBeGreaterThanOrEqual(1);
+    expect(alertFailureLogs.some((event) => event.error?.includes("webhook host unreachable"))).toBe(true);
+
+    logErrorSpy.mockRestore();
+  });
 });

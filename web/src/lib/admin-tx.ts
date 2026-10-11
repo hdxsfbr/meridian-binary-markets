@@ -32,8 +32,9 @@ import {
   type Ticker,
 } from "@meridian/sdk";
 import { ASSOCIATED_TOKEN_PROGRAM_ID, TOKEN_2022_PROGRAM_ID, TOKEN_PROGRAM_ID } from "./ata";
-import { isWalletRejection } from "./tx";
+import { fetchYesNoTokenProgram, isWalletRejection } from "./tx";
 import { PROGRAM_ID } from "./rpc";
+import { validateNewStrike } from "./admin-view";
 
 export type TxResult = { ok: true; signature: TransactionSignature } | { ok: false; error: string };
 
@@ -255,6 +256,115 @@ export async function addStrike(
     throw new Error(`addStrike: create_book did not complete after ${MAX_CREATE_BOOK_ATTEMPTS} attempts`);
   }
   return lastResult;
+}
+
+export type RemoveStrikeArgs = {
+  ticker: Ticker;
+  strike: bigint;
+  tradingDay: number;
+};
+
+/**
+ * `remove_strike()`: admin-only, same account shape as `close_market` (both
+ * instructions close the market/book/escrows/vault/mints and return rent to
+ * the admin). The program only lets this succeed when the market is still
+ * `Open` with zero pairs outstanding, an empty book, and empty
+ * escrows/vault -- this function does not re-check those conditions itself
+ * (`admin-view.ts`'s `strikeAdjustability` is what the page uses to decide
+ * whether to even offer the button); it just builds and sends the one
+ * instruction and lets the program reject otherwise.
+ */
+export async function removeStrike(
+  program: Program,
+  connection: Connection,
+  sendTransaction: SendFn,
+  admin: PublicKey,
+  args: RemoveStrikeArgs,
+): Promise<TxResult> {
+  const [market] = marketPda(PROGRAM_ID, args.ticker, args.tradingDay, args.strike);
+  const yesNoTokenProgram = await fetchYesNoTokenProgram(program, market);
+  const ix = await methodCall(program, "removeStrike", [])
+    .accountsPartial({
+      admin,
+      config: configPda(PROGRAM_ID)[0],
+      market,
+      book: bookPda(PROGRAM_ID, market)[0],
+      usdcEscrow: usdcEscrowPda(PROGRAM_ID, market)[0],
+      yesEscrow: yesEscrowPda(PROGRAM_ID, market)[0],
+      vault: vaultPda(PROGRAM_ID, market)[0],
+      yesMint: yesMintPda(PROGRAM_ID, market)[0],
+      noMint: noMintPda(PROGRAM_ID, market)[0],
+      usdcTokenProgram: TOKEN_PROGRAM_ID,
+      yesnoTokenProgram: yesNoTokenProgram,
+      systemProgram: SystemProgram.programId,
+    })
+    .instruction();
+  return sendTx(connection, sendTransaction, [ix], admin);
+}
+
+/** Which stage of `adjustStrike`'s two-signature flow is in progress. */
+export type AdjustStrikeStage = "removing" | "creating";
+
+/**
+ * `adjustStrike`'s result carries which stage finished, so a caller whose
+ * create step fails (wallet rejection, or `create_book` never completing)
+ * knows the old strike is already gone and must not retry removal -- its
+ * accounts no longer exist, so a second `removeStrike` would just fail.
+ * `removed: true` is the signal to show "Removed $X. Creating $Y did not
+ * finish." and offer a resume control that calls `addStrike` alone (never
+ * `adjustStrike` again, which would re-run `removeStrike`).
+ */
+export type AdjustStrikeResult =
+  | { ok: true; signature: TransactionSignature }
+  | { ok: false; error: string; removed: false }
+  | { ok: false; error: string; removed: true };
+
+/**
+ * "Adjust" a strike = `removeStrike` the old one, then `addStrike` the new
+ * one (two signatures; FR-10's "add or adjust strikes"). Stops and returns
+ * `removed: false` as soon as the removal itself fails -- it never attempts
+ * to create the new strike on top of a strike that is still live. If
+ * removal succeeds but the create step fails or never finishes, the result
+ * carries `removed: true` so the caller can offer to resume just that step
+ * (see `AdjustStrikeResult`). `onProgress` is called once per stage, before
+ * that stage's transaction is sent, so the caller can show "Removing
+ * $X..." / "Creating $Y..." without this function knowing anything about
+ * dollar formatting.
+ *
+ * Re-validates `newStrike.strike` with `validateNewStrike` (bounds only --
+ * no `existingStrikes` context here) before sending anything: the admin
+ * page already validates before calling this, but an out-of-range value
+ * (e.g. above the on-chain `u64` ceiling) must never reach `removeStrike`,
+ * so this is checked again as the actual gate, not just trusted from the
+ * caller.
+ */
+export async function adjustStrike(
+  program: Program,
+  connection: Connection,
+  sendTransaction: SendFn,
+  admin: PublicKey,
+  usdcMint: PublicKey,
+  oldStrike: RemoveStrikeArgs,
+  newStrike: AddStrikeArgs,
+  isFirstForTicker: boolean,
+  onProgress?: (stage: AdjustStrikeStage) => void,
+): Promise<AdjustStrikeResult> {
+  const validationError = validateNewStrike(newStrike.strike, []);
+  if (validationError !== null) {
+    return { ok: false, error: validationError, removed: false };
+  }
+
+  onProgress?.("removing");
+  const removed = await removeStrike(program, connection, sendTransaction, admin, oldStrike);
+  if (!removed.ok) {
+    return { ok: false, error: removed.error, removed: false };
+  }
+  onProgress?.("creating");
+  const created = await addStrike(program, connection, sendTransaction, admin, usdcMint, newStrike, isFirstForTicker);
+  if (!created.ok) {
+    return { ok: false, error: created.error, removed: true };
+  }
+  return created;
 }
 
 /** `admin_settle_override(price)`: the escape hatch when the automated settle job never fires. */

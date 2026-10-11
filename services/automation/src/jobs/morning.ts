@@ -8,6 +8,15 @@
  * `createBookUntilDone` called on it (fix #9) rather than being skipped
  * outright, since `create_book` is itself idempotent/resumable and an
  * earlier run may have created the market but not finished its book.
+ *
+ * PRD §5.3 alerting: if a ticker's ladder cannot be completed -- its
+ * previous-close read never succeeds, or any strike's `create_market`/
+ * `create_book` fails even after `retry` -- one alert is sent for that
+ * ticker via `../alert.js` (the same module and `alertWebhookUrl`/`alertFn`
+ * shape as the settle job), naming the ticker, trading day, which strikes
+ * failed, and the last error. Alerts are sent only after every ticker has
+ * been attempted, so one bad ticker never blocks or delays the others, and a
+ * throwing `alertFn` is caught and logged, never allowed to fail the job.
  */
 
 import type { PublicKey } from "@solana/web3.js";
@@ -15,6 +24,7 @@ import { strikeLadder, type Ticker } from "@meridian/sdk";
 import { withRetry } from "../chain.js";
 import { closeTs as closeTsOf, isTradingDay, staticHolidaysFor, tradingDayOf } from "../calendar.js";
 import { log, logError } from "../log.js";
+import { alert as defaultAlert, type AlertInput } from "../alert.js";
 import type { PriceProvider } from "../providers/PriceProvider.js";
 
 const DEMO_BOOK_CAPACITY = 16;
@@ -38,6 +48,8 @@ export interface MorningJobDeps {
   now?: () => number;
   /** Injectable retry wrapper, for tests that want to skip real backoff delays. */
   retry?: <T>(fn: () => Promise<T>) => Promise<T>;
+  alertWebhookUrl?: string;
+  alertFn?: (input: AlertInput, webhookUrl: string | undefined) => Promise<void>;
 }
 
 export interface MorningJobOptions {
@@ -71,6 +83,29 @@ function holidaysForYear(tradingDay: number): Set<string> {
     // Unsupported year in the static table: fail closed as "no known holidays" rather than
     // crash the job -- isTradingDay then falls back to a plain weekday check.
     return new Set();
+  }
+}
+
+/**
+ * Sends one morning-ladder alert via the same alert module/shape the settle job uses. Never
+ * throws into the caller -- a throwing (or rejecting) `alertFn` is caught and logged instead,
+ * same guarantee as settle's own alert path.
+ */
+async function sendLadderAlert(
+  deps: Pick<MorningJobDeps, "alertFn" | "alertWebhookUrl">,
+  input: AlertInput,
+): Promise<void> {
+  const alertFn = deps.alertFn ?? defaultAlert;
+  try {
+    await alertFn(input, deps.alertWebhookUrl);
+  } catch (err) {
+    logError({
+      job: "morning",
+      ticker: input.ticker,
+      step: "alert",
+      ok: false,
+      error: `alertFn threw: ${(err as Error).message ?? String(err)}`,
+    });
   }
 }
 
@@ -140,6 +175,10 @@ export async function runMorningJob(deps: MorningJobDeps, opts: MorningJobOption
         let createdCount = 0;
         let existingCount = 0;
         let skippedCount = 0;
+        // One alert per ticker, sent once the whole ladder has been attempted (PRD §5.3):
+        // which strikes failed, and the last error seen for any of them.
+        const failedStrikes: string[] = [];
+        let lastStrikeError: string | undefined;
 
         for (const strike of strikes) {
           // Fix #12: a single strike's create_market failure (e.g. the strike key was reused by
@@ -199,16 +238,19 @@ export async function runMorningJob(deps: MorningJobDeps, opts: MorningJobOption
             const message = (err as Error).message ?? String(err);
             const strikeDollars = (Number(strike) / 1_000_000).toFixed(2);
             const alreadyInUse = message.includes("already in use");
+            const loggedError = alreadyInUse
+              ? "strike key was used by an earlier closed market (its token mints still exist); skipping this strike"
+              : message;
             logError({
               job: "morning",
               ticker,
               step: "strike",
               strike: strikeDollars,
               ok: false,
-              error: alreadyInUse
-                ? "strike key was used by an earlier closed market (its token mints still exist); skipping this strike"
-                : message,
+              error: loggedError,
             });
+            failedStrikes.push(strikeDollars);
+            lastStrikeError = loggedError;
           }
         }
 
@@ -219,9 +261,24 @@ export async function runMorningJob(deps: MorningJobDeps, opts: MorningJobOption
           ok: true,
           error: `created=${createdCount} existing=${existingCount} skipped=${skippedCount}`,
         });
+
+        if (failedStrikes.length > 0) {
+          await sendLadderAlert(deps, {
+            job: "morning",
+            ticker,
+            summary: `morning ladder incomplete for trading day ${tradingDay}`,
+            error: `strike(s) ${failedStrikes.join(", ")} failed; last error: ${lastStrikeError}`,
+          });
+        }
       } catch (err) {
         const message = (err as Error).message ?? String(err);
         logError({ job: "morning", ticker, step: "ticker", ok: false, error: message });
+        await sendLadderAlert(deps, {
+          job: "morning",
+          ticker,
+          summary: `morning ladder incomplete for trading day ${tradingDay}`,
+          error: `previous-close read failed: ${message}`,
+        });
       }
     }),
   );

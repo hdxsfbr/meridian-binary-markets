@@ -770,3 +770,87 @@ fn pairs_outstanding_is_unchanged_by_redeem_winning() {
         "redeem_winning must not touch pairs_outstanding (only redeem_pair/mint_pair do)"
     );
 }
+
+// ---- PRD §7 invariant sweep: Yes payout + No payout == $1.00 per pair, always ----
+
+/// Sweeps settlement prices well below, just below, equal to, just above, and well
+/// above the strike (20 distinct prices via this loop, data-model.md/PRD §5.2 "Yes
+/// payout + No payout = $1.00 at settlement, always"). For a market with minted pairs,
+/// asserts: the resolved side pays out exactly `qty * ONE_USDC` (so Yes payout + No
+/// payout per pair is exactly `ONE_USDC`, since the losing side can never pay anything
+/// -- `redeem_winning` refuses it outright with `WrongSide`); and once every winning
+/// token has been redeemed, the vault ends at exactly zero.
+#[test]
+fn settlement_price_sweep_pays_exactly_one_dollar_per_pair_and_only_the_winning_side_redeems() {
+    let strike = 680_000_000u64;
+    let qty = 10u64;
+
+    // 20 prices: 10 micro-USDC-million-sized steps below the strike (well below ..
+    // just below) and 10 at/above it (equal .. well above).
+    let deltas: Vec<i64> = (-10i64..=9).collect::<Vec<_>>().iter().map(|i| i * 1_000_000).collect();
+    assert_eq!(deltas.len(), 20, "sweep must cover at least 20 settlement prices");
+
+    for delta in deltas {
+        let price = strike as i64 + delta;
+        assert!(price > 0, "test price must stay positive");
+
+        let mut s = setup(strike, qty, 0);
+        settle_with_price(&mut s.env, s.market.market, s.close_ts, price);
+
+        let m: Market = s.env.fetch(s.market.market);
+        let expected_outcome = if price as u64 >= strike { Outcome::Yes } else { Outcome::No };
+        assert_eq!(
+            m.outcome, expected_outcome,
+            "price {price} vs strike {strike} should resolve {expected_outcome:?}"
+        );
+
+        let winning_side = if expected_outcome == Outcome::Yes { 1u8 } else { 2u8 };
+        let losing_side = if winning_side == 1 { 2u8 } else { 1u8 };
+
+        // The losing side can never redeem (and so can never pay out) regardless of
+        // how far the price landed from the strike.
+        let losing_result = send_redeem_winning(
+            &mut s.env,
+            &s.user_a,
+            s.market.market,
+            s.market.yes_mint,
+            s.market.no_mint,
+            s.market.vault,
+            s.user_a_usdc,
+            winning_ata(&s.user_a, s.market.yes_mint, s.market.no_mint, losing_side),
+            losing_side,
+            qty,
+        );
+        assert_err(&losing_result, MeridianError::WrongSide);
+
+        let usdc_before = read_token_amount(&s.env, s.user_a_usdc);
+        send_redeem_winning(
+            &mut s.env,
+            &s.user_a,
+            s.market.market,
+            s.market.yes_mint,
+            s.market.no_mint,
+            s.market.vault,
+            s.user_a_usdc,
+            winning_ata(&s.user_a, s.market.yes_mint, s.market.no_mint, winning_side),
+            winning_side,
+            qty,
+        )
+        .unwrap_or_else(|e| panic!("redeem_winning should succeed at settlement price {price}: {e:?}"));
+
+        let paid = read_token_amount(&s.env, s.user_a_usdc) - usdc_before;
+        assert_eq!(
+            paid,
+            qty * ONE_USDC,
+            "price {price}: Yes payout + No payout per pair must equal exactly 1_000_000 micro-USDC"
+        );
+
+        // Every pair was minted by user A and the winning side has now been fully
+        // redeemed -- the vault must be exactly empty.
+        assert_eq!(
+            read_token_amount(&s.env, s.market.vault),
+            0,
+            "price {price}: vault should end at zero once all winners redeem"
+        );
+    }
+}

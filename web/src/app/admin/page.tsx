@@ -17,6 +17,7 @@ import { PROGRAM_ID } from "@/lib/rpc";
 import { accountClient, useProgram } from "@/hooks/useProgram";
 import { useConfig } from "@/hooks/useConfig";
 import { useAllMarkets, useMarkets } from "@/hooks/useMarkets";
+import { useBooks } from "@/hooks/useBooks";
 import { useStatus } from "@/hooks/useStatus";
 import { closeTsForDay, todayTradingDay } from "@/lib/markets";
 import { formatStrike } from "@/lib/format";
@@ -28,11 +29,14 @@ import {
   publishOffsetLabel,
   settledByOverride,
   stalenessLabel,
+  strikeAdjustability,
+  strikeLockReasonLabel,
   unsettledAfterClose,
+  validateNewStrike,
   formatEt,
 } from "@/lib/admin-view";
 import { AdminMarketRow } from "@/components/AdminMarketRow";
-import { addStrike, adminSettleOverride, pause, unpause } from "@/lib/admin-tx";
+import { addStrike, adjustStrike, adminSettleOverride, pause, unpause, type AddStrikeArgs, type AdjustStrikeStage } from "@/lib/admin-tx";
 import { Card } from "@/components/ui/Card";
 import { EmptyState } from "@/components/ui/EmptyState";
 import { InlineError } from "@/components/ui/InlineError";
@@ -48,6 +52,23 @@ function dollarsToMicro(input: string): bigint | null {
   const [whole, fraction = ""] = trimmed.split(".");
   const paddedFraction = fraction.padEnd(6, "0");
   return BigInt(whole) * ONE_USDC + BigInt(paddedFraction === "" ? "0" : paddedFraction);
+}
+
+/**
+ * A replacement strike whose removal step completed but whose create step
+ * did not (wallet rejection, or `create_book` never finishing). Keyed by
+ * (ticker, trading day, old strike) so the page never re-sends `removeStrike`
+ * for a market whose accounts are already gone -- the "Create $Y" control
+ * this produces runs `addStrike` alone.
+ */
+type PendingReplacement = {
+  oldStrike: bigint;
+  newStrike: AddStrikeArgs;
+  isFirstForTicker: boolean;
+};
+
+function replacementKey(ticker: Ticker, tradingDay: number, oldStrike: bigint): string {
+  return `${ticker}:${tradingDay}:${oldStrike.toString()}`;
 }
 
 type RawConfigFull = {
@@ -118,6 +139,10 @@ export default function AdminPage() {
   const [busy, setBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [actionNotice, setActionNotice] = useState<string | null>(null);
+  const [adjustingMarket, setAdjustingMarket] = useState<string | null>(null);
+  const [adjustStrikeInput, setAdjustStrikeInput] = useState("");
+  const [adjustProgress, setAdjustProgress] = useState<string | null>(null);
+  const [pendingReplacements, setPendingReplacements] = useState<Map<string, PendingReplacement>>(new Map());
 
   const isAdmin = connected && publicKey !== null && adminConfig !== null && publicKey.equals(adminConfig.admin);
 
@@ -146,6 +171,21 @@ export default function AdminPage() {
   );
 
   const tickerMarketsToday = useMemo(() => markets.filter((m) => m.ticker === selectedTicker), [markets, selectedTicker]);
+  const openTickerMarkets = useMemo(() => tickerMarketsToday.filter((m) => m.state === "open"), [tickerMarketsToday]);
+  const { books: tickerBooks } = useBooks(openTickerMarkets.map((m) => m.pubkey));
+
+  /** Per-open-strike adjustability (FR-10 "adjust strikes"): zero pairs outstanding and an empty book. */
+  const strikeRows = useMemo(
+    () =>
+      openTickerMarkets.map((m) => {
+        const book = tickerBooks.get(m.pubkey.toBase58()) ?? null;
+        return {
+          market: m,
+          adjustability: strikeAdjustability(m.pairsOutstanding, book?.header.bidCount ?? 0, book?.header.askCount ?? 0, Number(m.closeTs), now),
+        };
+      }),
+    [openTickerMarkets, tickerBooks, now],
+  );
 
   if (!isAdmin) {
     return (
@@ -220,6 +260,109 @@ export default function AdminPage() {
         setStrikeInput("");
         setActionNotice(`Added ${selectedTicker} ${formatStrike(strikeMicro)}.`);
       }
+    });
+  }
+
+  function startAdjust(marketPubkey: string) {
+    setAdjustingMarket(marketPubkey);
+    setAdjustStrikeInput("");
+    setActionError(null);
+    setActionNotice(null);
+  }
+
+  function cancelAdjust() {
+    setAdjustingMarket(null);
+    setAdjustStrikeInput("");
+    setAdjustProgress(null);
+  }
+
+  async function handleAdjustStrike(oldMarket: (typeof tickerMarketsToday)[number]) {
+    await run(`adjust:${oldMarket.pubkey.toBase58()}`, async () => {
+      const newStrikeMicro = dollarsToMicro(adjustStrikeInput);
+      if (newStrikeMicro === null) {
+        setActionError("Enter a strike greater than $0.");
+        return;
+      }
+      const validationError = validateNewStrike(
+        newStrikeMicro,
+        tickerMarketsToday.map((m) => m.strike),
+      );
+      if (validationError !== null) {
+        setActionError(validationError);
+        return;
+      }
+      const closeTs = tickerMarketsToday[0] !== undefined ? Number(tickerMarketsToday[0].closeTs) : closeTsForDay(day);
+      const newStrikeArgs: AddStrikeArgs = {
+        ticker: oldMarket.ticker,
+        strike: newStrikeMicro,
+        tradingDay: oldMarket.tradingDay,
+        closeTs,
+        capacity: oldMarket.bookCapacity,
+      };
+      const isFirstForTicker = tickerMarketsToday.length === 1;
+      const result = await adjustStrike(
+        program,
+        connection,
+        sendTransaction,
+        admin,
+        adminConfig?.usdcMint ?? admin,
+        { ticker: oldMarket.ticker, strike: oldMarket.strike, tradingDay: oldMarket.tradingDay },
+        newStrikeArgs,
+        isFirstForTicker,
+        (stage: AdjustStrikeStage) => {
+          setAdjustProgress(
+            stage === "removing" ? `Removing ${formatStrike(oldMarket.strike)}…` : `Creating ${formatStrike(newStrikeMicro)}…`,
+          );
+        },
+      );
+      setAdjustProgress(null);
+      if (!result.ok) {
+        if (result.removed) {
+          // The old strike is gone; never retry removal -- remember this as
+          // a pending create so "Create $Y" (addStrike alone) is the only
+          // way forward.
+          const key = replacementKey(oldMarket.ticker, oldMarket.tradingDay, oldMarket.strike);
+          setPendingReplacements((prev) => {
+            const next = new Map(prev);
+            next.set(key, { oldStrike: oldMarket.strike, newStrike: newStrikeArgs, isFirstForTicker });
+            return next;
+          });
+          setActionError(`Removed ${formatStrike(oldMarket.strike)}. Creating ${formatStrike(newStrikeMicro)} did not finish.`);
+        } else {
+          setActionError(result.error);
+        }
+      } else {
+        setActionNotice(`Adjusted ${oldMarket.ticker} ${formatStrike(oldMarket.strike)} to ${formatStrike(newStrikeMicro)}.`);
+        cancelAdjust();
+      }
+    });
+  }
+
+  async function handleResumeCreate(key: string) {
+    const pending = pendingReplacements.get(key);
+    if (pending === undefined) {
+      return;
+    }
+    await run(`resume:${key}`, async () => {
+      const result = await addStrike(
+        program,
+        connection,
+        sendTransaction,
+        admin,
+        adminConfig?.usdcMint ?? admin,
+        pending.newStrike,
+        pending.isFirstForTicker,
+      );
+      if (!result.ok) {
+        setActionError(result.error);
+        return;
+      }
+      setPendingReplacements((prev) => {
+        const next = new Map(prev);
+        next.delete(key);
+        return next;
+      });
+      setActionNotice(`Created ${formatStrike(pending.newStrike.strike)}.`);
     });
   }
 
@@ -340,6 +483,101 @@ export default function AdminPage() {
             Add strike
           </button>
         </form>
+      </Card>
+
+      <Card className="flex flex-col gap-4 p-4">
+        <h2 className="text-lg font-semibold">Open strikes</h2>
+        {pendingReplacements.size > 0 ? (
+          <ul className="flex flex-col gap-2">
+            {Array.from(pendingReplacements.entries()).map(([key, pending]) => (
+              <li key={key} className="flex flex-wrap items-center justify-between gap-2 rounded-md border border-border p-3">
+                <span className="text-sm">
+                  Removed {formatStrike(pending.oldStrike)}. Creating {formatStrike(pending.newStrike.strike)} did not finish.
+                </span>
+                <button
+                  type="button"
+                  onClick={() => handleResumeCreate(key)}
+                  disabled={busy !== null}
+                  className="min-h-10 rounded-md bg-indigo px-3 py-1 text-sm font-medium text-on-brand disabled:opacity-60"
+                >
+                  Create {formatStrike(pending.newStrike.strike)}
+                </button>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {strikeRows.length === 0 ? (
+          <EmptyState>No open strikes for {selectedTicker} today.</EmptyState>
+        ) : (
+          <ul className="flex flex-col gap-2">
+            {strikeRows.map(({ market, adjustability }) => {
+              const marketKey = market.pubkey.toBase58();
+              const isAdjusting = adjustingMarket === marketKey;
+              const isBusy = busy === `adjust:${marketKey}`;
+              return (
+                <li key={marketKey} className="flex flex-col gap-2 rounded-md border border-border p-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <span className="text-sm font-medium">
+                      {market.ticker} {formatStrike(market.strike)}
+                    </span>
+                    {adjustability.adjustable ? (
+                      isAdjusting ? null : (
+                        <button
+                          type="button"
+                          onClick={() => startAdjust(marketKey)}
+                          disabled={busy !== null}
+                          className="min-h-10 rounded-md border border-border px-3 py-1 text-sm font-medium disabled:opacity-50"
+                        >
+                          Adjust
+                        </button>
+                      )
+                    ) : (
+                      <span className="text-sm text-text-muted">{strikeLockReasonLabel(adjustability.reason)}</span>
+                    )}
+                  </div>
+                  {isAdjusting ? (
+                    <form
+                      className="flex flex-wrap items-end gap-3"
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        void handleAdjustStrike(market);
+                      }}
+                    >
+                      <label className="flex flex-col text-sm">
+                        New strike ($)
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={adjustStrikeInput}
+                          onChange={(e) => setAdjustStrikeInput(e.target.value)}
+                          className="min-h-10 w-32 rounded-md border border-border px-2 py-1"
+                          autoFocus
+                        />
+                      </label>
+                      <button
+                        type="submit"
+                        disabled={busy !== null}
+                        className="min-h-10 rounded-md bg-indigo px-4 py-2 text-sm font-medium text-on-brand disabled:opacity-60"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        type="button"
+                        onClick={cancelAdjust}
+                        disabled={busy !== null}
+                        className="min-h-10 rounded-md border border-border px-4 py-2 text-sm font-medium disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      {isBusy && adjustProgress ? <span className="py-2 text-sm text-text-muted">{adjustProgress}</span> : null}
+                    </form>
+                  ) : null}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Card>
 
       <Card className="flex flex-col gap-4 p-4">

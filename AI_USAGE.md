@@ -611,3 +611,15 @@ redeem scenes with the recorder now waiting out the history-loading text, render
 stills with the logo, settled at 12:16 AM CT, re-muxed (5 min 53 s), and cleaned the chain back
 to the seven stock tickers.
 
+## 2026-10-11 (Sunday) — PRD gap wave: FR-10 adjust, morning alerts, invariant tests
+
+Andre asked for a full PRD review after the "ready" calls turned out premature. Claude read the PRD
+and had a Sonnet agent audit every requirement against the code without seeing the old compliance
+doc; the two were reconciled by hand into a rewritten `docs/prd-compliance.md`. Three Sonnet agents
+then worked in parallel: the `remove_strike` instruction with six tests and the two invariant tests
+the PRD names (program agent found and fixed an account-closing order bug during its own
+verification); the morning job's missing alert; the Admin "Adjust" action. Codex reviewed the
+uncommitted diff and found three real defects in the Adjust flow (no recovery after a partial
+run, Adjust offered after the close, no upper bound on the new strike); one Sonnet fix pass closed
+all three with tests. Program upgraded on devnet; web and worker deployed on Railway.
+

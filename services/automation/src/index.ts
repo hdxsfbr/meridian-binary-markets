@@ -139,7 +139,12 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
       const closeInSeconds = flagNumber(flags, "close-in");
       const force = flagBoolean(flags, "force");
       await runMorningJob(
-        { chain: runtime.chain, provider: runtime.provider, demoScale: cfg.demoScale },
+        {
+          chain: runtime.chain,
+          provider: runtime.provider,
+          demoScale: cfg.demoScale,
+          alertWebhookUrl: cfg.alertWebhookUrl,
+        },
         { day, closeInSeconds, force },
       );
       return;
@@ -214,9 +219,12 @@ async function runStart(): Promise<void> {
   schedule(
     "0 8 * * 1-5",
     () => {
-      runMorningJob({ chain: runtime.chain, provider: runtime.provider, demoScale: cfg.demoScale }).catch((err) =>
-        logError({ job: "morning", step: "cron", ok: false, error: (err as Error).message }),
-      );
+      runMorningJob({
+        chain: runtime.chain,
+        provider: runtime.provider,
+        demoScale: cfg.demoScale,
+        alertWebhookUrl: cfg.alertWebhookUrl,
+      }).catch((err) => logError({ job: "morning", step: "cron", ok: false, error: (err as Error).message }));
     },
     { timezone: ET_TIMEZONE },
   );

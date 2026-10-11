@@ -49,6 +49,13 @@ while that's in progress. There's no guaranteed completion time.
 labelled **last bid**. If there's neither, it shows nothing — even if the contract traded
 earlier. This is normal for strikes that are far from the current stock price.
 
+## Why did a strike disappear and a different one show up?
+
+An operator can add a new strike, or swap out one that isn't getting used for a different one,
+at any point during the trading day. A strike can only be swapped out while it has no contracts
+minted and no orders on its book; once either of those is true, that strike stays listed as-is
+for the rest of the day.
+
 ## Something looks stale or stuck
 
 Reload the page first — the public test network occasionally rate-limits requests, which can

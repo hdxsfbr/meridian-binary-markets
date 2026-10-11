@@ -59,4 +59,6 @@ pub enum MeridianError {
     WouldCross,
     #[msg("Token program account does not match the mint's owning program")]
     TokenProgramMismatch,
+    #[msg("Strike has outstanding pairs or unredeemed tokens and cannot be removed")]
+    StrikeInUse,
 }

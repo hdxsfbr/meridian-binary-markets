@@ -10,7 +10,10 @@ import {
   publishOffsetLabel,
   settledByOverride,
   stalenessLabel,
+  strikeAdjustability,
+  strikeLockReasonLabel,
   unsettledAfterClose,
+  validateNewStrike,
   type StatusMap,
   type UnsettledMarket,
 } from "./admin-view";
@@ -110,6 +113,113 @@ describe("formatEt", () => {
   it("formats midnight-adjacent instants without throwing", () => {
     const unix = Math.floor(new Date("2026-01-01T05:00:00Z").getTime() / 1000);
     expect(formatEt(unix)).toMatch(/ET$/);
+  });
+});
+
+describe("strikeAdjustability", () => {
+  // closeTs=2000, now=1000 keeps every one of these cases well before close,
+  // so the pairs/book checks below are exercised independent of the
+  // close-time lock (covered in its own cases further down).
+  const OPEN_CLOSE_TS = 2000;
+  const BEFORE_CLOSE_NOW = 1000;
+
+  it("is adjustable when there are zero pairs outstanding and an empty book", () => {
+    expect(strikeAdjustability(0n, 0, 0, OPEN_CLOSE_TS, BEFORE_CLOSE_NOW)).toEqual({ adjustable: true, reason: null });
+  });
+
+  it("is locked (minted) when any pairs are outstanding, even with an empty book", () => {
+    expect(strikeAdjustability(1n, 0, 0, OPEN_CLOSE_TS, BEFORE_CLOSE_NOW)).toEqual({ adjustable: false, reason: "minted" });
+  });
+
+  it("is locked (orders) when the book has a resting bid, even with zero pairs outstanding", () => {
+    expect(strikeAdjustability(0n, 1, 0, OPEN_CLOSE_TS, BEFORE_CLOSE_NOW)).toEqual({ adjustable: false, reason: "orders" });
+  });
+
+  it("is locked (orders) when the book has a resting ask", () => {
+    expect(strikeAdjustability(0n, 0, 1, OPEN_CLOSE_TS, BEFORE_CLOSE_NOW)).toEqual({ adjustable: false, reason: "orders" });
+  });
+
+  it("prefers the 'minted' reason when both pairs are outstanding and the book is non-empty", () => {
+    expect(strikeAdjustability(5n, 2, 3, OPEN_CLOSE_TS, BEFORE_CLOSE_NOW)).toEqual({ adjustable: false, reason: "minted" });
+  });
+
+  it("is still adjustable one second before close, with nothing minted and an empty book", () => {
+    expect(strikeAdjustability(0n, 0, 0, 2000, 1999)).toEqual({ adjustable: true, reason: null });
+  });
+
+  it("is locked (closed) exactly at close_ts, even with nothing minted and an empty book", () => {
+    expect(strikeAdjustability(0n, 0, 0, 2000, 2000)).toEqual({ adjustable: false, reason: "closed" });
+  });
+
+  it("is locked (closed) after close_ts", () => {
+    expect(strikeAdjustability(0n, 0, 0, 2000, 2500)).toEqual({ adjustable: false, reason: "closed" });
+  });
+
+  it("prefers the 'closed' reason over 'minted'/'orders' once past close", () => {
+    expect(strikeAdjustability(5n, 2, 3, 2000, 2000)).toEqual({ adjustable: false, reason: "closed" });
+  });
+});
+
+describe("strikeLockReasonLabel", () => {
+  it("describes 'minted' in plain language", () => {
+    expect(strikeLockReasonLabel("minted")).toBe("Locked: contracts have been minted");
+  });
+
+  it("describes 'orders' in plain language", () => {
+    expect(strikeLockReasonLabel("orders")).toBe("Locked: orders are on the book");
+  });
+
+  it("describes 'closed' in plain language", () => {
+    expect(strikeLockReasonLabel("closed")).toBe("Locked: trading has closed for today");
+  });
+
+  it("never leaks implementation words", () => {
+    const text = `${strikeLockReasonLabel("minted")} ${strikeLockReasonLabel("orders")} ${strikeLockReasonLabel("closed")}`;
+    for (const banned of ["resting", "fill", "escrow", "mock", "devnet", "RPC", "PDA", "ATA", "bps", "staleness"]) {
+      expect(text.toLowerCase()).not.toContain(banned.toLowerCase());
+    }
+  });
+});
+
+describe("validateNewStrike", () => {
+  it("rejects zero and negative strikes", () => {
+    expect(validateNewStrike(0n, [])).toBe("Enter a strike greater than $0.");
+    expect(validateNewStrike(-10_000_000n, [])).toBe("Enter a strike greater than $0.");
+  });
+
+  it("accepts a positive strike on the $10 grid (sub-$5,000 equities)", () => {
+    expect(validateNewStrike(680_000_000n, [])).toBeNull();
+  });
+
+  it("rejects a strike off the $10 grid", () => {
+    expect(validateNewStrike(685_500_000n, [])).toBe("Enter a strike on the $10 grid.");
+  });
+
+  it("rejects a strike that is already listed", () => {
+    expect(validateNewStrike(680_000_000n, [680_000_000n, 690_000_000n])).toBe("That strike is already listed.");
+  });
+
+  it("accepts a strike not among the existing ones", () => {
+    expect(validateNewStrike(700_000_000n, [680_000_000n, 690_000_000n])).toBeNull();
+  });
+
+  it("uses the $500 grid for a BTC-magnitude strike", () => {
+    expect(validateNewStrike(97_000_000_000n, [])).toBeNull();
+    expect(validateNewStrike(97_100_000_000n, [])).toBe("Enter a strike on the $500 grid.");
+  });
+
+  it("accepts a strike right at the $10,000,000 human cap", () => {
+    expect(validateNewStrike(10_000_000n * 1_000_000n, [])).toBeNull();
+  });
+
+  it("rejects a strike above the $10,000,000 human cap", () => {
+    expect(validateNewStrike(10_000_000n * 1_000_000n + 1_000_000n, [])).toBe("That strike is too large.");
+  });
+
+  it("rejects a strike above the on-chain u64 ceiling", () => {
+    const u64Max = 18_446_744_073_709_551_615n;
+    expect(validateNewStrike(u64Max + 1n, [])).toBe("That strike is too large.");
+    expect(validateNewStrike(u64Max, [])).toBe("That strike is too large."); // still above the $10M human cap
   });
 });
 

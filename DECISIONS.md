@@ -940,3 +940,73 @@ slots and the PRD seven is the product. The on-chain list is back to AAPL, MSFT,
 NVDA, META, TSLA and the SDK default matches. BTC stays in the catalogue, with its feed id, the
 price-scaled strike grid and the crypto chart window, so a one-command config update lists it
 again whenever a weekend demo needs an asset that trades.
+
+
+## 31. Adjusting a strike means replacing an unused one
+
+**Date:** 2026-10-11.
+**Context:** PRD FR-10 ("adjust strikes") needs an on-chain primitive. A strike market is one
+Book, one vault, one Yes/No token pair bound together by the `(ticker, trading_day, strike)` PDA
+seeds (`state/market.rs`'s `Market::seeds`) -- there is no field anywhere in that object that
+could be mutated in place to turn "strike $340" into "strike $350" without breaking every escrow,
+mint, and resting order that already points at the old PDA. "Adjusting" a strike is therefore
+defined as **removing the unused one and adding a new one**, not an in-place edit: a new
+`remove_strike` instruction (`programs/meridian/src/instructions/close.rs`) tears down a strike
+that nothing has ever traded against, and the client chains it with the existing `add_strike`
+to land at the new strike. `remove_strike` reuses `close_book`/`close_market`'s `CloseAccounts`
+struct unchanged, so a client builds the same account list for all three instructions.
+
+**A strike is locked, not adjustable, once anything has happened to it.** Once a pair has been
+minted or an order rests on the book, the strike is no longer "this market hasn't started yet" --
+real USDC/token positions are backing it, and removing it would mean either stranding that
+collateral or inventing a forced-unwind path this program doesn't have. `remove_strike` therefore
+refuses (not silently no-ops) unless every one of these holds: the market is still `Open`
+(`MarketSettled` -- a `Settled` market's strike is retired through `close_book`/`close_market`
+instead, which already exists and already recovers the same rent); `pairs_outstanding == 0`;
+both Yes and No mint supplies are `0` (checked independently of `pairs_outstanding`, reading each
+mint's raw `supply` field directly, in case the two ever disagree); the Book is empty
+(`bid_count == ask_count == 0`) or never finished sizing (`close_book`'s existing "Unfinished
+books" handling, reused verbatim); and both escrows are empty. The first three guards use the new
+`StrikeInUse` error; the book/escrow/vault guards reuse the existing `NotEmpty` error `close_book`/
+`close_market` already use for the identical shape of precondition.
+
+**Effect and rent.** One call closes both escrows, the Book (finished or partial, same as
+`close_book`), the vault, the Yes/No mints when closable (Token-2022 with the zero supply just
+proven -- same `close_mint_if_reclaimable` helper `close_market` uses, so a classic-mint market's
+mints are left inert exactly as `close_market` leaves them), and the `Market` account itself, with
+every lamport of recovered rent going to `admin`. Because the `Market` account is gone and the PDA
+was never bound to anything else, the exact same `(ticker, trading_day, strike)` seeds are free
+for a later `create_market`/`add_strike` call -- proven directly in
+`programs/meridian/tests/remove_strike.rs` by calling `create_market` again on the same strike
+right after `remove_strike` and asserting it succeeds.
+
+**Rejected alternative (an in-place `strike` field update).** Changing `market.strike` directly
+was rejected outright: every PDA in the system (`Market` itself, the Book, both escrows, the
+vault, both mints) is derived from the strike at creation time, so an in-place field edit would
+either leave five stale PDAs pointing at the old address embedded in a `Market` claiming a new
+one, or require re-deriving and migrating all five accounts to new addresses in the same
+instruction -- strictly more complex than, and with no advantage over, removing the old PDA
+cleanly and letting `add_strike` create a fresh, correctly-seeded one.
+
+## 32. `mint_pair`'s vault check tolerates unsolicited deposits; redemptions never pay out the surplus
+
+**Date:** 2026-10-11.
+**Context:** PRD §5.2 states the vault invariant as "Vault balance = $1.00 × total pairs minted,
+**exactly**." The on-chain check in `mint_pair_core` (`programs/meridian/src/instructions/
+mint_pair.rs`) is deliberately `vault.amount >= expected_vault_amount`, not `==`: anyone can send
+USDC straight into the vault token account with a plain SPL transfer, entirely outside this
+program's control, and an `==` check would turn that unsolicited deposit into a permanent, un-
+recoverable `InvariantViolated` failure for every subsequent `mint_pair`/`redeem_pair` call against
+that market. `>=` tolerates the surplus instead of bricking the market over money nobody can stop
+from arriving.
+
+**This does not weaken the PRD invariant in practice**, because the other half of it --
+redemptions pay exactly `qty * 1_000_000`, never more -- is enforced exactly as written, in both
+`redeem_pair` and `redeem_winning`: the payout amount is computed from the caller's `qty` alone, so
+any surplus sitting in the vault is simply never distributed to anyone, by any instruction. The
+existing test `surplus_in_vault_is_preserved_after_all_winners_redeem`
+(`programs/meridian/tests/redeem_winning.rs`) covers exactly this: it bumps the vault's raw balance
+by an unsolicited amount, redeems every winning token, and asserts the surplus is still sitting in
+the vault afterward, untouched. `mint_redeem.rs`'s
+`unsolicited_vault_deposit_is_tolerated_and_never_paid_out` covers the `mint_pair`/`redeem_pair`
+side of the same guarantee.

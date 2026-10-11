@@ -2952,6 +2952,225 @@ export const IDL = {
       ]
     },
     {
+      "name": "remove_strike",
+      "docs": [
+        "Admin-only strike removal for an *Open* market (PRD FR-10 \"adjust strikes\"; see",
+        "DECISIONS.md \"Adjusting a strike means replacing an unused one\" and",
+        "`instructions/close.rs`'s module doc comment, \"`remove_strike`\"). Reuses",
+        "`CloseAccounts` unchanged -- the same accounts a `close_market` call builds --",
+        "so a client can chain this with `create_market`/`add_strike` using one shared",
+        "account-derivation helper."
+      ],
+      "discriminator": [
+        221,
+        46,
+        207,
+        100,
+        6,
+        134,
+        255,
+        226
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true,
+          "relations": [
+            "config"
+          ]
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "market",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  109,
+                  97,
+                  114,
+                  107,
+                  101,
+                  116
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market.ticker",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.trading_day",
+                "account": "Market"
+              },
+              {
+                "kind": "account",
+                "path": "market.strike",
+                "account": "Market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "book",
+          "docs": [
+            "account for `market` (see `state/book.rs`'s module doc comment). `seeds`/`bump`",
+            "derive and verify its address the same way for both instructions -- the Book",
+            "PDA's address never depends on whether `market.book` has been set -- so unlike",
+            "before this Wave 5 review fix, a caller cannot substitute an arbitrary account",
+            "here. `close_book` additionally checks ownership/contents in the handler;",
+            "`close_market` only checks `lamports() == 0`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  98,
+                  111,
+                  111,
+                  107
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_escrow",
+          "docs": [
+            "`close_market` must still be able to declare this field even after `close_book`",
+            "has already closed it (a typed account would fail `AccountNotInitialized` at",
+            "that point regardless of whether the handler reads it). `close_book` manually",
+            "validates ownership and reads `amount` via `token_account_amount`."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  117,
+                  115,
+                  100,
+                  99
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "yes_escrow",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  101,
+                  115,
+                  99,
+                  114,
+                  111,
+                  119,
+                  95,
+                  121,
+                  101,
+                  115
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "market"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault",
+          "writable": true
+        },
+        {
+          "name": "yes_mint",
+          "docs": [
+            "otherwise -- see this file's module doc comment and `close_mint_if_reclaimable`.",
+            "Not a `Box<InterfaceAccount<Mint>>`: the handler needs the raw `AccountInfo` to",
+            "read `supply` off either a classic or a Token-2022 mint without the typed",
+            "wrapper's `AccountDeserialize` rejecting a to-be-closed account on a retry, so",
+            "this (like `usdc_escrow`/`yes_escrow` above) stays `UncheckedAccount`, with",
+            "`address` as the one constraint Anchor still checks for us."
+          ],
+          "writable": true
+        },
+        {
+          "name": "no_mint",
+          "writable": true
+        },
+        {
+          "name": "usdc_token_program",
+          "docs": [
+            "Classic SPL Token: owns the USDC vault/escrow. Always classic -- USDC's real",
+            "mint never migrates."
+          ],
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "yesno_token_program",
+          "docs": [
+            "Whichever program owns `yes_escrow`/the Yes/No mints for this market --",
+            "Token-2022 for a market created after this migration, classic Token for a",
+            "legacy market. `token_account_amount`/`close_mint_if_reclaimable` check the",
+            "actual account owner at call time rather than trusting this blindly."
+          ]
+        },
+        {
+          "name": "system_program",
+          "docs": [
+            "Needed only by `close_book`'s unfinished-book path, to sweep a prefunded-but-",
+            "never-allocated Book PDA's lamports via a signed `system_program::transfer`."
+          ],
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": []
+    },
+    {
       "name": "sell_no_market",
       "discriminator": [
         140,
@@ -3689,6 +3908,11 @@ export const IDL = {
       "code": 6025,
       "name": "TokenProgramMismatch",
       "msg": "Token program account does not match the mint's owning program"
+    },
+    {
+      "code": 6026,
+      "name": "StrikeInUse",
+      "msg": "Strike has outstanding pairs or unredeemed tokens and cannot be removed"
     }
   ],
   "types": [

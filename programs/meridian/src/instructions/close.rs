@@ -50,6 +50,23 @@
 //! when it's Token-2022 and empty, or skips it with a `msg!` log otherwise (classic mint,
 //! or Token-2022 mint that still has outstanding supply) -- it never errors either way,
 //! since neither case is a precondition failure, just "nothing to reclaim here yet/ever."
+//!
+//! `remove_strike` (PRD FR-10 "adjust strikes"; see DECISIONS.md "Adjusting a strike
+//! means replacing an unused one"): an admin-only instruction for an *Open* (not yet
+//! settled) market whose strike turned out to be the wrong one -- unlike `close_book`/
+//! `close_market`, which only ever run after settlement. It reuses `CloseAccounts`
+//! unchanged (same accounts a `close_market` call would build) and the exact same
+//! escrow/book/vault/mint closing sequence as `handle_close_book` followed by
+//! `handle_close_market`, collapsed into one call since there is no settled book to
+//! leave half-closed between two transactions here. Two guards neither close
+//! instruction needs come first: the market must still be `Open` (`MarketSettled` --
+//! a settled market's strike is retired through `close_book`/`close_market` instead,
+//! not this instruction) and nothing has ever traded against this strike --
+//! `pairs_outstanding == 0` and both Yes/No mint supplies `== 0` (`StrikeInUse`). Only
+//! once every guard passes does it close escrows, book, vault, Token-2022 mints (when
+//! closable, exactly as `close_mint_if_reclaimable` already decides), and the `Market`
+//! account itself, rent to `admin` -- freeing the `(ticker, trading_day, strike)` PDA
+//! seeds for a later `create_market`/`add_strike` call.
 
 use anchor_lang::prelude::*;
 use anchor_lang::system_program;
@@ -173,6 +190,164 @@ fn close_mint_if_reclaimable<'info>(
         },
         signer_seeds,
     ))
+}
+
+/// A mint account's `supply` field (bytes `[36, 44)`, little-endian). Classic-Token and
+/// Token-2022 mints share an identical base `Mint` layout (`mint_authority: COption<Pubkey>`
+/// at `[0, 36)`, `supply: u64` at `[36, 44)`, ...) -- Token-2022's extension TLV data, if
+/// any, always comes *after* this base region, never inside it -- so this reads correctly
+/// regardless of which program owns the mint, exactly like `token_account_amount` above
+/// does for a token account's `amount` field. Used by `handle_remove_strike`'s
+/// `StrikeInUse` guard, which must *error* on nonzero supply rather than silently skip the
+/// mint (unlike `close_mint_if_reclaimable`'s skip-and-log, appropriate only for the
+/// already-settled, no-longer-adjustable markets `close_market` runs on).
+fn mint_supply(mint_ai: &AccountInfo) -> Result<u64> {
+    let data = mint_ai.try_borrow_data()?;
+    require!(data.len() >= 44, MeridianError::InvariantViolated);
+    Ok(u64::from_le_bytes(data[36..44].try_into().unwrap()))
+}
+
+/// Admin-only strike removal for an *Open* market -- see this file's module doc comment
+/// ("`remove_strike`") for the full guard/effect rationale. Reuses `CloseAccounts`
+/// unchanged and collapses `handle_close_book`'s escrow/book-closing sequence and
+/// `handle_close_market`'s vault/mint/Market-closing sequence into one call.
+pub fn handle_remove_strike(ctx: Context<CloseAccounts>) -> Result<()> {
+    // Only ever runs pre-settlement; a Settled market's strike is retired through
+    // close_book/close_market instead (see module doc comment).
+    require!(ctx.accounts.market.is_open(), MeridianError::MarketSettled);
+
+    // Nothing has ever traded against this strike: no pair minted, and (redundantly,
+    // but checked independently in case `pairs_outstanding` and actual mint supply
+    // ever disagree) no outstanding Yes/No token of either side.
+    require!(ctx.accounts.market.pairs_outstanding == 0, MeridianError::StrikeInUse);
+    require!(mint_supply(&ctx.accounts.yes_mint.to_account_info())? == 0, MeridianError::StrikeInUse);
+    require!(mint_supply(&ctx.accounts.no_mint.to_account_info())? == 0, MeridianError::StrikeInUse);
+
+    // `book`'s `seeds`/`bump` constraint already proves this is the correct derived
+    // Book PDA for `market`, regardless of whether `market.book` has been set -- same
+    // reasoning as `handle_close_book`.
+    let market_key = ctx.accounts.market.key();
+    let book_ai = ctx.accounts.book.to_account_info();
+    let book_is_finished = ctx.accounts.market.book != Pubkey::default();
+
+    if book_is_finished {
+        require_keys_eq!(ctx.accounts.market.book, book_ai.key(), MeridianError::InvariantViolated);
+        require!(book_ai.owner == &crate::ID, MeridianError::InvariantViolated);
+        let data = book_ai.try_borrow_data()?;
+        let header = read_header(&data)?;
+        require!(header.bid_count == 0 && header.ask_count == 0, MeridianError::NotEmpty);
+    }
+    // Else: an unfinished book -- see `handle_close_book`'s "Unfinished books" comment;
+    // the same reasoning applies verbatim here.
+
+    let usdc_token_program_key = ctx.accounts.usdc_token_program.key();
+    let yesno_token_program_key = ctx.accounts.yesno_token_program.key();
+    let usdc_escrow_ai = ctx.accounts.usdc_escrow.to_account_info();
+    let yes_escrow_ai = ctx.accounts.yes_escrow.to_account_info();
+    require!(
+        token_account_amount(&usdc_escrow_ai, &usdc_token_program_key)? == 0,
+        MeridianError::NotEmpty
+    );
+    require!(
+        token_account_amount(&yes_escrow_ai, &yesno_token_program_key)? == 0,
+        MeridianError::NotEmpty
+    );
+    require!(ctx.accounts.vault.amount == 0, MeridianError::NotEmpty);
+
+    let seeds_owned = market_signer_seeds(&ctx.accounts.market);
+    let seeds: Vec<&[u8]> = seeds_owned.iter().map(|s| s.as_slice()).collect();
+    let signer_seeds: &[&[&[u8]]] = &[&seeds];
+    let market_ai = ctx.accounts.market.to_account_info();
+    let admin_ai = ctx.accounts.admin.to_account_info();
+
+    // Escrows (same CPIs as `handle_close_book`).
+    token::close_account(CpiContext::new_with_signer(
+        usdc_token_program_key,
+        CloseAccount {
+            account: usdc_escrow_ai,
+            destination: admin_ai.clone(),
+            authority: market_ai.clone(),
+        },
+        signer_seeds,
+    ))?;
+
+    token_interface::close_account(CpiContext::new_with_signer(
+        yesno_token_program_key,
+        token_interface::CloseAccount {
+            account: yes_escrow_ai,
+            destination: admin_ai.clone(),
+            authority: market_ai.clone(),
+        },
+        signer_seeds,
+    ))?;
+
+    // Vault (same CPI as `handle_close_market`).
+    token::close_account(CpiContext::new_with_signer(
+        usdc_token_program_key,
+        CloseAccount {
+            account: ctx.accounts.vault.to_account_info(),
+            destination: admin_ai.clone(),
+            authority: market_ai.clone(),
+        },
+        signer_seeds,
+    ))?;
+
+    // Mints: closable (Token-2022, zero supply -- already proven above) or left inert
+    // (classic, or Token-2022 whose supply check above hasn't run against -- it has,
+    // so in practice this always closes a Token-2022 mint here) -- same helper
+    // `handle_close_market` uses.
+    close_mint_if_reclaimable(
+        ctx.accounts.yes_mint.to_account_info(),
+        "yes_mint",
+        &admin_ai,
+        &market_ai,
+        signer_seeds,
+    )?;
+    close_mint_if_reclaimable(
+        ctx.accounts.no_mint.to_account_info(),
+        "no_mint",
+        &admin_ai,
+        &market_ai,
+        signer_seeds,
+    )?;
+
+    // Book: finished, partial, or never-allocated -- same three-way handling as
+    // `handle_close_book`. Done *last*, after every remaining CPI in this
+    // instruction: both branches mutate `book_ai`'s lamports/owner/data directly
+    // (no CPI), and litesvm's/the native loader's balance-conservation check runs
+    // when the *next* CPI is dispatched -- issuing one after a direct, non-CPI
+    // ownership/lamport change on an account not involved in that next CPI trips it
+    // (confirmed directly: moving this block earlier, before the vault/mint CPIs
+    // above, reproduces `InstructionError::UnbalancedInstruction` even though the
+    // move itself is correct and the exact same code/order `handle_close_book`
+    // already uses standalone). Putting every direct mutation (book, then Market
+    // itself below) after the last CPI sidesteps the check entirely.
+    if book_ai.owner == &crate::ID {
+        close_raw_book_account(&book_ai, &admin_ai)?;
+    } else if book_ai.lamports() > 0 {
+        let book_bump = [ctx.bumps.book];
+        let book_seeds: &[&[u8]] = &[BOOK_SEED, market_key.as_ref(), &book_bump];
+        let book_signer_seeds: &[&[&[u8]]] = &[book_seeds];
+        system_program::transfer(
+            CpiContext::new_with_signer(
+                ctx.accounts.system_program.key(),
+                system_program::Transfer {
+                    from: book_ai.clone(),
+                    to: admin_ai.clone(),
+                },
+                book_signer_seeds,
+            ),
+            book_ai.lamports(),
+        )?;
+    }
+
+    // The Market account itself, freeing the (ticker, trading_day, strike) PDA seeds
+    // for a later create_market/add_strike call -- see `handle_close_market`'s own
+    // doc comment for why this is a manual `close()` rather than a `close =
+    // destination` constraint (shared `CloseAccounts` struct).
+    ctx.accounts.market.close(admin_ai)?;
+
+    Ok(())
 }
 
 pub fn handle_close_book(ctx: Context<CloseAccounts>) -> Result<()> {
