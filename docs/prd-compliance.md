@@ -11,23 +11,14 @@ with their `DECISIONS.md` entry.
 
 Every functional requirement (FR-1…FR-12), every required on-chain function (§5.1), the four
 on-chain invariants (§5.2), both automation jobs (§5.3), the five frontend pages and key elements
-(§5.4), the §6 constraints and the §8 deliverables are met. The remaining open items are two
-frontend test cases and one performance measurement, listed first below.
+(§5.4), the performance benchmarks, the §6 constraints, the §7 test list and the §8 deliverables are
+met, with one partial noted first below.
 
-## Open items (worst first)
+## Open items
 
-- **§7 Frontend testing, "order book rendering from both perspectives"**: covered at unit level
-  (`web/src/lib/book-perspective.test.ts`); no Playwright test asserts the Yes/No book toggle in a
-  browser. Planned: one assertion in `web/e2e/trade.spec.ts`.
-- **§7 Frontend testing, "portfolio and P&L accuracy"**: covered at unit level
-  (`packages/sdk/test/pnl.test.ts`, `web/src/lib/positions-view.test.ts`); `portfolio.spec.ts`
-  asserts the redeem flow and balance change, not a computed P&L figure. Planned: a seeded fixture
-  with a known cost basis asserted on the rendered page.
-- **Performance benchmark "sub-second transaction finality"**: inherited from Solana, not measured in
-  this repo. Planned: confirmation latency recorded by the lifecycle script and reported in
-  `KEY_METRICS.md`.
 - **§7 Frontend testing, "real-time price display"**: unit-tested (`web/src/lib/hermes-prices.test.ts`)
-  and the live order book is e2e-tested; the ticker price strip itself has no browser test.
+  and the live order book is e2e-tested; the ticker price strip itself has no browser test. Partial,
+  accepted: the strip is a presentation of the same price feed the unit tests cover.
 
 ## Fixed in the 2026-10-11 wave
 
@@ -49,6 +40,17 @@ frontend test cases and one performance measurement, listed first below.
 - **§8 "Test results"**: there was no document with actual run output. `docs/test-results.md` now
   records a dated run of all four suites (program, SDK/worker, web unit, Playwright) and the devnet
   integration run.
+- **§7 "order book rendering from both perspectives"** and **"portfolio and P&L accuracy"** had unit
+  coverage only: Playwright tests added (`web/e2e/trade.spec.ts` book perspective test, asserting No
+  prices are $1.00 minus Yes with sizes swapped; `web/e2e/portfolio.spec.ts` flow 6, asserting a
+  hand-computed cost basis and realized P&L on the rendered page). Two older specs were found
+  reading balances through the classic token program and fixed.
+- **Performance benchmark "sub-second transaction finality"** was not measured: the lifecycle run
+  now times every transaction send-to-confirmed and reports count, median, p95 and max
+  (`KEY_METRICS.md`: 155 transactions, median 416 ms on the local validator).
+- **Observability**: a `reconcile` job every 30 minutes audits every market's vault and token
+  supplies against the invariants, overdue settlement, today's ladder and job heartbeats, with one
+  summary alert (`docs/risks-and-limitations.md` §12).
 - **§9 Traceability**: see the note at the end of this file.
 
 ## Deliberate deviations (disclosed, not gaps)
@@ -144,7 +146,7 @@ frontend test cases and one performance measurement, listed first below.
 
 | Benchmark | Status | Evidence |
 |---|---|---|
-| Sub-second finality | Open (not measured) | see "Open items" |
+| Sub-second finality | Met, measured on localnet | `scripts/lib/lifecycle/latency.ts`; `KEY_METRICS.md` (median 416 ms, p95 436 ms over 155 transactions); devnet confirmations are the public cluster's |
 | Settlement within 10 minutes of close | Met, measured | `KEY_METRICS.md` (devnet settlements 40–55 s after the close on 2026-10-08/09) |
 | Real-time order book updates | Met | `useBook.ts` subscription; `web/e2e/trade.spec.ts` |
 | Oracle staleness under 5 minutes | Met | `config.rs` default `max_staleness_secs = 300`; `tests/oracle.rs` boundary tests at 300 s / 301 s |
@@ -177,9 +179,9 @@ frontend test cases and one performance measurement, listed first below.
 | Frontend: wallet connection | Met | `web/e2e/portfolio.spec.ts` |
 | Frontend: order placement and signing | Met | `web/e2e/trade.spec.ts` |
 | Frontend: real-time price display | Partial | unit tests; order-book liveness e2e; no browser test of the price strip |
-| Frontend: order book from both perspectives | Open (unit only) | `web/src/lib/book-perspective.test.ts` |
+| Frontend: order book from both perspectives | Met (2026-10-11) | `web/e2e/trade.spec.ts` ("order book renders correctly from both the Yes and the No perspective"); `web/src/lib/book-perspective.test.ts` |
 | Frontend: position-constraint enforcement | Met | `web/e2e/trade.spec.ts`; `packages/sdk/test/intent.test.ts` |
-| Frontend: portfolio and P&L accuracy | Open (unit only) | `packages/sdk/test/pnl.test.ts`, `web/src/lib/positions-view.test.ts` |
+| Frontend: portfolio and P&L accuracy | Met (2026-10-11) | `web/e2e/portfolio.spec.ts` flow 6 (exact cost basis and realized P&L); `packages/sdk/test/pnl.test.ts`, `web/src/lib/positions-view.test.ts` |
 | Frontend: settlement display and redeem flow | Met | `web/e2e/portfolio.spec.ts`, `web/e2e/admin.spec.ts` |
 | Clear documentation, reproducible deployment | Met | `README.md`, `ARCHITECTURE.md`, `docs/deployment.md`, `docs/ONBOARDING.md` |
 
