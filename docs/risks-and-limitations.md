@@ -161,3 +161,39 @@ In normal operation this never happens: each trading day has one set of keys. It
 unattended morning run (2026-10-09) because a test run two days earlier had used that real date as
 its synthetic day. Rule: synthetic test days must be dates that can never be real trading days for
 the deployment. The morning job now skips a colliding strike and continues (`DECISIONS.md` §25).
+
+## 12. Observability
+
+Operational visibility is deliberately scoped to what this devnet build needs, not a general
+monitoring stack: structured JSON logs to stdout/stderr (`services/automation/src/log.ts`), the
+`/status` and `/events` read-only endpoints the admin page polls, Slack alerts for settlement,
+morning-ladder, and `reconcile` failures (`services/automation/src/alert.ts`), and whatever
+Railway's own service metrics expose.
+
+The `reconcile` job (`services/automation/src/jobs/reconcile.ts`, every 30 minutes) is the newest
+piece of this. It is read-only -- it never sends a transaction -- and audits five things: that an
+`Open` market's vault covers `pairs_outstanding * 1_000_000` with both token supplies exactly equal
+to it; that a `Settled` market's vault still covers the winning side's remaining supply (with
+`pairs_outstanding` frozen at settlement, so a partly redeemed market is healthy with a much
+smaller vault, and a surplus is only flagged when neither side's unredeemed supply explains it);
+that no `Open` market is more than 15 minutes past its `close_ts`; that on a trading day from 08:30
+ET every enabled ticker has a market for that trading day, open or settled; and that each
+cron-scheduled job completed its most recent due run within a 10-minute grace period. Every failure
+in a pass is folded into one alert rather than paging per check.
+
+Two limits are inherent to how those last checks work. Each market is read as a single
+`getMultipleAccountsInfo` snapshot and any failing check is re-evaluated against a second snapshot
+before it is recorded, so the job tolerates reads that straddle a transaction -- but it is still a
+sampling audit at 30-minute resolution, not a continuous invariant monitor, and a breach that
+appears and is corrected between passes is never seen. And the job heartbeat is in-memory and
+scoped to the lifetime of the `start` worker process (`services/automation/src/job-registry.ts`): a
+restart resets it, and a manual `job <name>` CLI run happens in its own separate process, so it
+neither records a heartbeat for the running worker nor (when `job reconcile` is the command) has
+any heartbeat history of its own to judge.
+
+Known limits beyond that, by choice at this scale: no frontend error reporting (a browser-side
+exception is invisible to the operator unless the user reports it), no external uptime monitor
+(nothing pages if the whole worker process dies or Railway itself is down), and no distributed
+tracing (a slow or failing RPC call is diagnosed from the structured logs, not a trace span). None
+of this is a regulatory or compliance claim (§10); it is a statement of what a reviewer can and
+cannot observe about this build today.

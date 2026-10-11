@@ -2,7 +2,7 @@
  * Automation service entry point (contracts/automation.md, tasks.md T046).
  *
  * Three modes:
- *   `job <morning|settle|publisher|reclaim|extend> [flags]` -- runs one job to
+ *   `job <morning|settle|publisher|reclaim|extend|reconcile> [flags]` -- runs one job to
  *      completion and exits. The CLI entry points contract (contracts/automation.md).
  *      `job extend --once [--force]` runs a single ladder-extension tick now
  *      (DECISIONS.md §27); `--force` bypasses the 09:35-15:45 ET window/trading-day
@@ -10,9 +10,10 @@
  *   `start` -- registers the cron schedule (America/New_York) for morning
  *      (08:00), settle (16:00:30), publisher (kicked off at 09:25, runs its
  *      own internal 60 s loop until the window closes), extend (every 5 minutes,
- *      gated to 09:35-15:45 ET inside the tick, DECISIONS.md §27), and starts
- *      the status HTTP server. Refuses to start if `ORACLE_PROVIDER` disagrees
- *      with the on-chain `Config.oracle_provider`.
+ *      gated to 09:35-15:45 ET inside the tick, DECISIONS.md §27), reconcile
+ *      (every 30 minutes, an on-chain/liveness audit -- see jobs/reconcile.ts),
+ *      and starts the status HTTP server. Refuses to start if `ORACLE_PROVIDER`
+ *      disagrees with the on-chain `Config.oracle_provider`.
  *   `probe <pyth> [flags]` -- the Pyth token-day probe (research.md R5, tasks.md
  *      T090); never touches the cron/job machinery above, does not require
  *      `ORACLE_PROVIDER=pyth` to be set.
@@ -32,6 +33,8 @@ import { runSettleJob, settlementStatus } from "./jobs/settle.js";
 import { isWithinPublishWindow, runPublisherJob, runPublisherTick } from "./jobs/publisher.js";
 import { runReclaimJob } from "./jobs/reclaim.js";
 import { loadExtendState, saveExtendState, runExtendTick, createGuardedExtendTick } from "./jobs/extend.js";
+import { runReconcileJob, lastReconcile } from "./jobs/reconcile.js";
+import { recordJobCompletion, getJobRegistrySnapshot } from "./job-registry.js";
 import { startStatusServer } from "./status.js";
 import { EventIndex } from "./events-index.js";
 import { log, logError } from "./log.js";
@@ -189,8 +192,12 @@ async function dispatchJob(name: string, flags: Flags): Promise<void> {
       }
       return;
     }
+    case "reconcile": {
+      await runReconcileJob({ chain: runtime.chain, alertWebhookUrl: cfg.alertWebhookUrl }, { day });
+      return;
+    }
     default:
-      throw new Error(`unknown job "${name}"; expected morning, settle, publisher, reclaim, or extend`);
+      throw new Error(`unknown job "${name}"; expected morning, settle, publisher, reclaim, extend, or reconcile`);
   }
 }
 
@@ -213,7 +220,14 @@ async function runStart(): Promise<void> {
   // `complete: false` until this finishes) should be reachable immediately.
   eventIndex.start().catch((err) => logError({ job: "events-index", step: "start", ok: false, error: (err as Error).message }));
 
-  startStatusServer(cfg.automationStatusPort, settlementStatus, cfg.webOrigin, eventIndex);
+  startStatusServer(
+    cfg.automationStatusPort,
+    settlementStatus,
+    cfg.webOrigin,
+    eventIndex,
+    getJobRegistrySnapshot,
+    () => lastReconcile,
+  );
   log({ job: "index", step: "status_server", ok: true, error: `listening on :${cfg.automationStatusPort}` });
 
   schedule(
@@ -224,7 +238,9 @@ async function runStart(): Promise<void> {
         provider: runtime.provider,
         demoScale: cfg.demoScale,
         alertWebhookUrl: cfg.alertWebhookUrl,
-      }).catch((err) => logError({ job: "morning", step: "cron", ok: false, error: (err as Error).message }));
+      })
+        .then(() => recordJobCompletion("morning"))
+        .catch((err) => logError({ job: "morning", step: "cron", ok: false, error: (err as Error).message }));
     },
     { timezone: ET_TIMEZONE },
   );
@@ -236,7 +252,9 @@ async function runStart(): Promise<void> {
         chain: runtime.chain,
         provider: runtime.provider,
         alertWebhookUrl: cfg.alertWebhookUrl,
-      }).catch((err) => logError({ job: "settle", step: "cron", ok: false, error: (err as Error).message }));
+      })
+        .then(() => recordJobCompletion("settle"))
+        .catch((err) => logError({ job: "settle", step: "cron", ok: false, error: (err as Error).message }));
     },
     { timezone: ET_TIMEZONE },
   );
@@ -270,9 +288,9 @@ async function runStart(): Promise<void> {
   schedule(
     "0 20 * * 1-5",
     () => {
-      runReclaimJob({ chain: runtime.chain }).catch((err) =>
-        logError({ job: "reclaim", step: "cron", ok: false, error: (err as Error).message }),
-      );
+      runReclaimJob({ chain: runtime.chain })
+        .then(() => recordJobCompletion("reclaim"))
+        .catch((err) => logError({ job: "reclaim", step: "cron", ok: false, error: (err as Error).message }));
     },
     { timezone: ET_TIMEZONE },
   );
@@ -292,6 +310,11 @@ async function runStart(): Promise<void> {
     () => ({ chain: runtime.chain, provider: runtime.provider, demoScale: cfg.demoScale, state: extendState }),
     {
       onSettled: () => {
+        // Recorded on every tick, gated or not: see job-registry.ts's module doc comment on why
+        // this is a liveness signal on the scheduler itself, not a correctness signal on any one
+        // tick's outcome (the same way index.ts's own cron fires every 5 min regardless of the
+        // 09:35-15:45 ET window that `runExtendTick` gates internally).
+        recordJobCompletion("extend");
         saveExtendState(cfg.extendStatePath, extendState).catch((err) =>
           logError({ job: "extend", step: "state_save", ok: false, error: (err as Error).message }),
         );
@@ -299,6 +322,18 @@ async function runStart(): Promise<void> {
     },
   );
   schedule("*/5 * * * 1-5", extendTick, { timezone: ET_TIMEZONE });
+
+  // Every 30 minutes, every day: an audit pass, not a mutating job, so it runs on weekends too
+  // (jobs/reconcile.ts's own checks are each individually gated to when they're meaningful --
+  // e.g. the morning-ladder check only fires on a trading day after 08:30 ET).
+  schedule(
+    "*/30 * * * *",
+    () => {
+      runReconcileJob({ chain: runtime.chain, alertWebhookUrl: cfg.alertWebhookUrl })
+        .catch((err) => logError({ job: "reconcile", step: "cron", ok: false, error: (err as Error).message }));
+    },
+    { timezone: ET_TIMEZONE },
+  );
 
   log({
     job: "index",
@@ -309,7 +344,7 @@ async function runStart(): Promise<void> {
       (cfg.oracleProvider === "mock"
         ? "publisher every minute gated 09:25-16:10"
         : "publisher disabled (pyth provider)") +
-      `, reclaim 20:00, extend every 5 min 09:35-15:45 (America/New_York)`,
+      `, reclaim 20:00, extend every 5 min 09:35-15:45, reconcile every 30 min (America/New_York)`,
   });
 }
 
@@ -318,7 +353,7 @@ async function main(): Promise<void> {
 
   if (cmd === "job") {
     if (!sub) {
-      throw new Error("usage: job <morning|settle|publisher|reclaim|extend> [flags]");
+      throw new Error("usage: job <morning|settle|publisher|reclaim|extend|reconcile> [flags]");
     }
     await dispatchJob(sub, parseFlags(rest));
     return;
@@ -350,7 +385,7 @@ async function main(): Promise<void> {
   }
 
   console.error(
-    "usage: automation job <morning|settle|publisher|reclaim|extend> [flags] | automation start | " +
+    "usage: automation job <morning|settle|publisher|reclaim|extend|reconcile> [flags] | automation start | " +
       "automation probe pyth [flags] | automation dry-run",
   );
   process.exitCode = 1;

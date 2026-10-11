@@ -124,7 +124,7 @@ frontend test cases and one performance measurement, listed first below.
 |---|---|---|
 | Morning: previous close, strikes, create per strike, log, alert, retry with backoff | Met (alert added 2026-10-11) | `jobs/morning.ts`, `chain.ts` (`withRetry`), `alert.ts`; cron 08:00 ET in `index.ts` |
 | Settlement: settle every open contract, 30 s retry for 15 min, then alert | Met | `jobs/settle.ts`, `alert.ts`; cron 16:00:30 ET |
-| Also shipped | — | intraday `extend` job (`DECISIONS.md` §27), nightly `reclaim` job, `/status` and `/events` servers |
+| Also shipped | — | intraday `extend` job (`DECISIONS.md` §27), nightly `reclaim` job, a `reconcile` audit every 30 minutes (vault and supply invariants per market, overdue settlement, today's ladder, job heartbeats; one summary alert), `/status` and `/events` servers |
 
 ### §5.4 Frontend
 

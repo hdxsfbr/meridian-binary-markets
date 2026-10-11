@@ -13,7 +13,7 @@ import { logError } from "./log.js";
 
 export interface AlertInput {
   /** Defaults to "settle" so existing settle call sites don't need to set this. */
-  job?: "settle" | "morning";
+  job?: "settle" | "morning" | "reconcile";
   ticker: string;
   error: string;
   /**

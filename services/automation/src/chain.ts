@@ -164,6 +164,30 @@ export interface MarketRecord {
   account: MarketAccount;
 }
 
+/**
+ * One market's audited state, read as a single consistent snapshot by
+ * `fetchMarketSnapshot` (used by the `reconcile` job). All three amounts are
+ * raw base units ("micro" units: USDC and the Yes/No tokens all have 6
+ * decimals, so one contract is 1_000_000 of them).
+ */
+export interface MarketSnapshot {
+  publicKey: PublicKey;
+  account: MarketAccount;
+  /** The market vault's USDC balance, base units. */
+  vaultAmount: bigint;
+  /** Yes mint `supply`, base units. */
+  yesSupply: bigint;
+  /** No mint `supply`, base units. */
+  noSupply: bigint;
+}
+
+/** Little-endian `u64` offset of `supply` in an SPL Token / Token-2022 mint account. */
+const MINT_SUPPLY_OFFSET = 36;
+/** Little-endian `u64` offset of `amount` in an SPL Token / Token-2022 token account. */
+const TOKEN_ACCOUNT_AMOUNT_OFFSET = 64;
+/** The `Market` account's name in the generated IDL (`packages/sdk/src/idl.ts`), as the Borsh accounts coder keys it. */
+const MARKET_ACCOUNT_NAME = "market"; // Anchor camel-cases IDL account names in the coder ("Market" is not found)
+
 function bnToBigint(v: unknown): bigint {
   if (typeof v === "bigint") return v;
   if (v instanceof BN) return BigInt((v as InstanceType<typeof BN>).toString());
@@ -634,6 +658,76 @@ export class ChainClient {
     if (info === null) return 0n;
     const res = await this.connection.getTokenAccountBalance(pubkey, "confirmed");
     return BigInt(res.value.amount);
+  }
+
+  /**
+   * Every account `reconcile` needs for one market, read in a *single*
+   * `getMultipleAccountsInfo` call so the four values are a consistent
+   * snapshot of one slot rather than four independent reads that can
+   * straddle a `mint_pair`/`redeem_pair`/`redeem_winning` transaction (which
+   * is exactly how a healthy market can look like a broken one).
+   *
+   * The vault and the Yes/No mints are PDAs of the market
+   * (`packages/sdk/src/pda.ts`), so all four addresses are derived locally
+   * before the call; the `Market` returned here is re-decoded from the same
+   * snapshot (never reused from an earlier `fetchOpenMarkets` scan), and the
+   * derived addresses are cross-checked against the ones the account itself
+   * stores so a PDA-derivation mismatch can never pass silently.
+   *
+   * Returns `null` if the `Market` account no longer exists (`close_market`
+   * ran between a scan and this call) -- the caller skips that market rather
+   * than reporting on it. A missing vault or mint *while* the market exists
+   * is a real inconsistency and throws, as does any RPC failure; the caller
+   * records that as a per-market check failure and keeps going.
+   *
+   * Both the vault balance and the mint supplies are read straight off the
+   * raw account data. Classic SPL Token and Token-2022 share the same first
+   * 82 bytes of a mint (`supply` is a little-endian `u64` at offset 36) and
+   * the same first 165 bytes of a token account (`amount` at offset 64),
+   * regardless of which program owns the account or what extension data
+   * Token-2022 appends after it (`close.rs`'s own `UncheckedAccount`
+   * comment on `yes_mint` notes the same thing).
+   */
+  async fetchMarketSnapshot(market: PublicKey): Promise<MarketSnapshot | null> {
+    const [vault] = vaultPda(PROGRAM_ID, market);
+    const [yesMint] = yesMintPda(PROGRAM_ID, market);
+    const [noMint] = noMintPda(PROGRAM_ID, market);
+
+    const [marketInfo, vaultInfo, yesMintInfo, noMintInfo] = await this.connection.getMultipleAccountsInfo(
+      [market, vault, yesMint, noMint],
+      "confirmed",
+    );
+
+    if (!marketInfo) return null;
+
+    const account = decodeMarket(
+      this.program.coder.accounts.decode(MARKET_ACCOUNT_NAME, marketInfo.data) as Record<string, unknown>,
+    );
+
+    for (const [label, derived, stored] of [
+      ["vault", vault, account.vault],
+      ["yesMint", yesMint, account.yesMint],
+      ["noMint", noMint, account.noMint],
+    ] as Array<[string, PublicKey, PublicKey]>) {
+      if (derived.toBase58() !== stored.toBase58()) {
+        throw new Error(
+          `fetchMarketSnapshot: market ${market.toBase58()} stores ${label}=${stored.toBase58()}, ` +
+            `which is not its derived PDA ${derived.toBase58()}`,
+        );
+      }
+    }
+
+    if (!vaultInfo) throw new Error(`fetchMarketSnapshot: vault ${vault.toBase58()} of market ${market.toBase58()} does not exist`);
+    if (!yesMintInfo) throw new Error(`fetchMarketSnapshot: yes mint ${yesMint.toBase58()} of market ${market.toBase58()} does not exist`);
+    if (!noMintInfo) throw new Error(`fetchMarketSnapshot: no mint ${noMint.toBase58()} of market ${market.toBase58()} does not exist`);
+
+    return {
+      publicKey: market,
+      account,
+      vaultAmount: vaultInfo.data.readBigUInt64LE(TOKEN_ACCOUNT_AMOUNT_OFFSET),
+      yesSupply: yesMintInfo.data.readBigUInt64LE(MINT_SUPPLY_OFFSET),
+      noSupply: noMintInfo.data.readBigUInt64LE(MINT_SUPPLY_OFFSET),
+    };
   }
 }
 

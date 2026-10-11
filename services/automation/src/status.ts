@@ -1,7 +1,10 @@
 /**
  * Status HTTP server (contracts/automation.md "Status endpoint"): read-only,
  * no auth, bound to the container network only. `GET /status` returns the
- * settlement job's in-memory map as JSON; `GET /healthz` is a trivial
+ * settlement job's in-memory map as JSON, plus (when the caller wires them
+ * in, which `index.ts`'s `start` does) the heartbeat registry
+ * (`job-registry.ts`'s `jobRegistry`) and the most recent `reconcile` pass
+ * (`jobs/reconcile.ts`'s `lastReconcile`); `GET /healthz` is a trivial
  * liveness check; `GET /events` (optionally `?after=<signature>`) serves
  * the worker's program event index (`events-index.ts`) so the web app can
  * stop replaying the whole chain itself for cost basis/History. The admin
@@ -21,19 +24,39 @@
 
 import { createServer, type Server } from "node:http";
 import type { SettlementStatusEntry } from "./jobs/settle.js";
+import type { ReconcileReport } from "./jobs/reconcile.js";
+import type { JobRegistrySnapshot } from "./job-registry.js";
 import type { EventIndex } from "./events-index.js";
 
 export interface StatusPayload {
   updatedAt: string;
   markets: Record<string, SettlementStatusEntry>;
+  /** Heartbeat registry (job-registry.ts), when wired in -- omitted if the caller didn't pass one. */
+  jobRegistry?: JobRegistrySnapshot;
+  /** The most recent `reconcile` pass's report (jobs/reconcile.ts), when wired in. */
+  lastReconcile?: ReconcileReport;
 }
 
-function buildPayload(statusMap: Map<string, SettlementStatusEntry>): StatusPayload {
+function buildPayload(
+  statusMap: Map<string, SettlementStatusEntry>,
+  getJobRegistry?: () => JobRegistrySnapshot,
+  getLastReconcile?: () => ReconcileReport | undefined,
+): StatusPayload {
   const markets: Record<string, SettlementStatusEntry> = {};
   for (const [key, entry] of statusMap) {
     markets[key] = entry;
   }
-  return { updatedAt: new Date().toISOString(), markets };
+  const payload: StatusPayload = { updatedAt: new Date().toISOString(), markets };
+  if (getJobRegistry) {
+    payload.jobRegistry = getJobRegistry();
+  }
+  if (getLastReconcile) {
+    const report = getLastReconcile();
+    if (report) {
+      payload.lastReconcile = report;
+    }
+  }
+  return payload;
 }
 
 /**
@@ -48,6 +71,8 @@ export function startStatusServer(
   statusMap: Map<string, SettlementStatusEntry>,
   webOrigin: string = DEFAULT_WEB_ORIGIN,
   eventIndex?: EventIndex,
+  getJobRegistry?: () => JobRegistrySnapshot,
+  getLastReconcile?: () => ReconcileReport | undefined,
 ): Server {
   const server = createServer((req, res) => {
     res.setHeader("Access-Control-Allow-Origin", webOrigin);
@@ -74,7 +99,7 @@ export function startStatusServer(
     }
 
     if (url.pathname === "/status") {
-      const payload = buildPayload(statusMap);
+      const payload = buildPayload(statusMap, getJobRegistry, getLastReconcile);
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(payload));
       return;

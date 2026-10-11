@@ -623,3 +623,16 @@ uncommitted diff and found three real defects in the Adjust flow (no recovery af
 run, Adjust offered after the close, no upper bound on the new strike); one Sonnet fix pass closed
 all three with tests. Program upgraded on devnet; web and worker deployed on Railway.
 
+## 2026-10-11 (afternoon) — browser tests, latency measurement, reconciliation job
+
+Sonnet wrote the two Playwright tests the PRD names (book from both perspectives, portfolio P&L
+figure) and the confirmation-latency measurement; its first run broke four specs through shared
+order-book state, and it also found two older specs reading balances through the wrong token
+program. A Sonnet draft of the reconciliation job drew five serious review findings (units,
+settled-market backing, ladder after settlement, read failures, snapshot consistency); Andre asked
+for a design before more code. Claude wrote the five checks as exact rules, Andre approved Opus for
+the rewrite, Opus implemented from the text with 25 tests, and Codex's second review found two
+remaining items (Anchor's camel-cased account name, which Claude confirmed against a live market,
+and a wrong surplus rule in Claude's own spec: losing tokens never explain collateral). Both fixed
+by hand. Worker tests 194.
+

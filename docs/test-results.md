@@ -10,7 +10,7 @@ estimates.
 | Program (Rust, litesvm) | `make test-program` | 296 passed, 0 failed, 20 test binaries |
 | SDK (vitest) | `pnpm --filter @meridian/sdk test` | 138 passed, 9 files |
 | Scripts (vitest) | `pnpm --filter @meridian/scripts test` | 75 passed, 8 files |
-| Automation worker (vitest) | `pnpm --filter automation test` | 169 passed, 1 skipped, 17 files |
+| Automation worker (vitest) | `pnpm --filter automation test` | 194 passed, 1 skipped, 18 files (incl. 25 for the reconcile job) |
 | Web unit (vitest) | `pnpm --filter web test` | 342 passed, 22 files |
 | Integration: full lifecycle on a fresh local validator | `make test-integration` | 1 passing, 1 min; 155 transactions confirmed, median 416 ms, p95 436 ms |
 | Frontend (Playwright, local validator) | `make test-web` | 7 passed, 1.4 min (plus the 342 web unit tests the target runs first) |
