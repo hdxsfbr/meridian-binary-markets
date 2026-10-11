@@ -602,3 +602,12 @@ instead of time-compression, a same-origin proxy for the event index so the reco
 resolves cost basis, and aligned the nav strip prices on the text baseline. Settled with the live
 Pyth price at 10:31 PM CT, recorded the redeem scene, re-muxed (5 min 50 s).
 
+## 2026-10-11 (after midnight CT) — second pass on the transaction scenes
+
+Andre: title cards were blank and the maker scene still showed "Cost basis updating". The
+maker scene predated the index-proxy fix, so Claude re-created two BTC strikes (trading day
+2026-10-11; the 10-10 keys are burned by leftover losing tokens), re-recorded maker, taker and
+redeem scenes with the recorder now waiting out the history-loading text, rendered title cards as
+stills with the logo, settled at 12:16 AM CT, re-muxed (5 min 53 s), and cleaned the chain back
+to the seven stock tickers.
+

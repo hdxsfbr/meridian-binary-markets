@@ -215,7 +215,7 @@ docs/                   This documentation set
 
 | Document | Purpose |
 | --- | --- |
-| [`design/demo/meridian-demo-narrated.mp4`](design/demo/meridian-demo-narrated.mp4) | Demo video with narration (5 min 50 s; `meridian-demo.mp4` is the silent cut): create → mint → trade → close → settle → redeem on devnet, recorded 2026-10-10 on a BTC market with a live Pyth settlement; how it was made is in `docs/demo-script.md` |
+| [`design/demo/meridian-demo-narrated.mp4`](design/demo/meridian-demo-narrated.mp4) | Demo video with narration (5 min 53 s; `meridian-demo.mp4` is the silent cut): create → mint → trade → close → settle → redeem on devnet, recorded 2026-10-10 on a BTC market with a live Pyth settlement; how it was made is in `docs/demo-script.md` |
 | [`/docs`](https://web-production-385a5.up.railway.app/docs) (in the app) | Trader-facing docs: seven pages explaining the UI in plain language, no implementation vocabulary |
 | [`docs/ONBOARDING.md`](docs/ONBOARDING.md) | **New to trading systems or Solana? Start here.** Explains the domain from scratch |
 | [`ARCHITECTURE.md`](ARCHITECTURE.md) | Accounts, instructions, the one-book mechanic, oracle guards, automation, frontend data flow, deployment topology, trust assumptions |

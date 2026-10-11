@@ -16,10 +16,28 @@ SLACK="${SLACK:-2.0}"
 MAX_SLOW="${MAX_SLOW:-1.3}"
 cd "$DIR"
 : > narrated.txt
-for f in $(ls *.webm | LC_ALL=C sort); do
+for f in $(ls *.webm *.png 2>/dev/null | LC_ALL=C sort); do
   n="${f%%-*}"
-  vdur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$f")
   clip="$NARR/$n.wav"
+  if [ "${f##*.}" = "png" ]; then
+    # Title card still: held for the narration (plus air), or <name>.seconds without one.
+    if [ -f "$clip" ]; then
+      adur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$clip")
+      need=$(python3 -c "print(float('$adur') + float('$TAIL_AIR'))")
+      "$FFMPEG" -nostdin -y -loglevel error -loop 1 -framerate 30 -i "$f" -i "$clip" \
+        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p[v];[1:a]aresample=48000,apad[a]" \
+        -map "[v]" -map "[a]" -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
+    else
+      need=$(cat "${f%.png}.seconds" 2>/dev/null || echo 3)
+      "$FFMPEG" -nostdin -y -loglevel error -loop 1 -framerate 30 -i "$f" -f lavfi -i anullsrc=r=48000:cl=stereo \
+        -filter_complex "[0:v]scale=1440:900:flags=lanczos,format=yuv420p[v]" \
+        -map "[v]" -map 1:a -t "$need" -c:v libx264 -preset medium -crf 20 -c:a aac -b:a 160k "nar-${n}.mp4"
+    fi
+    echo "scene $n still -> ${need}s"
+    echo "file 'nar-${n}.mp4'" >> narrated.txt
+    continue
+  fi
+  vdur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$f")
   if [ -f "$clip" ]; then
     adur=$("$FFPROBE" -v error -show_entries format=duration -of csv=p=0 "$clip")
     # Footage much longer than its narration (devnet confirmation stalls) is time-compressed

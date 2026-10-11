@@ -61,11 +61,12 @@ function titleCardHtml(title: string, subtitle: string): string {
   return `<!doctype html><html><head><meta charset="utf-8"><style>
     html,body{margin:0;height:100%;background:#0b1026;color:#f1f5f9;font-family:Inter,system-ui,sans-serif}
     .wrap{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px}
+    .logo{height:56px;margin-bottom:10px}
     .rule{width:96px;height:4px;border-radius:999px;background:linear-gradient(90deg,#a855f7,#6366f1,#22d3ee)}
     h1{font-size:56px;font-weight:600;margin:0;letter-spacing:-0.01em}
     p{font-size:24px;color:#94a3b8;margin:0;max-width:900px;text-align:center;line-height:1.4}
-    .brand{position:absolute;bottom:40px;font-size:18px;color:#64748b;letter-spacing:.2em}
-  </style></head><body><div class="wrap"><div class="rule"></div><h1>${title}</h1><p>${subtitle}</p></div>
+    .brand{position:absolute;bottom:40px;left:0;right:0;text-align:center;font-size:18px;color:#64748b;letter-spacing:.2em}
+  </style></head><body><div class="wrap"><img class="logo" src="${BASE}/brand/logo-dark.svg" alt=""><div class="rule"></div><h1>${title}</h1><p>${subtitle}</p></div>
   <div class="brand">MERIDIAN · SOLANA DEVNET</div></body></html>`;
 }
 
@@ -98,12 +99,22 @@ async function finish(page: Page, name: string): Promise<void> {
   }
 }
 
+/**
+ * Title cards are rendered as stills (<name>.png), not recorded: a recorded card
+ * sometimes came out as a blank one-second clip, and a still is exactly what the
+ * stitch/mux scripts need anyway (they hold it for the narration's length, or
+ * `seconds` when there is no narration, written to <name>.seconds).
+ */
 async function card(browser: Browser, name: string, title: string, subtitle: string, seconds = 3): Promise<void> {
   if (!want(name)) return;
-  const page = await newPage(browser, name);
-  await page.setContent(titleCardHtml(title, subtitle));
-  await page.waitForTimeout(seconds * 1000);
-  await finish(page, name);
+  const context = await browser.newContext({ viewport: VIEWPORT });
+  const page = await context.newPage();
+  await page.setContent(titleCardHtml(title, subtitle), { waitUntil: "load" });
+  await page.waitForTimeout(800);
+  await page.screenshot({ path: join(OUT, `${name}.png`) });
+  writeFileSync(join(OUT, `${name}.seconds`), String(seconds));
+  await context.close();
+  console.log("card", name);
 }
 
 async function connect(page: Page): Promise<void> {
@@ -117,6 +128,17 @@ async function slowScroll(page: Page, px: number, steps = 12): Promise<void> {
     await page.mouse.wheel(0, px / steps);
     await page.waitForTimeout(120);
   }
+}
+
+/** Portfolio shows "Updating your trade history…" / "Cost basis updating…" until the event index is merged; wait it out (the wait is cut from the footage). */
+async function waitForHistory(page: Page, name: string): Promise<void> {
+  await skip(page, name, async () => {
+    for (let i = 0; i < 45; i += 1) {
+      const pending = await page.getByText(/Updating your trade history|Cost basis updating/).count();
+      if (pending === 0) return;
+      await page.waitForTimeout(1000);
+    }
+  });
 }
 
 async function waitForToast(page: Page, text: RegExp, timeout = 180_000): Promise<void> {
@@ -151,7 +173,9 @@ async function pre(browser: Browser): Promise<void> {
     const page = await newPage(browser, "04-maker", MAKER);
     await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await connect(page);
-    await page.waitForTimeout(6000); // let positions and each market's token program resolve
+    await page.waitForTimeout(3000); // let positions and each market's token program resolve
+    await waitForHistory(page, "04-maker");
+    await page.waitForTimeout(2000);
     const quotes = page.getByRole("heading", { name: "Your quotes" });
     await quotes.scrollIntoViewIfNeeded();
     await page.waitForTimeout(1000);
@@ -225,7 +249,9 @@ async function pre(browser: Browser): Promise<void> {
     await skip(page, "06-taker", () => waitForToast(page, /Bought/).catch(() => page.waitForTimeout(90_000)));
     await page.waitForTimeout(2000);
     await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
-    await page.waitForTimeout(5000);
+    await page.waitForTimeout(2500);
+    await waitForHistory(page, "06-taker");
+    await page.waitForTimeout(4000);
     await finish(page, "06-taker");
   }
 
@@ -242,7 +268,9 @@ async function post(browser: Browser): Promise<void> {
     await page.waitForTimeout(4000);
     await page.goto(`${BASE}/portfolio`, { waitUntil: "load" });
     await connect(page);
-    await page.waitForTimeout(4000);
+    await page.waitForTimeout(2500);
+    await waitForHistory(page, "08-settled");
+    await page.waitForTimeout(2500);
     const redeem = page.getByRole("button", { name: /Redeem winning|Redeem all/ }).first();
     if (await redeem.count()) {
       await redeem.scrollIntoViewIfNeeded();
